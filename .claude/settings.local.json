@@ -16,7 +16,10 @@
       "Bash(open \"http://localhost:3001\")",
       "Bash(cd:*)",
       "Bash(npx tsc:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(open:*)",
+      "Bash(pod install)",
+      "Bash(export LANG=en_US.UTF-8)"
     ],
     "deny": [],
     "ask": []
