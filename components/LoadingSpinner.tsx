@@ -39,7 +39,10 @@ export function FullScreenLoading() {
   )
 }
 
-// iOS Native Loading Component - Static R logo with circular spinner (legacy, kept for compatibility)
+// Rushr logo URL
+const RUSHR_LOGO_URL = 'https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg'
+
+// iOS Native Loading Component - Rushr logo with circular spinner
 function IOSNativeLoader({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) {
   const containerSizes = {
     sm: 'w-16 h-16',
@@ -48,31 +51,28 @@ function IOSNativeLoader({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) 
     xl: 'w-32 h-32'
   }
 
-  const iconSizes = {
-    sm: 'w-10 h-10',
-    md: 'w-14 h-14',
-    lg: 'w-16 h-16',
-    xl: 'w-20 h-20'
-  }
-
-  const textSizes = {
-    sm: 'text-2xl',
-    md: 'text-3xl',
-    lg: 'text-4xl',
-    xl: 'text-5xl'
+  const logoSizes = {
+    sm: 48,
+    md: 64,
+    lg: 80,
+    xl: 100
   }
 
   return (
     <div className={`relative ${containerSizes[size]} flex items-center justify-center`}>
       {/* Spinning circle border */}
       <div
-        className={`absolute inset-0 rounded-full border-4 border-white/30 border-t-white animate-spin`}
+        className={`absolute inset-0 rounded-full border-4 border-emerald-200/30 border-t-emerald-500 animate-spin`}
         style={{ animationDuration: '1s' }}
       />
-      {/* Static R logo in center */}
-      <div className={`${iconSizes[size]} bg-white rounded-2xl flex items-center justify-center shadow-lg`}>
-        <span className={`${textSizes[size]} font-bold text-emerald-600`}>R</span>
-      </div>
+      {/* Rushr logo in center */}
+      <img
+        src={RUSHR_LOGO_URL}
+        alt="Rushr"
+        width={logoSizes[size]}
+        height={logoSizes[size]}
+        style={{ objectFit: 'contain' }}
+      />
     </div>
   )
 }
@@ -100,12 +100,12 @@ export default function LoadingSpinner({
     xl: 'text-xl'
   }
 
-  // iOS Native: Green fullscreen with R icon and circular spinner
+  // iOS Native: White fullscreen with Rushr logo and circular spinner
   if (isNative) {
     if (fullScreen) {
       return (
         <div
-          className="fixed inset-0 bg-emerald-600 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-white flex items-center justify-center z-50"
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <IOSNativeLoader size={size} />
@@ -115,7 +115,7 @@ export default function LoadingSpinner({
 
     return (
       <div
-        className={`min-h-screen bg-emerald-600 flex items-center justify-center ${className}`}
+        className={`min-h-screen bg-white flex items-center justify-center ${className}`}
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <IOSNativeLoader size={size} />
@@ -182,10 +182,10 @@ export function PageLoading({ children, isLoading, loadingText = 'Loading...' }:
 
   if (isLoading) {
     if (isNative) {
-      // iOS: Green fullscreen with R logo and spinner
+      // iOS: White fullscreen with Rushr logo and spinner
       return (
         <div
-          className="min-h-screen bg-emerald-600 flex items-center justify-center"
+          className="min-h-screen bg-white flex items-center justify-center"
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <IOSNativeLoader size="lg" />
@@ -207,7 +207,7 @@ export function PageLoading({ children, isLoading, loadingText = 'Loading...' }:
 export function IOSLoadingScreen({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) {
   return (
     <div
-      className="min-h-screen bg-emerald-600 flex items-center justify-center"
+      className="min-h-screen bg-white flex items-center justify-center"
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <IOSNativeLoader size={size} />
