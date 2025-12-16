@@ -13,8 +13,8 @@ const config: CapacitorConfig = {
     url: 'http://172.20.10.3:3001',
     cleartext: true
   } : {
-    // Production - loads from deployed site
-    url: 'https://www.userushr.com',
+    // Production - loads from staging (no early access redirect)
+    url: 'https://staging-rushr.vercel.app',
     cleartext: false
   },
   ios: {
