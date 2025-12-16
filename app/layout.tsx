@@ -124,4 +124,4 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     </html>
   )
 }
-// Trigger rebuild Wed Dec 17 04:42:48 +07 2025
+// Trigger rebuild v2 - force native detection deploy
