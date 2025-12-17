@@ -204,7 +204,7 @@ export default function IOSRegistration({ onSwitchToContractor }: Props) {
         {/* Back button - floating */}
         <div
           className="absolute left-4 z-20"
-          style={{ top: 'calc(env(safe-area-inset-top, 44px) + 8px)' }}
+          style={{ top: 'max(calc(env(safe-area-inset-top, 44px) + 12px), 56px)' }}
         >
           <button
             onClick={() => navigateTo('welcome')}
@@ -297,7 +297,7 @@ export default function IOSRegistration({ onSwitchToContractor }: Props) {
         {/* Back button - floating */}
         <div
           className="absolute left-4 z-20"
-          style={{ top: 'calc(env(safe-area-inset-top, 44px) + 8px)' }}
+          style={{ top: 'max(calc(env(safe-area-inset-top, 44px) + 12px), 56px)' }}
         >
           <button
             onClick={() => navigateTo('welcome')}
