@@ -16,7 +16,6 @@ import {
   Users,
   Star,
   ChevronLeft,
-  Loader2,
   MessageCircle
 } from 'lucide-react'
 
@@ -228,7 +227,11 @@ export default function JobSuccessPage() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-white flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 text-emerald-600 animate-spin mx-auto mb-4" />
+          <img
+            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
+            alt="Loading..."
+            className="h-12 w-12 mx-auto mb-4 object-contain"
+          />
           <p className="text-slate-600">Loading...</p>
         </div>
       </div>

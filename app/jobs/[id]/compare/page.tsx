@@ -7,7 +7,6 @@ import { supabase } from '../../../../lib/supabaseClient'
 import PaymentModal from '../../../../components/PaymentModal'
 import { Capacitor } from '@capacitor/core'
 import { ArrowLeft, DollarSign, Clock, CheckCircle } from 'lucide-react'
-import { safeBack } from '../../../../lib/safeBack'
 
 interface Bid {
   id: string
@@ -119,8 +118,9 @@ export default function CompareBids() {
           <div className="bg-gradient-to-b from-emerald-600 to-emerald-500 text-white">
             <div className="px-4 py-4" style={{ paddingTop: 'max(calc(12px + env(safe-area-inset-top)), 59px)' }}>
               <div className="flex items-center justify-between">
-                <button onClick={() => safeBack(router, '/dashboard')} className="p-2 -ml-2 rounded-full hover:bg-white/20">
+                <button onClick={() => router.push('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 flex items-center">
                   <ArrowLeft className="h-6 w-6" />
+                  <span className="ml-1">Home</span>
                 </button>
                 <h1 className="text-lg font-bold flex-1 text-center">Compare Bids</h1>
                 <div className="w-10" />
@@ -221,8 +221,9 @@ export default function CompareBids() {
           <div className="bg-gradient-to-b from-emerald-600 to-emerald-500 text-white">
             <div className="px-4 py-4" style={{ paddingTop: 'max(calc(12px + env(safe-area-inset-top)), 59px)' }}>
               <div className="flex items-center justify-between">
-                <button onClick={() => safeBack(router, '/dashboard')} className="p-2 -ml-2 rounded-full hover:bg-white/20">
+                <button onClick={() => router.push('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 flex items-center">
                   <ArrowLeft className="h-6 w-6" />
+                  <span className="ml-1">Home</span>
                 </button>
                 <h1 className="text-lg font-bold flex-1 text-center">Compare Bids</h1>
                 <div className="w-10" />
@@ -234,8 +235,8 @@ export default function CompareBids() {
           {!isNative && (
             <div className="flex items-center justify-between mb-6">
               <h1 className="text-3xl font-bold text-slate-900">See Bids</h1>
-              <Link href="/dashboard/homeowner" className="px-4 py-2 text-emerald-600 hover:text-emerald-700 font-medium">
-                Back to Dashboard
+              <Link href="/" className="px-4 py-2 text-emerald-600 hover:text-emerald-700 font-medium">
+                Back to Home
               </Link>
             </div>
           )}
@@ -265,8 +266,9 @@ export default function CompareBids() {
           <div className="bg-gradient-to-b from-emerald-600 to-emerald-500 text-white sticky top-0 z-50">
             <div className="px-4 py-4" style={{ paddingTop: 'max(calc(12px + env(safe-area-inset-top)), 59px)' }}>
               <div className="flex items-center justify-between">
-                <button onClick={() => safeBack(router, '/dashboard')} className="p-2 -ml-2 rounded-full hover:bg-white/20 active:bg-white/30">
+                <button onClick={() => router.push('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 active:bg-white/30 flex items-center">
                   <ArrowLeft className="h-6 w-6" />
+                  <span className="ml-1">Home</span>
                 </button>
                 <div className="flex-1 text-center">
                   <h1 className="text-lg font-bold">Compare Bids</h1>
