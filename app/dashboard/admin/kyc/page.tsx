@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../../../../lib/supabaseClient'
 import { WelcomeService } from '../../../../lib/welcomeService'
-import { notifyContractorApproved, notifyContractorRejected } from '../../../../lib/emailService'
 import {
   Shield,
   CheckCircle,
@@ -159,6 +158,7 @@ export default function AdminKYCPage() {
       // Get contractor info for notification
       const contractor = contractors.find(c => c.id === contractorId)
 
+      // Update status via direct Supabase call (for kyc_status, availability, profile_approved_at)
       const { error } = await supabase
         .from('pro_contractors')
         .update({
@@ -171,7 +171,7 @@ export default function AdminKYCPage() {
 
       if (error) throw error
 
-      // Send notification to contractor's messages + email
+      // Send notifications via API route (handles email on server side)
       if (contractor && contractor.email) {
         // In-app notification
         await WelcomeService.sendApprovalNotification({
@@ -179,11 +179,16 @@ export default function AdminKYCPage() {
           contractorName: contractor.name,
           businessName: contractor.business_name || undefined
         })
-        // Email notification
-        await notifyContractorApproved({
-          contractorEmail: contractor.email,
-          contractorName: contractor.name,
-          businessName: contractor.business_name || undefined
+        // Email notification via API route
+        await fetch('/api/admin/approve-contractor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contractorId: contractor.id,
+            contractorEmail: contractor.email,
+            contractorName: contractor.name,
+            businessName: contractor.business_name || undefined
+          })
         })
       }
 
@@ -226,12 +231,17 @@ export default function AdminKYCPage() {
           businessName: contractor.business_name || undefined,
           reason: reason
         })
-        // Email notification
-        await notifyContractorRejected({
-          contractorEmail: contractor.email,
-          contractorName: contractor.name,
-          businessName: contractor.business_name || undefined,
-          reason: reason
+        // Email notification via API route
+        await fetch('/api/admin/reject-contractor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contractorId: contractor.id,
+            contractorEmail: contractor.email,
+            contractorName: contractor.name,
+            businessName: contractor.business_name || undefined,
+            reason: reason
+          })
         })
       }
 
@@ -637,9 +647,36 @@ export default function AdminKYCPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-3">Payment Setup</h3>
                 {selectedContractor.stripe_account_id ? (
-                  <div className="flex items-center gap-2 text-green-700">
-                    <CheckCircle className="h-5 w-5" />
-                    <span>Stripe Connected: {selectedContractor.stripe_account_id}</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-green-700">
+                      <CheckCircle className="h-5 w-5" />
+                      <span>Stripe Connected</span>
+                    </div>
+                    <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+                      <p><strong>Account ID:</strong> {selectedContractor.stripe_account_id}</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/admin/contractor-stripe-link?contractorId=${selectedContractor.id}`)
+                          const data = await res.json()
+                          if (data.loginUrl) {
+                            window.open(data.loginUrl, '_blank')
+                          } else if (data.hasStripe === false) {
+                            alert('Contractor has not connected their Stripe account yet')
+                          } else {
+                            alert(data.note || 'Could not generate dashboard link. The contractor may need to complete onboarding first.')
+                          }
+                        } catch (err) {
+                          console.error('Error getting Stripe link:', err)
+                          alert('Failed to get Stripe dashboard link')
+                        }
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Open Stripe Dashboard
+                    </button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 text-amber-700">

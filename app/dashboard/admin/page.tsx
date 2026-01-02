@@ -90,88 +90,58 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      // Fetch pending contractors
-      const { count: pendingCount } = await supabase
-        .from('pro_contractors')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending_approval')
-
-      // Fetch total contractors
-      const { count: totalContractors } = await supabase
-        .from('pro_contractors')
-        .select('*', { count: 'exact', head: true })
-
-      // Fetch approved contractors
-      const { count: approvedCount } = await supabase
-        .from('pro_contractors')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'approved')
-
-      // Fetch rejected contractors
-      const { count: rejectedCount } = await supabase
-        .from('pro_contractors')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'rejected')
-
-      // Fetch total homeowners
-      const { count: totalHomeowners } = await supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact', head: true })
-        .eq('role', 'homeowner')
-
-      // Fetch support tickets (if table exists)
-      let totalTickets = 0
-      let newTickets = 0
-      try {
-        const { count: total } = await supabase
-          .from('support_messages')
-          .select('*', { count: 'exact', head: true })
-        totalTickets = total || 0
-
-        const { count: newCount } = await supabase
-          .from('support_messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'new')
-        newTickets = newCount || 0
-      } catch (err) {
-        console.log('Support messages table not found')
-      }
-
-      // Fetch jobs data
-      let activeJobs = 0
-      let completedJobs = 0
-      try {
-        const { count: active } = await supabase
-          .from('emergency_requests')
-          .select('*', { count: 'exact', head: true })
-          .in('status', ['pending', 'accepted', 'in_progress'])
-        activeJobs = active || 0
-
-        const { count: completed } = await supabase
-          .from('emergency_requests')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'completed')
-        completedJobs = completed || 0
-      } catch (err) {
-        console.log('Emergency requests table not found')
-      }
+      // Run ALL queries in parallel for much faster loading
+      const [
+        pendingRes,
+        totalRes,
+        approvedRes,
+        rejectedRes,
+        homeownersRes,
+        totalTicketsRes,
+        newTicketsRes,
+        activeJobsRes,
+        completedJobsRes,
+      ] = await Promise.all([
+        supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+        supabase.from('pro_contractors').select('*', { count: 'exact', head: true }),
+        supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+        supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'rejected'),
+        supabase.from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'homeowner'),
+        supabase.from('support_messages').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
+        supabase.from('support_messages').select('*', { count: 'exact', head: true }).eq('status', 'new').catch(() => ({ count: 0 })),
+        supabase.from('homeowner_jobs').select('*', { count: 'exact', head: true }).in('status', ['pending', 'bid_accepted', 'confirmed', 'in_progress']),
+        supabase.from('homeowner_jobs').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
+      ])
 
       setStats({
-        pendingContractors: pendingCount || 0,
-        totalContractors: totalContractors || 0,
-        approvedContractors: approvedCount || 0,
-        rejectedContractors: rejectedCount || 0,
-        totalHomeowners: totalHomeowners || 0,
-        newSupportTickets: newTickets || 0,
-        totalSupportTickets: totalTickets || 0,
-        activeJobs: activeJobs || 0,
-        completedJobs: completedJobs || 0,
+        pendingContractors: pendingRes.count || 0,
+        totalContractors: totalRes.count || 0,
+        approvedContractors: approvedRes.count || 0,
+        rejectedContractors: rejectedRes.count || 0,
+        totalHomeowners: homeownersRes.count || 0,
+        newSupportTickets: (newTicketsRes as any).count || 0,
+        totalSupportTickets: (totalTicketsRes as any).count || 0,
+        activeJobs: activeJobsRes.count || 0,
+        completedJobs: completedJobsRes.count || 0,
       })
     } catch (error) {
       console.error('Error fetching admin stats:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Debounce real-time updates
+  const fetchTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
+
+  const debouncedFetch = () => {
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current)
+    }
+    fetchTimeoutRef.current = setTimeout(() => {
+      setRealtimeUpdate((prev) => prev + 1)
+      fetchStats()
+    }, 1000)
   }
 
   useEffect(() => {
@@ -187,10 +157,7 @@ export default function AdminDashboard() {
           schema: 'public',
           table: 'pro_contractors',
         },
-        () => {
-          setRealtimeUpdate((prev) => prev + 1)
-          fetchStats()
-        }
+        debouncedFetch
       )
       .subscribe()
 
@@ -204,14 +171,14 @@ export default function AdminDashboard() {
           schema: 'public',
           table: 'support_messages',
         },
-        () => {
-          setRealtimeUpdate((prev) => prev + 1)
-          fetchStats()
-        }
+        debouncedFetch
       )
       .subscribe()
 
     return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current)
+      }
       supabase.removeChannel(contractorSubscription)
       supabase.removeChannel(supportSubscription)
     }

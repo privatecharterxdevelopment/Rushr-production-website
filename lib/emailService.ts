@@ -1045,3 +1045,127 @@ export async function notifyHomeownerBidAccepted(params: {
     text: `Hi ${homeownerName}, Great news! You've accepted ${contractorName}'s bid for "${jobTitle}". Price: $${bidAmount.toFixed(2)}. ${contractorName} will contact you shortly at ${contractorPhone}. Track your job at ${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/homeowner/jobs`
   })
 }
+
+/**
+ * Notify a party when a dispute is filed against them
+ */
+export async function notifyDisputeFiled(params: {
+  recipientEmail: string
+  recipientName: string
+  jobTitle: string
+  reason: string
+  filedBy: 'homeowner' | 'contractor'
+  filedByName: string
+}) {
+  const { recipientEmail, recipientName, jobTitle, reason, filedBy, filedByName } = params
+
+  const subject = `Dispute Filed - "${jobTitle}"`
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="margin: 0;">Dispute Filed</h1>
+      </div>
+      <div style="background: #FEF2F2; padding: 30px; border-radius: 0 0 10px 10px;">
+        <p style="font-size: 16px;">Hi ${recipientName},</p>
+
+        <p>A dispute has been filed for the following job:</p>
+
+        <div style="background: white; border: 1px solid #FECACA; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p style="margin: 8px 0;"><strong>Job:</strong> ${jobTitle}</p>
+          <p style="margin: 8px 0;"><strong>Filed by:</strong> ${filedByName} (${filedBy})</p>
+          <p style="margin: 8px 0;"><strong>Reason:</strong> ${reason}</p>
+        </div>
+
+        <h3 style="color: #DC2626;">What happens now?</h3>
+        <ul style="line-height: 1.8;">
+          <li>The job is now <strong>on hold</strong></li>
+          <li>Payment has been paused until the dispute is resolved</li>
+          <li>Our admin team will review the dispute</li>
+          <li>You may be contacted for more information</li>
+        </ul>
+
+        <p style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard"
+             style="background: #2563EB; color: white; padding: 14px 35px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+            View in Dashboard
+          </a>
+        </p>
+
+        <p>Best regards,<br><strong>The Rushr Team</strong></p>
+      </div>
+      <div style="text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px;">
+        <p>© ${new Date().getFullYear()} Rushr. All rights reserved.</p>
+      </div>
+    </div>
+  `
+
+  return sendEmail({
+    to: recipientEmail,
+    subject,
+    html,
+    text: `Hi ${recipientName}, A dispute has been filed for "${jobTitle}" by ${filedByName}. Reason: ${reason}. The job is now on hold and our admin team will review. Payment has been paused until resolution.`
+  })
+}
+
+/**
+ * Notify parties when a dispute is resolved
+ */
+export async function notifyDisputeResolved(params: {
+  recipientEmail: string
+  recipientName: string
+  jobTitle: string
+  resolution: string
+  action: string
+}) {
+  const { recipientEmail, recipientName, jobTitle, resolution, action } = params
+
+  const actionDescriptions: Record<string, string> = {
+    release_to_contractor: 'Full payment has been released to the contractor.',
+    refund_homeowner: 'A full refund has been issued to the homeowner.',
+    partial_refund: 'A partial refund has been processed.',
+    dismissed: 'The dispute has been dismissed and the job will continue.'
+  }
+
+  const actionDescription = actionDescriptions[action] || 'The dispute has been resolved.'
+
+  const subject = `Dispute Resolved - "${jobTitle}"`
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="margin: 0;">Dispute Resolved</h1>
+      </div>
+      <div style="background: #F0FDF4; padding: 30px; border-radius: 0 0 10px 10px;">
+        <p style="font-size: 16px;">Hi ${recipientName},</p>
+
+        <p>The dispute for the following job has been resolved:</p>
+
+        <div style="background: white; border: 1px solid #BBF7D0; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p style="margin: 8px 0;"><strong>Job:</strong> ${jobTitle}</p>
+          <p style="margin: 8px 0;"><strong>Resolution:</strong> ${resolution}</p>
+          <p style="margin: 8px 0;"><strong>Outcome:</strong> ${actionDescription}</p>
+        </div>
+
+        <p style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard"
+             style="background: #10B981; color: white; padding: 14px 35px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+            View in Dashboard
+          </a>
+        </p>
+
+        <p>Thank you for your patience during the resolution process.</p>
+
+        <p>Best regards,<br><strong>The Rushr Team</strong></p>
+      </div>
+      <div style="text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px;">
+        <p>© ${new Date().getFullYear()} Rushr. All rights reserved.</p>
+      </div>
+    </div>
+  `
+
+  return sendEmail({
+    to: recipientEmail,
+    subject,
+    html,
+    text: `Hi ${recipientName}, The dispute for "${jobTitle}" has been resolved. Resolution: ${resolution}. ${actionDescription}`
+  })
+}

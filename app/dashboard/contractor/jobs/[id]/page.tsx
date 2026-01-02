@@ -6,7 +6,7 @@ import { useProAuth } from '../../../../../contexts/ProAuthContext'
 import { supabase } from '../../../../../lib/supabaseClient'
 import dynamic from 'next/dynamic'
 import LoadingSpinner from '../../../../../components/LoadingSpinner'
-import { ArrowLeft, MapPin, Clock, DollarSign, User, Phone, Mail, Navigation, CheckCircle, Send, MessageSquare, AlertCircle } from 'lucide-react'
+import { ArrowLeft, MapPin, Clock, DollarSign, User, Phone, Mail, Navigation, CheckCircle, Send, MessageSquare, AlertCircle, AlertTriangle, X } from 'lucide-react'
 import Link from 'next/link'
 
 // Dynamic imports
@@ -28,6 +28,12 @@ export default function ContractorJobDetailsPage() {
   const [submittingBid, setSubmittingBid] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
+
+  // Dispute state
+  const [showDisputeModal, setShowDisputeModal] = useState(false)
+  const [disputeReason, setDisputeReason] = useState('')
+  const [disputeDescription, setDisputeDescription] = useState('')
+  const [submittingDispute, setSubmittingDispute] = useState(false)
 
   const jobId = params.id as string
 
@@ -200,6 +206,44 @@ export default function ContractorJobDetailsPage() {
     }
   }
 
+  const handleSubmitDispute = async () => {
+    if (!disputeReason || !user) return
+
+    setSubmittingDispute(true)
+    try {
+      const response = await fetch('/api/disputes/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: job.id,
+          reason: disputeReason,
+          description: disputeDescription,
+          userId: user.id,
+          userType: 'contractor'
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        alert(`Error: ${data.error}`)
+        return
+      }
+
+      alert('Dispute filed successfully. Our admin team will review it.')
+      setShowDisputeModal(false)
+      setDisputeReason('')
+      setDisputeDescription('')
+      // Refresh job data
+      router.refresh()
+    } catch (err) {
+      console.error('Error submitting dispute:', err)
+      alert('Failed to submit dispute')
+    } finally {
+      setSubmittingDispute(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -225,6 +269,7 @@ export default function ContractorJobDetailsPage() {
   const showFullDetails = isJobActive
   const showChat = isJobActive && homeowner
   const showNavigation = isJobActive && job.latitude && job.longitude
+  const canFileDispute = job.status === 'in_progress'
 
   return (
     <div className="container-max py-8 space-y-6">
@@ -248,6 +293,7 @@ export default function ContractorJobDetailsPage() {
                 job.status === 'confirmed' ? 'bg-blue-100 text-blue-800' :
                 job.status === 'in_progress' ? 'bg-purple-100 text-purple-800' :
                 job.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                job.status === 'on_hold' ? 'bg-red-100 text-red-800' :
                 'bg-slate-100 text-slate-800'
               }`}>
                 {job.status.replace('_', ' ').toUpperCase()}
@@ -351,6 +397,38 @@ export default function ContractorJobDetailsPage() {
                   Contact details will be revealed when you accept the job
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Issue / Dispute Button */}
+      {canFileDispute && (
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-medium text-slate-900">Having issues with this job?</h3>
+              <p className="text-sm text-slate-500">File a dispute to put the job on hold while our team reviews</p>
+            </div>
+            <button
+              onClick={() => setShowDisputeModal(true)}
+              className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg font-medium flex items-center gap-2 transition-colors"
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Report Issue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* On Hold Status */}
+      {job.status === 'on_hold' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-8 h-8 text-red-600" />
+            <div>
+              <h3 className="font-semibold text-red-900">Job On Hold</h3>
+              <p className="text-sm text-red-700">A dispute has been filed for this job. Our admin team is reviewing the case.</p>
             </div>
           </div>
         </div>
@@ -579,6 +657,69 @@ export default function ContractorJobDetailsPage() {
               >
                 OK
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dispute Modal */}
+      {showDisputeModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold text-slate-900">Report an Issue</h2>
+              <button onClick={() => setShowDisputeModal(false)} className="text-slate-500 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <strong>Note:</strong> Filing a dispute will put this job on hold. Payment will be frozen until our admin team resolves the issue.
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Reason for Dispute *</label>
+                <select
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select a reason...</option>
+                  <option value="Payment not received">Payment not received</option>
+                  <option value="Scope disagreement">Scope disagreement</option>
+                  <option value="Homeowner unresponsive">Homeowner unresponsive</option>
+                  <option value="Safety concern">Safety concern</option>
+                  <option value="Access issues">Access issues</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Description (Optional)</label>
+                <textarea
+                  value={disputeDescription}
+                  onChange={(e) => setDisputeDescription(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Provide details about the issue..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowDisputeModal(false)}
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitDispute}
+                  disabled={!disputeReason || submittingDispute}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white rounded-lg font-medium"
+                >
+                  {submittingDispute ? 'Submitting...' : 'Submit Dispute'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

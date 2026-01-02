@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { supabase } from '../../../lib/supabaseClient'
 import {
   Users,
   UserCheck,
@@ -13,26 +14,66 @@ import {
   Menu,
   X,
   DollarSign,
+  Briefcase,
+  AlertTriangle,
 } from 'lucide-react'
+
+// Allowed admin email addresses
+const ADMIN_EMAILS = [
+  'jake@spgrp.com',
+  'zac@spgrp.com',
+]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [isLocalhost, setIsLocalhost] = useState(true) // Default to true to avoid flash
+  const [isLocalhost, setIsLocalhost] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    // Check hostname only once on mount
-    const hostname = window.location.hostname
-    setIsLocalhost(
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.includes('localhost')
-    )
+    const checkAccess = async () => {
+      // Check hostname
+      const hostname = window.location.hostname
+      const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.includes('localhost')
+      setIsLocalhost(isLocal)
+
+      // If localhost, allow access immediately
+      if (isLocal) {
+        setIsAdmin(true)
+        setLoading(false)
+        return
+      }
+
+      // In production, check if user is logged in and is an admin
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.email) {
+          setUserEmail(user.email)
+          const hasAdminAccess = ADMIN_EMAILS.includes(user.email.toLowerCase())
+          setIsAdmin(hasAdminAccess)
+        }
+      } catch (err) {
+        console.error('Error checking admin access:', err)
+      }
+      setLoading(false)
+    }
+
+    checkAccess()
   }, [])
 
-  // On localhost, always allow access (no auth check needed)
-  // In production, you'd add proper auth check here
-  if (!isLocalhost) {
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  // Deny access if not admin (and not localhost)
+  if (!isLocalhost && !isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-md border">
@@ -41,6 +82,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <h1 className="text-2xl font-bold">Access Denied</h1>
           </div>
           <p className="text-gray-600">Admin access required.</p>
+          {userEmail && (
+            <p className="text-sm text-gray-500 mt-2">Logged in as: {userEmail}</p>
+          )}
           <Link href="/" className="mt-6 inline-block bg-blue-600 text-white px-4 py-2 rounded-md">
             Go Home
           </Link>
@@ -76,6 +120,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       name: 'KYC Verification',
       href: '/dashboard/admin/kyc',
       icon: Shield,
+    },
+    {
+      name: 'Jobs',
+      href: '/dashboard/admin/jobs',
+      icon: Briefcase,
+    },
+    {
+      name: 'Disputes',
+      href: '/dashboard/admin/disputes',
+      icon: AlertTriangle,
+      badge: 'open',
     },
     {
       name: 'Payments & Escrow',
