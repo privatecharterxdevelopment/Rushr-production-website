@@ -394,10 +394,10 @@ function MessagesContent() {
   // Early return if auth is still loading
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
         <div className="text-center">
           <div className="h-10 w-10 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-          <p>Loading...</p>
+          <p className="text-slate-600">Loading...</p>
         </div>
       </div>
     )
@@ -418,10 +418,10 @@ function MessagesContent() {
   // Show loading while fetching data
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
         <div className="text-center">
           <div className="h-10 w-10 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-          <p>Loading messages...</p>
+          <p className="text-slate-600">Loading messages...</p>
         </div>
       </div>
     )
@@ -681,10 +681,10 @@ function MessagesContent() {
 export default function HomeownerMessagesPage() {
   return (
     <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
         <div className="text-center">
           <div className="h-10 w-10 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-          <p>Loading messages...</p>
+          <p className="text-slate-600">Loading messages...</p>
         </div>
       </div>
     }>
