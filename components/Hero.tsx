@@ -199,27 +199,24 @@ export default function Hero(){
 
           {/* Search Form - centered */}
           <form onSubmit={onFindPro} className="max-w-xl mx-auto">
-            <div className="relative bg-white rounded-xl shadow-lg overflow-hidden">
-              {/* Main input row */}
+            {/* Mobile: stacked layout */}
+            <div className="sm:hidden bg-white rounded-xl shadow-lg overflow-hidden">
+              <input
+                type="text"
+                placeholder={placeholderText || 'What do you need help with?'}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                className="w-full px-4 py-3 text-gray-900 placeholder-gray-500 focus:outline-none text-base border-b border-gray-200"
+              />
               <div className="flex items-center">
-                <input
-                  type="text"
-                  placeholder={placeholderText || 'What do you need help with?'}
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  onFocus={() => setIsInputFocused(true)}
-                  onBlur={() => setIsInputFocused(false)}
-                  className="flex-1 min-w-0 px-4 py-3 sm:py-4 text-gray-900 placeholder-gray-500 focus:outline-none text-base"
-                />
-              </div>
-              {/* Bottom row: ZIP + location + button */}
-              <div className="flex items-center border-t border-gray-200">
                 <input
                   type="text"
                   placeholder="ZIP"
                   value={location}
                   onChange={e => setLocation(e.target.value)}
-                  className="w-20 sm:w-24 px-3 py-3 text-gray-900 placeholder-gray-500 focus:outline-none text-base border-r border-gray-200"
+                  className="w-20 px-3 py-3 text-gray-900 placeholder-gray-500 focus:outline-none text-base border-r border-gray-200"
                 />
                 <button
                   type="button"
@@ -245,6 +242,49 @@ export default function Hero(){
                   Find a Pro
                 </button>
               </div>
+            </div>
+
+            {/* Desktop: horizontal layout */}
+            <div className="hidden sm:flex items-center bg-white rounded-xl shadow-lg overflow-hidden">
+              <input
+                type="text"
+                placeholder={placeholderText || 'What do you need help with?'}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                className="flex-1 px-5 py-4 text-gray-900 placeholder-gray-500 focus:outline-none text-lg border-r border-gray-200"
+              />
+              <input
+                type="text"
+                placeholder="ZIP"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                className="w-28 px-4 py-4 text-gray-900 placeholder-gray-500 focus:outline-none text-lg border-r border-gray-200"
+              />
+              <button
+                type="button"
+                onClick={getUserLocation}
+                disabled={loadingLocation}
+                className="px-3 py-4 hover:bg-gray-50 transition-colors disabled:opacity-50 border-r border-gray-200"
+                title="Use my location"
+              >
+                {loadingLocation ? (
+                  <div className="w-6 h-6 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+                ) : (
+                  <svg className="h-6 w-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="submit"
+                disabled={loadingLocation}
+                className="px-6 py-4 bg-gray-900 hover:bg-black text-white font-semibold transition-colors whitespace-nowrap text-lg disabled:opacity-50"
+              >
+                Find a Pro
+              </button>
             </div>
           </form>
 
