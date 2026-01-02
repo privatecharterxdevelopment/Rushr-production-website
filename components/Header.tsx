@@ -103,7 +103,7 @@ export default function Header() {
   }
 
   // Hide header on early access pages and admin panel
-  if (pathname.startsWith('/pro/early-access') || pathname.startsWith('/dashboard/admin')) {
+  if (pathname.startsWith('/pro/early-access') || pathname.startsWith('/dashboard/admin') || pathname.startsWith('/crm')) {
     return null
   }
 
