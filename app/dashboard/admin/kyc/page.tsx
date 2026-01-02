@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../../../../lib/supabaseClient'
+import { WelcomeService } from '../../../../lib/welcomeService'
+import { notifyContractorApproved, notifyContractorRejected } from '../../../../lib/emailService'
 import {
   Shield,
   CheckCircle,
@@ -154,6 +156,9 @@ export default function AdminKYCPage() {
   const handleApprove = async (contractorId: string) => {
     setActionLoading(contractorId)
     try {
+      // Get contractor info for notification
+      const contractor = contractors.find(c => c.id === contractorId)
+
       const { error } = await supabase
         .from('pro_contractors')
         .update({
@@ -166,9 +171,25 @@ export default function AdminKYCPage() {
 
       if (error) throw error
 
+      // Send notification to contractor's messages + email
+      if (contractor && contractor.email) {
+        // In-app notification
+        await WelcomeService.sendApprovalNotification({
+          contractorId: contractor.id,
+          contractorName: contractor.name,
+          businessName: contractor.business_name || undefined
+        })
+        // Email notification
+        await notifyContractorApproved({
+          contractorEmail: contractor.email,
+          contractorName: contractor.name,
+          businessName: contractor.business_name || undefined
+        })
+      }
+
       await fetchContractors()
       setSelectedContractor(null)
-      alert('Contractor approved!')
+      alert('Contractor approved! Notification + Email sent.')
     } catch (error) {
       console.error('Error:', error)
       alert('Failed to approve')
@@ -183,6 +204,9 @@ export default function AdminKYCPage() {
 
     setActionLoading(contractorId)
     try {
+      // Get contractor info for notification
+      const contractor = contractors.find(c => c.id === contractorId)
+
       const { error } = await supabase
         .from('pro_contractors')
         .update({
@@ -193,9 +217,27 @@ export default function AdminKYCPage() {
 
       if (error) throw error
 
+      // Send notification to contractor's messages + email
+      if (contractor && contractor.email) {
+        // In-app notification
+        await WelcomeService.sendRejectionNotification({
+          contractorId: contractor.id,
+          contractorName: contractor.name,
+          businessName: contractor.business_name || undefined,
+          reason: reason
+        })
+        // Email notification
+        await notifyContractorRejected({
+          contractorEmail: contractor.email,
+          contractorName: contractor.name,
+          businessName: contractor.business_name || undefined,
+          reason: reason
+        })
+      }
+
       await fetchContractors()
       setSelectedContractor(null)
-      alert('Contractor rejected')
+      alert('Contractor rejected. Notification + Email sent.')
     } catch (error) {
       console.error('Error:', error)
       alert('Failed to reject')

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { notifyBidAccepted } from '../../../../lib/emailService'
+import { notifyBidAccepted, notifyHomeownerBidAccepted } from '../../../../lib/emailService'
 import { sendBidAcceptedSMS } from '../../../../lib/smsService'
 
 const supabase = createClient(
@@ -102,13 +102,27 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Send SMS notification
+      // Send SMS notification to contractor
       if (contractor?.phone && job && homeowner) {
         await sendBidAcceptedSMS({
           contractorPhone: contractor.phone,
           contractorName: contractorName,
           homeownerName: homeowner.name,
           jobTitle: job.title
+        })
+      }
+
+      // Send confirmation email to homeowner
+      const { data: homeownerAuth } = await supabase.auth.admin.getUserById(job?.homeowner_id)
+      if (homeownerAuth?.user?.email && job && homeowner && contractor) {
+        await notifyHomeownerBidAccepted({
+          homeownerEmail: homeownerAuth.user.email,
+          homeownerName: homeowner.name || 'Homeowner',
+          contractorName: contractorName,
+          contractorPhone: contractor.phone || 'Contact via app',
+          jobTitle: job.title,
+          bidAmount: bid.bid_amount,
+          jobAddress: job.address || 'See job details'
         })
       }
     } catch (error) {

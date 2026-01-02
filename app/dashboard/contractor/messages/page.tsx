@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useProAuth } from '../../../../contexts/ProAuthContext'
 import { supabase } from '../../../../lib/supabaseClient'
-import { ArrowLeft, Send, MessageSquare } from 'lucide-react'
+import { WelcomeService, WelcomeNotification } from '../../../../lib/welcomeService'
+import { ArrowLeft, Send, MessageSquare, Bell } from 'lucide-react'
 
 interface Conversation {
   id: string
@@ -41,6 +42,8 @@ export default function ContractorMessagesPage() {
   const [sending, setSending] = useState(false)
   const [homeownerTyping, setHomeownerTyping] = useState(false)
   const [showWelcomeMessage, setShowWelcomeMessage] = useState(false)
+  const [notifications, setNotifications] = useState<WelcomeNotification[]>([])
+  const [selectedNotification, setSelectedNotification] = useState<WelcomeNotification | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -66,6 +69,18 @@ export default function ContractorMessagesPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Fetch notifications from Rushr (approval/rejection messages)
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!user) return
+      // Get notifications and filter for approval/rejection types
+      const allNotifs = await WelcomeService.getNotifications(user.id)
+      const relevantNotifs = allNotifs.filter(n => n.type === 'approval' || n.type === 'rejection')
+      setNotifications(relevantNotifs)
+    }
+    fetchNotifications()
+  }, [user])
 
   // Fetch conversations with real data
   useEffect(() => {
@@ -352,9 +367,10 @@ export default function ContractorMessagesPage() {
                   onClick={() => {
                     setShowWelcomeMessage(true)
                     setSelectedConversation(null)
+                    setSelectedNotification(null)
                   }}
                   className={`block w-full p-4 rounded-lg border transition-colors text-left ${
-                    showWelcomeMessage
+                    showWelcomeMessage && !selectedNotification
                       ? 'bg-blue-50 border-blue-200'
                       : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 hover:from-blue-100 hover:to-indigo-100'
                   }`}
@@ -373,6 +389,47 @@ export default function ContractorMessagesPage() {
                   </div>
                 </button>
               )}
+
+              {/* Rushr Notifications (Approval/Rejection) */}
+              {notifications.map((notif) => (
+                <button
+                  key={notif.id}
+                  onClick={async () => {
+                    setSelectedNotification(notif)
+                    setShowWelcomeMessage(false)
+                    setSelectedConversation(null)
+                    if (!notif.read) {
+                      await WelcomeService.markNotificationAsRead(notif.id)
+                      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n))
+                    }
+                  }}
+                  className={`block w-full p-4 rounded-lg border transition-colors text-left ${
+                    selectedNotification?.id === notif.id
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : notif.type === 'approval'
+                        ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 hover:from-emerald-100 hover:to-green-100'
+                        : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200 hover:from-amber-100 hover:to-orange-100'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">{notif.type === 'approval' ? '🎉' : '📋'}</div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className="font-semibold text-gray-900">{notif.title}</h3>
+                        {!notif.read && (
+                          <span className="bg-emerald-600 text-white text-xs rounded-full px-2 py-0.5 font-medium">
+                            New
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600 line-clamp-2">{notif.message}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {new Date(notif.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
 
               {/* Regular Conversations */}
               {conversations.length === 0 && !welcomeNotification ? (
@@ -420,7 +477,52 @@ export default function ContractorMessagesPage() {
 
         {/* Messages Area */}
         <div className="flex-1 flex flex-col">
-          {showWelcomeMessage && welcomeNotification ? (
+          {selectedNotification ? (
+            <>
+              {/* Notification Header */}
+              <div className={`border-b px-6 py-4 ${
+                selectedNotification.type === 'approval'
+                  ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200'
+                  : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className="text-3xl">{selectedNotification.type === 'approval' ? '🎉' : '📋'}</div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">{selectedNotification.title}</h2>
+                    <p className="text-sm text-gray-600">
+                      From Rushr • {new Date(selectedNotification.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notification Content */}
+              <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+                <div className="max-w-2xl mx-auto">
+                  <div className={`bg-white rounded-lg shadow-sm border p-8 ${
+                    selectedNotification.type === 'approval' ? 'border-emerald-200' : 'border-amber-200'
+                  }`}>
+                    <div className="text-center mb-6">
+                      <div className="text-6xl mb-4">{selectedNotification.type === 'approval' ? '🎉' : '📋'}</div>
+                      <h3 className="text-2xl font-bold text-gray-900 mb-2">{selectedNotification.title}</h3>
+                    </div>
+                    <div className="prose max-w-none">
+                      <p className="text-gray-700 text-lg leading-relaxed whitespace-pre-wrap">
+                        {selectedNotification.message}
+                      </p>
+                    </div>
+                    {selectedNotification.type === 'rejection' && (
+                      <div className="mt-8 pt-6 border-t border-gray-200">
+                        <p className="text-sm text-gray-600 text-center">
+                          Questions? Contact us at <a href="mailto:hello@userushr.com" className="text-emerald-600 font-medium hover:underline">hello@userushr.com</a>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : showWelcomeMessage && welcomeNotification ? (
             <>
               {/* Welcome Message Header */}
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200 px-6 py-4">

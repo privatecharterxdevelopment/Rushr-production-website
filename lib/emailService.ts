@@ -127,6 +127,7 @@ export async function notifyBidReceived(params: {
 
 /**
  * Notify contractor when a new job is posted in their area
+ * NOTE: Homeowner phone is NOT included - only shared after bid is accepted
  */
 export async function notifyNewJob(params: {
   contractorEmail: string
@@ -134,9 +135,13 @@ export async function notifyNewJob(params: {
   jobTitle: string
   jobCategory: string
   jobAddress: string
-  homeownerPhone: string
+  jobId?: string
 }) {
-  const { contractorEmail, contractorName, jobTitle, jobCategory, jobAddress, homeownerPhone } = params
+  const { contractorEmail, contractorName, jobTitle, jobCategory, jobAddress, jobId } = params
+
+  const jobLink = jobId
+    ? `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/jobs/${jobId}`
+    : `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/jobs`
 
   const subject = `New Emergency Job: ${jobCategory}`
   const html = `
@@ -149,11 +154,12 @@ export async function notifyNewJob(params: {
         <p style="margin: 5px 0;"><strong>Category:</strong> ${jobCategory}</p>
         <p style="margin: 5px 0;"><strong>Description:</strong> ${jobTitle}</p>
         <p style="margin: 5px 0;"><strong>Location:</strong> ${jobAddress}</p>
-        <p style="margin: 5px 0;"><strong>Contact:</strong> ${homeownerPhone}</p>
       </div>
 
+      <p>Be the first to respond and win this job!</p>
+
       <p>
-        <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/jobs"
+        <a href="${jobLink}"
            style="background: #2563EB; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
           View Job & Submit Bid
         </a>
@@ -169,7 +175,7 @@ export async function notifyNewJob(params: {
     to: contractorEmail,
     subject,
     html,
-    text: `Hi ${contractorName}, New emergency job: ${jobTitle} (${jobCategory}) at ${jobAddress}. Contact: ${homeownerPhone}. View at ${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/jobs`
+    text: `Hi ${contractorName}, New emergency job: ${jobTitle} (${jobCategory}) at ${jobAddress}. Submit your bid at ${jobLink}`
   })
 }
 
@@ -817,6 +823,117 @@ export async function notifyBidRejected(params: {
 }
 
 /**
+ * Notify contractor when their application is APPROVED
+ */
+export async function notifyContractorApproved(params: {
+  contractorEmail: string
+  contractorName: string
+  businessName?: string
+}) {
+  const { contractorEmail, contractorName, businessName } = params
+
+  const subject = 'Congratulations! Your Rushr Pro Application is Approved'
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="margin: 0;">You're Approved!</h1>
+      </div>
+      <div style="background: #F9FAFB; padding: 30px; border-radius: 0 0 10px 10px;">
+        <p style="font-size: 16px;">Hi ${businessName || contractorName},</p>
+
+        <p>Great news! Your Rushr Pro application has been <strong style="color: #10B981;">approved</strong>.</p>
+
+        <p>You can now:</p>
+        <ul style="line-height: 1.8;">
+          <li>Browse and bid on jobs in your service area</li>
+          <li>Receive instant notifications for new jobs</li>
+          <li>Connect directly with homeowners</li>
+          <li>Get paid securely through our platform</li>
+        </ul>
+
+        <p style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor"
+             style="background: #10B981; color: white; padding: 14px 35px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+            Go to Your Dashboard
+          </a>
+        </p>
+
+        <p>Welcome to the Rushr Pro network!</p>
+
+        <p>Best regards,<br><strong>The Rushr Team</strong></p>
+      </div>
+      <div style="text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px;">
+        <p>© ${new Date().getFullYear()} Rushr. All rights reserved.</p>
+      </div>
+    </div>
+  `
+
+  return sendEmail({
+    to: contractorEmail,
+    subject,
+    html,
+    text: `Congratulations ${contractorName}! Your Rushr Pro application has been approved. Start bidding on jobs at ${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor`
+  })
+}
+
+/**
+ * Notify contractor when their application is REJECTED
+ */
+export async function notifyContractorRejected(params: {
+  contractorEmail: string
+  contractorName: string
+  businessName?: string
+  reason?: string
+}) {
+  const { contractorEmail, contractorName, businessName, reason } = params
+
+  const subject = 'Update on Your Rushr Pro Application'
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: #374151; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="margin: 0;">Application Update</h1>
+      </div>
+      <div style="background: #F9FAFB; padding: 30px; border-radius: 0 0 10px 10px;">
+        <p style="font-size: 16px;">Hi ${businessName || contractorName},</p>
+
+        <p>Thank you for your interest in joining Rushr Pro.</p>
+
+        <p>After reviewing your application, we are unable to approve your account at this time.</p>
+
+        ${reason ? `
+        <div style="background: #FEF2F2; border-left: 4px solid #EF4444; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong>Reason:</strong> ${reason}
+        </div>
+        ` : ''}
+
+        <p>If you believe this was a mistake or would like more information, please get in touch with us:</p>
+
+        <p style="text-align: center; margin: 25px 0;">
+          <a href="mailto:hello@userushr.com"
+             style="background: #3B82F6; color: white; padding: 14px 35px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+            Contact Us: hello@userushr.com
+          </a>
+        </p>
+
+        <p>We appreciate your understanding.</p>
+
+        <p>Best regards,<br><strong>The Rushr Team</strong></p>
+      </div>
+      <div style="text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px;">
+        <p>© ${new Date().getFullYear()} Rushr. All rights reserved.</p>
+      </div>
+    </div>
+  `
+
+  return sendEmail({
+    to: contractorEmail,
+    subject,
+    html,
+    text: `Hi ${contractorName}, Thank you for your interest in Rushr Pro. Unfortunately, we are unable to approve your application at this time.${reason ? ` Reason: ${reason}` : ''} If you have questions, please contact us at hello@userushr.com`
+  })
+}
+
+/**
  * Notify contractor when homeowner sends them a custom job offer
  */
 export async function notifyCustomOffer(params: {
@@ -863,5 +980,68 @@ export async function notifyCustomOffer(params: {
     subject,
     html,
     text: `Hi ${contractorName}, ${homeownerName} sent you a direct job offer for "${jobTitle}" - $${offeredAmount.toFixed(2)}. ${jobDescription}. View at ${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/offers`
+  })
+}
+
+/**
+ * Notify homeowner when they accept a bid (confirmation email)
+ */
+export async function notifyHomeownerBidAccepted(params: {
+  homeownerEmail: string
+  homeownerName: string
+  contractorName: string
+  contractorPhone: string
+  jobTitle: string
+  bidAmount: number
+  jobAddress: string
+}) {
+  const { homeownerEmail, homeownerName, contractorName, contractorPhone, jobTitle, bidAmount, jobAddress } = params
+
+  const subject = `Confirmed: ${contractorName} is on the way!`
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="margin: 0;">Contractor Confirmed!</h1>
+      </div>
+      <div style="background: #F9FAFB; padding: 30px; border-radius: 0 0 10px 10px;">
+        <p style="font-size: 16px;">Hi ${homeownerName},</p>
+
+        <p>Great news! You've accepted <strong>${contractorName}</strong>'s bid for your job.</p>
+
+        <div style="background: white; border: 1px solid #E5E7EB; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p style="margin: 8px 0;"><strong>Job:</strong> ${jobTitle}</p>
+          <p style="margin: 8px 0;"><strong>Location:</strong> ${jobAddress}</p>
+          <p style="margin: 8px 0;"><strong>Agreed Price:</strong> $${bidAmount.toFixed(2)}</p>
+          <p style="margin: 8px 0;"><strong>Contractor:</strong> ${contractorName}</p>
+          <p style="margin: 8px 0;"><strong>Contact:</strong> ${contractorPhone}</p>
+        </div>
+
+        <h3 style="color: #10B981;">What happens next?</h3>
+        <ul style="line-height: 1.8;">
+          <li>${contractorName} has been notified and will contact you shortly</li>
+          <li>You can message them directly through the app</li>
+          <li>Track the job progress in your dashboard</li>
+        </ul>
+
+        <p style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/homeowner/jobs"
+             style="background: #10B981; color: white; padding: 14px 35px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+            Track Your Job
+          </a>
+        </p>
+
+        <p>Best regards,<br><strong>The Rushr Team</strong></p>
+      </div>
+      <div style="text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px;">
+        <p>© ${new Date().getFullYear()} Rushr. All rights reserved.</p>
+      </div>
+    </div>
+  `
+
+  return sendEmail({
+    to: homeownerEmail,
+    subject,
+    html,
+    text: `Hi ${homeownerName}, Great news! You've accepted ${contractorName}'s bid for "${jobTitle}". Price: $${bidAmount.toFixed(2)}. ${contractorName} will contact you shortly at ${contractorPhone}. Track your job at ${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/homeowner/jobs`
   })
 }

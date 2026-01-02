@@ -9,7 +9,7 @@ export interface WelcomeNotification {
   user_id: string
   title: string
   message: string
-  type: 'welcome' | 'info' | 'warning' | 'success' | 'new_message' | 'payment_completed' | 'bid_received' | 'bid_accepted'
+  type: 'welcome' | 'info' | 'warning' | 'success' | 'new_message' | 'payment_completed' | 'bid_received' | 'bid_accepted' | 'approval' | 'rejection'
   read: boolean
   created_at: string
   conversation_id?: string
@@ -270,6 +270,74 @@ Ready to grow your business? 📈
     } catch (error) {
       console.error('Error checking welcome chat message:', error)
       return false
+    }
+  }
+
+  /**
+   * Send approval notification to contractor
+   */
+  static async sendApprovalNotification(params: {
+    contractorId: string
+    contractorName: string
+    businessName?: string
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const name = params.businessName || params.contractorName
+
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: params.contractorId,
+          title: 'Account Approved! 🎉',
+          message: `Congratulations ${name}!\n\nYour Rushr Pro account has been approved. You can now:\n\n• Browse and bid on available jobs\n• Connect with homeowners in your area\n• Start growing your business\n\nWelcome to the Rushr Pro network!`,
+          type: 'approval',
+          read: false
+        })
+
+      if (error) {
+        console.error('Failed to create approval notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      return { success: true }
+    } catch (err: any) {
+      console.error('Approval notification error:', err)
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * Send rejection notification to contractor
+   */
+  static async sendRejectionNotification(params: {
+    contractorId: string
+    contractorName: string
+    businessName?: string
+    reason?: string
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const name = params.businessName || params.contractorName
+      const reasonText = params.reason ? `\n\nReason: ${params.reason}` : ''
+
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: params.contractorId,
+          title: 'Application Status Update',
+          message: `Hi ${name},\n\nWe've reviewed your application and unfortunately we're unable to approve it at this time.${reasonText}\n\nIf you have questions or would like to discuss this further, please contact us:\n\n📧 hello@userushr.com\n\nWe appreciate your interest in Rushr Pro.`,
+          type: 'rejection',
+          read: false
+        })
+
+      if (error) {
+        console.error('Failed to create rejection notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      return { success: true }
+    } catch (err: any) {
+      console.error('Rejection notification error:', err)
+      return { success: false, error: err.message }
     }
   }
 }

@@ -39,6 +39,7 @@ export async function GET(req: Request) {
     let query = supabase
       .from('pro_contractors')
       .select('*')
+      .eq('status', 'approved') // Only show approved contractors in search
       .not('latitude', 'is', null)
       .not('longitude', 'is', null)
       .order('created_at', { ascending: false })

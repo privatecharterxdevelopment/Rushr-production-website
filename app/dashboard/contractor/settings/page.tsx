@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useProAuth } from '../../../../contexts/ProAuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabaseClient'
+import toast, { Toaster } from 'react-hot-toast'
 import {
   User,
   Mail,
@@ -23,7 +24,8 @@ import {
   Plus,
   X,
   Briefcase,
-  LogOut
+  LogOut,
+  Bell
 } from 'lucide-react'
 
 interface ContractorProfileData {
@@ -43,6 +45,11 @@ interface ContractorProfileData {
   bio: string
   emergencyAvailable: boolean
   weekendAvailable: boolean
+  notifications: {
+    email: boolean
+    sms: boolean
+    push: boolean
+  }
 }
 
 const serviceCategories = [
@@ -82,7 +89,12 @@ export default function ContractorSettingsPage() {
     serviceRadiusMiles: 25,
     bio: '',
     emergencyAvailable: true,
-    weekendAvailable: true
+    weekendAvailable: true,
+    notifications: {
+      email: true,
+      sms: true,
+      push: true
+    }
   })
 
   // Load existing profile data
@@ -104,7 +116,12 @@ export default function ContractorSettingsPage() {
         serviceRadiusMiles: contractorProfile.service_radius_miles || 25,
         bio: '',
         emergencyAvailable: contractorProfile.emergency_services ?? true,
-        weekendAvailable: contractorProfile.weekend_services ?? true
+        weekendAvailable: contractorProfile.weekend_services ?? true,
+        notifications: (contractorProfile as any).notification_preferences || {
+          email: true,
+          sms: true,
+          push: true
+        }
       })
     }
   }, [contractorProfile, user])
@@ -154,6 +171,47 @@ export default function ContractorSettingsPage() {
     }))
   }
 
+  const handleNotificationChange = async (type: keyof ContractorProfileData['notifications'], value: boolean) => {
+    // Update local state immediately for responsive UI
+    const newNotifications = {
+      ...profileData.notifications,
+      [type]: value
+    }
+
+    setProfileData(prev => ({
+      ...prev,
+      notifications: newNotifications
+    }))
+
+    // Show toast feedback
+    const typeLabel = type === 'email' ? 'Email' : type === 'sms' ? 'SMS' : 'Push'
+    toast.success(
+      value
+        ? `${typeLabel} notifications switched on`
+        : `${typeLabel} notifications switched off`,
+      {
+        duration: 2000,
+        style: {
+          background: '#1e293b',
+          color: '#fff',
+          borderRadius: '8px',
+        },
+      }
+    )
+
+    // Auto-save preference to database
+    if (user?.id) {
+      try {
+        await supabase
+          .from('pro_contractors')
+          .update({ notification_preferences: newNotifications })
+          .eq('id', user.id)
+      } catch (err) {
+        console.error('Failed to save notification preference:', err)
+      }
+    }
+  }
+
   const handleSave = async () => {
     if (!user?.email) {
       setError('User email is missing. Please sign out and sign back in.')
@@ -182,6 +240,7 @@ export default function ContractorSettingsPage() {
           categories: profileData.categories,
           emergency_services: profileData.emergencyAvailable,
           weekend_services: profileData.weekendAvailable,
+          notification_preferences: profileData.notifications,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id)
@@ -208,6 +267,9 @@ export default function ContractorSettingsPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
+      {/* Toast notifications */}
+      <Toaster position="top-center" />
+
       {/* Header */}
       <div className="mb-6">
         <Link
@@ -519,6 +581,82 @@ export default function ContractorSettingsPage() {
               />
               <span className="text-sm text-gray-700">Available on weekends</span>
             </label>
+          </div>
+        </div>
+
+        {/* Notification Preferences */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Bell className="h-5 w-5 text-gray-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Notification Preferences</h2>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Mail className="h-5 w-5 text-gray-400" />
+                <div>
+                  <p className="font-medium text-gray-900">Email Notifications</p>
+                  <p className="text-sm text-gray-500">New job alerts, bid updates, messages</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleNotificationChange('email', !profileData.notifications.email)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  profileData.notifications.email ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                    profileData.notifications.email ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Phone className="h-5 w-5 text-gray-400" />
+                <div>
+                  <p className="font-medium text-gray-900">SMS Notifications</p>
+                  <p className="text-sm text-gray-500">Urgent job alerts, bid accepted notifications</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleNotificationChange('sms', !profileData.notifications.sms)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  profileData.notifications.sms ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                    profileData.notifications.sms ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Bell className="h-5 w-5 text-gray-400" />
+                <div>
+                  <p className="font-medium text-gray-900">Push Notifications</p>
+                  <p className="text-sm text-gray-500">Real-time updates on your device</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleNotificationChange('push', !profileData.notifications.push)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  profileData.notifications.push ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                    profileData.notifications.push ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
 

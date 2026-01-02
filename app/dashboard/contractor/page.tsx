@@ -107,6 +107,7 @@ export default function ContractorDashboardPage() {
   })
   const [contractorZips, setContractorZips] = useState<string[]>([])
   const [showSuccessToast, setShowSuccessToast] = useState(false)
+  const [showApprovalToast, setShowApprovalToast] = useState(false)
   const [directOffers, setDirectOffers] = useState<any[]>([])
 
   // Redirect homeowners immediately
@@ -127,6 +128,20 @@ export default function ContractorDashboardPage() {
       setTimeout(() => setShowSuccessToast(false), 5000)
     }
   }, [searchParams])
+
+  // Show approval toast ONCE when contractor is first approved
+  useEffect(() => {
+    if (contractorData?.status === 'approved' && user?.id) {
+      const approvalSeenKey = `approval_toast_seen_${user.id}`
+      const hasSeenApproval = localStorage.getItem(approvalSeenKey)
+      if (!hasSeenApproval) {
+        setShowApprovalToast(true)
+        localStorage.setItem(approvalSeenKey, 'true')
+        // Auto-hide after 8 seconds
+        setTimeout(() => setShowApprovalToast(false), 8000)
+      }
+    }
+  }, [contractorData?.status, user?.id])
 
   // Load contractor data from database
   useEffect(() => {
@@ -525,9 +540,32 @@ export default function ContractorDashboardPage() {
         </div>
       )}
 
-      {/* KYC Status Banners */}
+      {/* Approval Toast - Shows ONCE when contractor is first approved */}
+      {showApprovalToast && (
+        <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-emerald-50 border-2 border-emerald-500 rounded-lg shadow-lg p-4 flex items-center gap-3 max-w-md">
+            <div className="flex-shrink-0">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-emerald-900">You're Online! 🎉</p>
+              <p className="text-xs text-emerald-700 mt-0.5">Your profile is live and you're receiving job notifications</p>
+            </div>
+            <button
+              onClick={() => setShowApprovalToast(false)}
+              className="flex-shrink-0 text-emerald-600 hover:text-emerald-800 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
-      {/* 1. NOT STARTED - Need to complete wizard */}
+      {/* KYC Status Banners - Only show if not yet approved */}
+
+      {/* NOT STARTED - Need to complete wizard */}
       {contractorData && contractorData.kyc_status === 'not_started' && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
           <div className="flex items-center">
@@ -554,7 +592,7 @@ export default function ContractorDashboardPage() {
         </div>
       )}
 
-      {/* 2. IN PROGRESS / PENDING APPROVAL - Waiting for admin */}
+      {/* IN PROGRESS / PENDING APPROVAL - Waiting for admin */}
       {contractorData && (contractorData.kyc_status === 'in_progress' || contractorData.status === 'pending_approval') && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
           <div className="flex items-center">
@@ -570,86 +608,6 @@ export default function ContractorDashboardPage() {
               </p>
               {contractorZips.length > 0 && (
                 <p className="text-yellow-600 text-sm mt-2">
-                  Service areas: {contractorZips.join(', ')}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. APPROVED - Can go online */}
-      {contractorData && contractorData.kyc_status === 'completed' && contractorData.status === 'approved' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <svg className="h-8 w-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-3 flex-1">
-              <h3 className="text-lg font-medium text-green-800">Verified & Approved!</h3>
-              <p className="text-green-700 mt-1">
-                Your account is verified. Set your status to "Online" to start receiving jobs!
-              </p>
-              {contractorZips.length > 0 && (
-                <p className="text-green-600 text-sm mt-2">
-                  Service areas: {contractorZips.join(', ')}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. STRIPE SETUP REQUIRED - Need to complete payment setup */}
-      {contractorData &&
-       contractorData.kyc_status === 'completed' &&
-       contractorData.status === 'approved' &&
-       !loadingStripe &&
-       !stripeConnectStatus?.payoutsEnabled && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <DollarSign className="h-8 w-8 text-amber-500" />
-            </div>
-            <div className="ml-3 flex-1">
-              <h3 className="text-lg font-medium text-amber-800">Payment Setup Required</h3>
-              <p className="text-amber-700 mt-1">
-                Complete your payment setup to receive payments and go online.
-              </p>
-              <p className="text-amber-600 text-sm mt-2">
-                This takes about 2 minutes. You'll provide bank account details and verify your identity with Stripe.
-              </p>
-            </div>
-            <div className="ml-4">
-              <button
-                onClick={handleCompleteStripeSetup}
-                className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 inline-block font-medium"
-              >
-                Complete Setup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 5. ONLINE - Receiving jobs */}
-      {contractorData && contractorData.availability === 'online' && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <svg className="h-8 w-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div className="ml-3 flex-1">
-              <h3 className="text-lg font-medium text-emerald-800">You're Online! 🎉</h3>
-              <p className="text-emerald-700 mt-1">
-                Your profile is live and you're receiving job notifications.
-              </p>
-              {contractorZips.length > 0 && (
-                <p className="text-emerald-600 text-sm mt-2">
                   Service areas: {contractorZips.join(', ')}
                 </p>
               )}

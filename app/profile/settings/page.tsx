@@ -27,6 +27,7 @@ import {
   EyeOff
 } from 'lucide-react'
 import { FullScreenLoading } from '../../../components/LoadingSpinner'
+import toast, { Toaster } from 'react-hot-toast'
 
 // Hook to safely check if running in native app (avoids hydration mismatch)
 function useIsNative() {
@@ -142,14 +143,45 @@ export default function ProfileSettingsPage() {
     }))
   }
 
-  const handleNotificationChange = (type: keyof ProfileFormData['notifications'], value: boolean) => {
+  const handleNotificationChange = async (type: keyof ProfileFormData['notifications'], value: boolean) => {
+    // Update local state immediately for responsive UI
+    const newNotifications = {
+      ...formData.notifications,
+      [type]: value
+    }
+
     setFormData(prev => ({
       ...prev,
-      notifications: {
-        ...prev.notifications,
-        [type]: value
-      }
+      notifications: newNotifications
     }))
+
+    // Show toast feedback
+    const typeLabel = type === 'email' ? 'Email' : type === 'sms' ? 'SMS' : 'Push'
+    toast.success(
+      value
+        ? `${typeLabel} notifications switched on`
+        : `${typeLabel} notifications switched off`,
+      {
+        duration: 2000,
+        style: {
+          background: '#1e293b',
+          color: '#fff',
+          borderRadius: '8px',
+        },
+      }
+    )
+
+    // Auto-save preference to database
+    if (user?.id) {
+      try {
+        await supabase
+          .from('user_profiles')
+          .update({ notification_preferences: newNotifications })
+          .eq('id', user.id)
+      } catch (err) {
+        console.error('Failed to save notification preference:', err)
+      }
+    }
   }
 
   const handleSave = async () => {
@@ -236,6 +268,9 @@ export default function ProfileSettingsPage() {
         paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
       }}
     >
+      {/* Toast notifications */}
+      <Toaster position="top-center" />
+
       {/* iOS Native Header */}
       {isNative && (
         <div

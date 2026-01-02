@@ -987,6 +987,20 @@ export default function PostJobInner({ userId }: Props) {
 
       console.log('[SUBMIT] Job created successfully:', insertedJob)
 
+      // Notify contractors in the area via email (fire and forget - don't block redirect)
+      // NOTE: Phone number is NOT sent - only shared after bid is accepted
+      fetch('/api/notify-contractors-new-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: insertedJob.id,
+          jobTitle: insertedJob.title,
+          jobCategory: insertedJob.category,
+          jobAddress: insertedJob.address || insertedJob.zip_code,
+          jobZip: insertedJob.zip_code
+        })
+      }).catch(err => console.error('[SUBMIT] Email notification error:', err))
+
       // Redirect to job success page with real-time bid notifications
       // Don't set sending to false before redirect - keep the loading state
       const jobId = insertedJob.job_number || insertedJob.id
