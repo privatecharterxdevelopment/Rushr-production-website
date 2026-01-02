@@ -409,7 +409,7 @@ export default function FindProPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name, city, or service"
+              placeholder="Search contractors, services, or city..."
               className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-[13px] outline-none transition focus:border-emerald-400"
             />
           </div>
@@ -540,119 +540,56 @@ export default function FindProPage() {
           </button>
         </div>
 
-        {/* LINE 2 */}
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <div className="flex min-w-0 items-center gap-2 grow">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-500">Radius</span>
-              <input
-                type="range"
-                min={1}
-                max={50}
-                step={1}
-                value={radius}
-                onChange={(e) => setRadius(Number(e.target.value))}
-                className="accent-emerald-500"
-              />
-              <div className="w-12 text-right text-[11px] text-slate-700">
-                {radius} mi
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-500">Min rating</span>
-              <select
-                value={minRating}
-                onChange={(e) => setMinRating(Number(e.target.value))}
-                className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-[13px]"
-              >
-                <option value={0}>Any</option>
-                <option value={3}>3.0+</option>
-                <option value={3.5}>3.5+</option>
-                <option value={4}>4.0+</option>
-                <option value={4.5}>4.5+</option>
-              </select>
-
-              <span className="ml-1 text-[11px] text-slate-500">Experience</span>
-              <select
-                value={minYears}
-                onChange={(e) => setMinYears(Number(e.target.value))}
-                className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-[13px]"
-                title="Minimum years in business"
-              >
-                <option value={0}>Any</option>
-                <option value={3}>3+ yrs</option>
-                <option value={5}>5+ yrs</option>
-                <option value={10}>10+ yrs</option>
-              </select>
-            </div>
+        {/* LINE 2 - Simplified filters */}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {/* Radius slider */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-500">Radius</span>
+            <input
+              type="range"
+              min={1}
+              max={50}
+              step={1}
+              value={radius}
+              onChange={(e) => setRadius(Number(e.target.value))}
+              className="w-24 accent-emerald-500"
+            />
+            <span className="text-[12px] font-medium text-slate-700 w-10">{radius} mi</span>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setMinRating(minRating >= 4.5 ? 0 : 4.5)}
-              className={
-                'rounded-full px-3 py-1.5 text-[12px] font-medium transition ' +
-                (minRating >= 4.5
-                  ? 'bg-amber-500 text-white shadow-sm'
-                  : 'border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')
-              }
-              title="Only show 4.5 and up"
-            >
-              Top rated
-            </button>
+          {/* Top Rated toggle */}
+          <button
+            onClick={() => setMinRating(minRating >= 4.5 ? 0 : 4.5)}
+            className={
+              'rounded-full px-3 py-1.5 text-[12px] font-medium transition ' +
+              (minRating >= 4.5
+                ? 'bg-amber-500 text-white shadow-sm'
+                : 'border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100')
+            }
+          >
+            ⭐ Top Rated
+          </button>
 
-            <details className="relative">
-              <summary className="inline-flex select-none items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] leading-none text-slate-800 hover:bg-slate-50 cursor-pointer">
-                <span className="truncate max-w-[220px]">
-                  {hoursTags.length ? `Hours: ${hoursTags.map(prettyHours).join(', ')}` : 'Hours: Any'}
-                </span>
-                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4 opacity-60">
-                  <path d="M5.5 7.5l4.5 4 4.5-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </summary>
+          {/* 24/7 toggle */}
+          <button
+            onClick={() => setHoursTags(hoursTags.includes('24_7') ? [] : ['24_7'])}
+            className={
+              'rounded-full px-3 py-1.5 text-[12px] font-medium transition ' +
+              (hoursTags.includes('24_7')
+                ? 'bg-emerald-500 text-white shadow-sm'
+                : 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100')
+            }
+          >
+            🕐 24/7
+          </button>
 
-              <button
-                type="button"
-                aria-hidden="true"
-                className="fixed inset-0 z-[2500] cursor-default bg-transparent"
-                onClick={(e) => {
-                  e.preventDefault()
-                  ;(e.currentTarget.closest('details') as HTMLDetailsElement)?.removeAttribute('open')
-                }}
-              />
-
-              <div className="absolute right-0 z-[3000] mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                <button
-                  className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-slate-50"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    setHoursTags([])
-                    ;(e.currentTarget.closest('details') as HTMLDetailsElement)?.removeAttribute('open')
-                  }}
-                >
-                  Any
-                </button>
-                <div className="my-1 h-px bg-slate-100" />
-                <div className="max-h-48 overflow-auto pr-1">
-                  {HOURS_OPTIONS.map((opt) => (
-                    <label
-                      key={opt.value}
-                      className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-slate-50"
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 rounded border-slate-300 accent-emerald-500"
-                        checked={hoursTags.includes(opt.value)}
-                        onChange={() => toggleHoursTag(opt.value)}
-                      />
-                      <span className="text-slate-800">{opt.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </details>
-          </div>
+          {/* Reset button */}
+          <button
+            onClick={resetAll}
+            className="ml-auto rounded-full border border-slate-200 px-3 py-1.5 text-[12px] text-slate-600 hover:bg-slate-50"
+          >
+            Reset
+          </button>
         </div>
       </div>
 
@@ -872,7 +809,7 @@ export default function FindProPage() {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search name, city, or service"
+                  placeholder="Search contractors, services, or city..."
                   className="flex-1 rounded-xl bg-gray-100 px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <button
