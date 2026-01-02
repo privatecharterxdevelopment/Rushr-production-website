@@ -49,32 +49,29 @@ export default function HeroMapPreview({ searchCenter }: HeroMapPreviewProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 50, scale: 0.9 }}
+      initial={{ opacity: 0, y: 30, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{
-        duration: 1,
-        delay: 0.3,
-        ease: [0.16, 1, 0.3, 1] // Custom ease curve
+        duration: 0.8,
+        delay: 0.2,
+        ease: [0.16, 1, 0.3, 1]
       }}
-      className="relative"
+      className="relative w-full max-w-[320px] mx-auto"
       style={{
-        width: '380px',
-        height: '820px',
+        aspectRatio: '9/16',
       }}
     >
       {/* iPhone-style frame */}
-      <div
-        className="relative bg-black rounded-[3rem] p-3.5 h-full"
-      >
+      <div className="relative bg-black rounded-[2.5rem] p-3 h-full shadow-2xl">
         {/* iPhone notch */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-black rounded-b-3xl w-32 h-6 z-10" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-black rounded-b-2xl w-24 h-5 z-10" />
 
         {/* Screen content - Full map */}
-        <div className="relative w-full h-full bg-white rounded-[2.5rem] overflow-hidden">
+        <div className="relative w-full h-full bg-white rounded-[2rem] overflow-hidden">
           <ProMapInner
             items={contractors}
             hideSidebar={true}
-            searchCenter={searchCenter || [40.7128, -74.006]} // Use prop or default to NYC
+            searchCenter={searchCenter || [40.7128, -74.006]}
             radiusMiles={5}
           />
         </div>
