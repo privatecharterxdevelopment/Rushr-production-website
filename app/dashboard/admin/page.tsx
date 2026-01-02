@@ -97,8 +97,6 @@ export default function AdminDashboard() {
         approvedRes,
         rejectedRes,
         homeownersRes,
-        totalTicketsRes,
-        newTicketsRes,
         activeJobsRes,
         completedJobsRes,
       ] = await Promise.all([
@@ -107,11 +105,19 @@ export default function AdminDashboard() {
         supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
         supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'rejected'),
         supabase.from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'homeowner'),
-        supabase.from('support_messages').select('*', { count: 'exact', head: true }).then(res => res).catch(() => ({ count: 0, data: null, error: null })),
-        supabase.from('support_messages').select('*', { count: 'exact', head: true }).eq('status', 'new').then(res => res).catch(() => ({ count: 0, data: null, error: null })),
         supabase.from('homeowner_jobs').select('*', { count: 'exact', head: true }).in('status', ['pending', 'bid_accepted', 'confirmed', 'in_progress']),
         supabase.from('homeowner_jobs').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
       ])
+
+      // Fetch support tickets separately (table might not exist)
+      let totalTickets = 0
+      let newTickets = 0
+      const ticketsRes = await supabase.from('support_messages').select('*', { count: 'exact', head: true })
+      if (!ticketsRes.error) {
+        totalTickets = ticketsRes.count || 0
+        const newTicketsRes = await supabase.from('support_messages').select('*', { count: 'exact', head: true }).eq('status', 'new')
+        newTickets = newTicketsRes.count || 0
+      }
 
       setStats({
         pendingContractors: pendingRes.count || 0,
@@ -119,8 +125,8 @@ export default function AdminDashboard() {
         approvedContractors: approvedRes.count || 0,
         rejectedContractors: rejectedRes.count || 0,
         totalHomeowners: homeownersRes.count || 0,
-        newSupportTickets: (newTicketsRes as any).count || 0,
-        totalSupportTickets: (totalTicketsRes as any).count || 0,
+        newSupportTickets: newTickets,
+        totalSupportTickets: totalTickets,
         activeJobs: activeJobsRes.count || 0,
         completedJobs: completedJobsRes.count || 0,
       })
