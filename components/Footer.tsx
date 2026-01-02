@@ -116,22 +116,24 @@ export default function Footer() {
               href="https://apps.apple.com/app/rushr"
               target="_blank"
               rel="noopener noreferrer"
+              className="hover:opacity-80 transition-opacity"
             >
               <img
                 src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg"
                 alt="Download on the App Store"
-                className="h-8"
+                className="h-[34px]"
               />
             </a>
             <a
               href="https://play.google.com/store/apps/details?id=com.rushr"
               target="_blank"
               rel="noopener noreferrer"
+              className="hover:opacity-80 transition-opacity -ml-1"
             >
               <img
                 src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png"
                 alt="Get it on Google Play"
-                className="h-12 -my-2"
+                className="h-[50px]"
               />
             </a>
           </div>
@@ -154,7 +156,7 @@ export default function Footer() {
             <li><FLink href="/">Home</FLink></li>
             <li><FLink href="/how-it-works">How It Works</FLink></li>
             <li><FLink href="/pro/how-it-works">How it Works For Pros</FLink></li>
-            <li><FLink href="/teams">Rushr Teams</FLink></li>
+            {/* <li><FLink href="/teams">Rushr Teams</FLink></li> */}
             <li><FLink href="/find-pro">Search For A Pro</FLink></li>
             <li><FLink href="/dashboard/contractor/jobs">Find Jobs (Contractors)</FLink></li>
             <li><FLink href="/post-job">Post a Job</FLink></li>

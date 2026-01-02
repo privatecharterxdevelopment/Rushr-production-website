@@ -277,7 +277,7 @@ export default function ProMapInner({
   const userLocationMarkerRef = useRef<any>(null)
   const radiusCircleRef = useRef<any>(null)
 
-  // Function to add user location marker
+  // Function to add user location marker - green pulsing dot
   async function addUserLocationMarker(map: any, location: [number, number]) {
     if (!map || !location) return
 
@@ -289,80 +289,24 @@ export default function ProMapInner({
 
     const mapboxgl = (await import('mapbox-gl')).default
 
-    // Create white rounded dot with Rushr logo
+    // Create green pulsing dot (matching FindProMapbox style)
     const el = document.createElement('div')
     el.className = 'user-location-marker'
-    el.style.cssText = `
-      width: 50px;
-      height: 50px;
-      position: relative;
-    `
-
-    // White circular background
-    const dot = document.createElement('div')
-    dot.style.cssText = `
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 40px;
-      height: 40px;
-      background-color: white;
-      border-radius: 50%;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 0 0 3px rgba(16, 185, 129, 0.3);
-      z-index: 2;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `
-
-    // Rushr logo image
-    const logo = document.createElement('img')
-    logo.src = '/rushr.png'
-    logo.style.cssText = `
-      width: 20px;
-      height: 20px;
-      object-fit: contain;
-    `
-    logo.onerror = () => {
-      // Fallback if logo fails to load - show green dot
-      logo.style.display = 'none'
-      dot.style.backgroundColor = '#10b981'
-    }
-    dot.appendChild(logo)
-    el.appendChild(dot)
-
-    // Pulsing ring
-    const pulse = document.createElement('div')
-    pulse.style.cssText = `
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 50px;
-      height: 50px;
-      border: 2px solid #10b981;
-      border-radius: 50%;
-      animation: user-location-pulse 2s ease-out infinite;
-      opacity: 0.6;
-      z-index: 1;
-    `
-    el.appendChild(pulse)
-
-    // Add animation keyframes if not already added
-    if (!document.getElementById('user-location-pulse-animation')) {
-      const style = document.createElement('style')
-      style.id = 'user-location-pulse-animation'
-      style.textContent = `
-        @keyframes user-location-pulse {
-          0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; }
-          100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+    el.innerHTML = `
+      <div style="position: relative; width: 20px; height: 20px;">
+        <div style="position: absolute; width: 20px; height: 20px; background: rgba(16, 185, 129, 0.3); border-radius: 50%; animation: pulse 2s infinite;"></div>
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: #10b981; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>
+      </div>
+      <style>
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.8); opacity: 0.5; }
+          100% { transform: scale(2.5); opacity: 0; }
         }
-      `
-      document.head.appendChild(style)
-    }
+      </style>
+    `
 
-    const marker = new mapboxgl.Marker(el)
+    const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
       .setLngLat([location[1], location[0]]) // Mapbox uses [lng, lat]
       .setPopup(
         new mapboxgl.Popup({ offset: 25 })
