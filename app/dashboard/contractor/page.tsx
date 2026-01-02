@@ -660,9 +660,10 @@ export default function ContractorDashboardPage() {
 
       {/* header */}
       <div className="mb-2 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink dark:text-white">
-            Dashboard <Badge>Pro</Badge>
+        <div className="text-center sm:text-left">
+          <h1 className="text-xl lg:text-2xl font-semibold text-ink dark:text-white flex flex-wrap items-center justify-center sm:justify-start gap-2">
+            <span>Dashboard</span>
+            <Badge>Pro</Badge>
           </h1>
           <p className="text-sm text-gray-600 mt-1">
             Welcome back, {contractorData?.name || contractorProfile?.name || user?.email || 'Contractor'}!
