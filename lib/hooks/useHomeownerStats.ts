@@ -30,6 +30,7 @@ export interface HomeownerJob {
   updated_at: string
   requested_contractor_id?: string | null
   requested_contractor_name?: string | null
+  bids_count?: number
 }
 
 export function useHomeownerStats() {
@@ -133,6 +134,8 @@ export function useHomeownerStats() {
 
   // Set up real-time subscriptions
   useEffect(() => {
+    let isMounted = true
+
     if (!user) {
       // Reset state when no user
       setStats(null)
@@ -143,7 +146,7 @@ export function useHomeownerStats() {
 
     // Initial fetch
     const loadInitialData = async () => {
-      if (!user) return
+      if (!user || !isMounted) return
 
       try {
         // Fetch stats and jobs in parallel
@@ -161,9 +164,14 @@ export function useHomeownerStats() {
             .limit(10)
         ])
 
-        // Handle stats
+        if (!isMounted) return
+
+        // Handle stats - silently use defaults if no row exists (PGRST116 = no rows returned)
         if (statsResult.error) {
-          console.error('Error fetching homeowner stats:', statsResult.error.message || JSON.stringify(statsResult.error))
+          // Only log non-expected errors (not "no rows" which is expected for new users)
+          if (statsResult.error.code !== 'PGRST116') {
+            console.warn('Homeowner stats not available:', statsResult.error.code)
+          }
           setStats({
             active_services: 0,
             completed_services: 0,
@@ -179,16 +187,40 @@ export function useHomeownerStats() {
 
         // Handle jobs
         if (jobsResult.error) {
-          console.error('Error fetching homeowner jobs:', jobsResult.error.message || JSON.stringify(jobsResult.error))
+          console.warn('Could not load homeowner jobs:', jobsResult.error.code)
           setJobs([])
         } else {
           setJobs(jobsResult.data || [])
         }
       } catch (err: any) {
-        console.error('Error loading initial data:', err?.message || JSON.stringify(err))
-        setError(err?.message || 'Failed to load dashboard data')
+        // Silently handle network errors (Load failed, AbortError, etc.) - these are transient
+        const isNetworkError = err?.message?.includes('Load failed') ||
+                               err?.message?.includes('AbortError') ||
+                               err?.message?.includes('network') ||
+                               err?.name === 'AbortError'
+
+        if (!isNetworkError && isMounted) {
+          console.warn('Dashboard data fetch issue:', err?.message)
+          setError('Failed to load dashboard data')
+        }
+
+        // Still set defaults so the UI doesn't break
+        if (isMounted) {
+          setStats({
+            active_services: 0,
+            completed_services: 0,
+            unread_messages: 0,
+            trusted_contractors: 0,
+            total_spent: 0,
+            first_job_completed: false,
+            member_since: new Date().toISOString()
+          })
+          setJobs([])
+        }
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
 
@@ -221,6 +253,7 @@ export function useHomeownerStats() {
       .subscribe()
 
     return () => {
+      isMounted = false
       if (debounceTimer) clearTimeout(debounceTimer)
       jobsSubscription.unsubscribe()
     }

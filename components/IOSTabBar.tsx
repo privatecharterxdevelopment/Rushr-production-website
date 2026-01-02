@@ -96,16 +96,15 @@ export default function IOSTabBar({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50"
+      className="fixed left-0 right-0 z-50 bg-white/95 backdrop-blur-lg"
       style={{
-        paddingBottom: 'max(env(safe-area-inset-bottom, 20px), 20px)',
-        background: 'rgba(255, 255, 255, 0.92)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '0.5px solid rgba(0, 0, 0, 0.1)'
+        bottom: '1px',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        borderTop: '1px solid rgba(0,0,0,0.06)',
+        boxShadow: '0 -1px 10px rgba(0,0,0,0.03)'
       }}
     >
-      <div className="flex items-center justify-around py-2">
+      <div className="flex items-center justify-around pt-2 pb-1">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id
           const badge = tab.id === 'messages' ? unreadMessages : tab.id === 'notifications' ? unreadNotifications : 0

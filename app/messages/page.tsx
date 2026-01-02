@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useProAuth } from '../../contexts/ProAuthContext'
 import { useConversations, useConversation } from '../../lib/hooks/useMessaging'
 import { Capacitor } from '@capacitor/core'
+import { safeBack } from '../../lib/safeBack'
 import {
   ArrowLeft,
   Send,
@@ -43,7 +44,7 @@ export default function MessagesPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { conversations, loading: convsLoading, refresh: refreshConversations, markConversationAsRead } = useConversations(user?.id, isContractor ? 'pro' : 'homeowner')
+  const { conversations, loading: convsLoading, error: convsError, refresh: refreshConversations, markConversationAsRead } = useConversations(user?.id, isContractor ? 'pro' : 'homeowner')
   const { messages, loading: msgsLoading, sendMessage, markAsRead } = useConversation(selectedConversation, user?.id)
 
   const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform()
@@ -61,17 +62,21 @@ export default function MessagesPage() {
     }
   }, [selectedConversation, markAsRead, markConversationAsRead])
 
-  // Loading state
-  if (homeownerLoading || contractorLoading) {
+  // Loading state - include auth loading AND conversations loading
+  if (homeownerLoading || contractorLoading || (user && convsLoading)) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="text-center">
-          <img
-            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-            alt="Loading..."
-            className="h-12 w-12 mx-auto mb-4 object-contain"
-          />
-          <p className="text-gray-600">Loading messages...</p>
+      <div className="flex items-center justify-center min-h-screen bg-white">
+        <div className="flex flex-col items-center">
+          <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
+            <div className="absolute inset-0 rounded-full border-emerald-200 border-t-emerald-600 animate-spin" style={{ borderWidth: 3 }} />
+            <img
+              src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
+              alt="Rushr"
+              style={{ width: 44, height: 44 }}
+              className="object-contain"
+            />
+          </div>
+          <p className="text-slate-600 text-sm mt-3">Loading messages...</p>
         </div>
       </div>
     )
@@ -81,6 +86,27 @@ export default function MessagesPage() {
   if (!user) {
     router.replace('/')
     return null
+  }
+
+  // Error loading conversations
+  if (convsError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="text-center p-6">
+          <div className="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+            <X className="h-8 w-8 text-red-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-800 mb-2">Failed to load messages</h3>
+          <p className="text-slate-500 text-sm mb-4">{convsError}</p>
+          <button
+            onClick={() => refreshConversations()}
+            className="px-6 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // Filter and sort conversations
@@ -163,13 +189,13 @@ export default function MessagesPage() {
             className="relative z-50 flex-shrink-0"
             style={{
               background: 'linear-gradient(135deg, #10b981, #059669)',
-              paddingTop: 'env(safe-area-inset-top, 44px)'
+              paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
             }}
           >
             <div className="px-4 py-4">
               <div className="flex items-center justify-between mb-4">
                 <button
-                  onClick={() => router.back()}
+                  onClick={() => safeBack(router, '/')}
                   className="flex items-center text-white active:opacity-60"
                   style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
@@ -303,7 +329,7 @@ export default function MessagesPage() {
           <div className="px-4 py-4">
             <div className="flex items-center justify-between mb-4">
               <button
-                onClick={() => router.back()}
+                onClick={() => safeBack(router, '/')}
                 className="p-2 -ml-2 rounded-full hover:bg-white/20 active:bg-white/30 transition-colors"
               >
                 <ArrowLeft className="h-6 w-6" />
@@ -431,7 +457,7 @@ export default function MessagesPage() {
         className="flex-shrink-0"
         style={isNative ? {
           background: 'linear-gradient(135deg, #10b981, #059669)',
-          paddingTop: 'env(safe-area-inset-top, 44px)'
+          paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
         } : {
           background: 'linear-gradient(135deg, #10b981, #059669)'
         }}

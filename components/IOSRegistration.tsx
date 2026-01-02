@@ -17,7 +17,11 @@ const triggerNotification = async (type: NotificationType) => {
   try { await Haptics.notification({ type }) } catch (e) {}
 }
 
-export default function IOSRegistration() {
+interface Props {
+  onSwitchToContractor?: () => void
+}
+
+export default function IOSRegistration({ onSwitchToContractor }: Props) {
   const { signIn, signUp } = useAuth()
 
   const [screen, setScreen] = useState<Screen>('splash')
@@ -178,6 +182,16 @@ export default function IOSRegistration() {
           >
             I already have an account
           </button>
+
+          {/* Switch to Contractor */}
+          {onSwitchToContractor && (
+            <button
+              onClick={onSwitchToContractor}
+              className="w-full text-center text-gray-500 text-sm mt-4 py-2"
+            >
+              Are you a pro? <span className="text-emerald-600 font-medium">Join as contractor</span>
+            </button>
+          )}
         </div>
       </div>
     )
@@ -190,7 +204,7 @@ export default function IOSRegistration() {
         {/* Back button - floating */}
         <div
           className="absolute left-4 z-20"
-          style={{ top: 'calc(env(safe-area-inset-top, 44px) + 8px)' }}
+          style={{ top: 'max(calc(env(safe-area-inset-top, 44px) + 12px), 56px)' }}
         >
           <button
             onClick={() => navigateTo('welcome')}
@@ -206,11 +220,11 @@ export default function IOSRegistration() {
         <div
           className="flex-1 overflow-y-auto"
           style={{
-            paddingTop: 'calc(env(safe-area-inset-top, 44px) + 60px)',
+            paddingTop: 'calc(env(safe-area-inset-top, 44px) + 80px)',
             paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 100px)'
           }}
         >
-          <div className="px-6">
+          <div className="px-6 pt-6">
             {/* Title */}
             <h1 className="text-[28px] font-bold text-gray-900 mb-2">Welcome back</h1>
             <p className="text-gray-500 text-[15px] mb-8">Sign in to continue</p>
@@ -283,7 +297,7 @@ export default function IOSRegistration() {
         {/* Back button - floating */}
         <div
           className="absolute left-4 z-20"
-          style={{ top: 'calc(env(safe-area-inset-top, 44px) + 8px)' }}
+          style={{ top: 'max(calc(env(safe-area-inset-top, 44px) + 12px), 56px)' }}
         >
           <button
             onClick={() => navigateTo('welcome')}
@@ -295,28 +309,28 @@ export default function IOSRegistration() {
           </button>
         </div>
 
-        {/* Scrollable content */}
+        {/* Scrollable content - includes button at bottom so it's always visible when scrolled */}
         <div
           className="flex-1 overflow-y-auto"
           style={{
             paddingTop: 'calc(env(safe-area-inset-top, 44px) + 60px)',
-            paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 100px)'
+            paddingBottom: 'calc(env(safe-area-inset-bottom, 34px) + 20px)'
           }}
         >
-          <div className="px-6">
-            {/* Title */}
+          <div className="px-6 pt-6">
+            {/* Title - reduced spacing */}
             <h1 className="text-[28px] font-bold text-gray-900 mb-2">Create account</h1>
-            <p className="text-gray-500 text-[15px] mb-8">Get started in seconds</p>
+            <p className="text-gray-500 text-[15px] mb-6">Get started in seconds</p>
 
             {/* Error */}
             {error && (
-              <div className="mb-6 p-4 bg-red-50 rounded-xl border border-red-100">
+              <div className="mb-4 p-4 bg-red-50 rounded-xl border border-red-100">
                 <p className="text-red-600 text-[14px]">{error}</p>
               </div>
             )}
 
-            {/* Form */}
-            <div className="space-y-5">
+            {/* Form - constrained width for better proportions */}
+            <div className="space-y-4 max-w-sm mx-auto">
               <div>
                 <label className="block text-gray-600 text-[13px] font-medium mb-2">Full name</label>
                 <input
@@ -325,7 +339,7 @@ export default function IOSRegistration() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="John Smith"
                   autoCapitalize="words"
-                  className="w-full px-4 py-4 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  className="w-full px-4 py-3.5 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
                 />
               </div>
 
@@ -338,7 +352,7 @@ export default function IOSRegistration() {
                   placeholder="you@example.com"
                   autoCapitalize="none"
                   autoCorrect="off"
-                  className="w-full px-4 py-4 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  className="w-full px-4 py-3.5 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
                 />
               </div>
 
@@ -349,33 +363,28 @@ export default function IOSRegistration() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimum 8 characters"
-                  className="w-full px-4 py-4 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  className="w-full px-4 py-3.5 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
                 />
               </div>
+
+              {/* Create Account Button - inline with form so it scrolls into view */}
+              <button
+                onClick={handleSignUp}
+                disabled={loading}
+                className="w-full py-4 rounded-2xl font-semibold text-[17px] text-white active:scale-[0.98] transition-transform disabled:opacity-50 mt-6"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)'
+                }}
+              >
+                {loading ? 'Creating account...' : 'Create Account'}
+              </button>
+
+              <p className="text-gray-400 text-[12px] text-center mt-4 pb-4">
+                By continuing, you agree to our Terms & Privacy Policy
+              </p>
             </div>
-
-            <p className="text-gray-400 text-[12px] text-center mt-6">
-              By continuing, you agree to our Terms & Privacy Policy
-            </p>
           </div>
-        </div>
-
-        {/* Fixed bottom button */}
-        <div
-          className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 pt-4"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 16px)' }}
-        >
-          <button
-            onClick={handleSignUp}
-            disabled={loading}
-            className="w-full py-4 rounded-2xl font-semibold text-[17px] text-white active:scale-[0.98] transition-transform disabled:opacity-50"
-            style={{
-              background: 'linear-gradient(135deg, #10b981, #059669)',
-              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)'
-            }}
-          >
-            {loading ? 'Creating account...' : 'Create Account'}
-          </button>
         </div>
       </div>
     )

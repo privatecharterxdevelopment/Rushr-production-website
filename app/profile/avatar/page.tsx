@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabaseClient'
+import { Capacitor } from '@capacitor/core'
+import { safeBack } from '../../../lib/safeBack'
 import toast, { Toaster } from 'react-hot-toast'
 import {
   Camera,
@@ -15,10 +17,21 @@ import {
   User,
   Trash2
 } from 'lucide-react'
+import { FullScreenLoading } from '../../../components/LoadingSpinner'
+
+// Hook to safely check if running in native app (avoids hydration mismatch)
+function useIsNative() {
+  const [isNative, setIsNative] = React.useState(false)
+  React.useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform())
+  }, [])
+  return isNative
+}
 
 export default function AvatarUploadPage() {
   const { user: homeownerUser, userProfile: homeownerProfile, refreshProfile: refreshHomeownerProfile, loading: homeownerLoading } = useAuth()
   const router = useRouter()
+  const isNative = useIsNative()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -27,20 +40,9 @@ export default function AvatarUploadPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // Show loading spinner while auth is loading
+  // Show full-screen loading while auth is loading
   if (homeownerLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <img
-            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-            alt="Loading..."
-            className="h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4 object-contain"
-          />
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    )
+    return <FullScreenLoading />
   }
 
   // Only homeowners can access this page - check if logged in
@@ -236,18 +238,50 @@ export default function AvatarUploadPage() {
 
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <div
+      className="min-h-screen bg-slate-50 dark:bg-slate-900"
+      style={{
+        paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
+        paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
+      }}
+    >
+      {/* iOS Native Header */}
+      {isNative && (
+        <div
+          className="sticky top-0 z-50"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => safeBack(router, '/dashboard')}
+              className="flex items-center text-white active:opacity-60"
+            >
+              <ArrowLeft className="w-6 h-6" />
+              <span className="ml-1 font-medium">Back</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              Profile Image
+            </h1>
+          </div>
+        </div>
+      )}
+
       <Toaster position="top-center" />
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         {/* Header */}
         <div className="mb-8">
-          <Link
-            href="/dashboard/homeowner"
-            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-4"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Dashboard
-          </Link>
+          {!isNative && (
+            <Link
+              href="/dashboard/homeowner"
+              className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-4"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </Link>
+          )}
 
           <div className="flex items-center gap-3 mb-6">
             <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900">

@@ -3,10 +3,23 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
 import { useApp } from '../../lib/state'
+import { safeBack } from '../../lib/safeBack'
 import RequireAuth from '../../components/RequireAuth'
 import { supabaseBrowser } from '../../utils/supabase-browser' // 👈 make sure this path matches your project
 import { getDensity, getTheme, setDensity, setTheme, type DensityPref, type ThemePref } from '../../utils/prefs'
+
+// Hook to safely check if running in native app (avoids hydration mismatch)
+function useIsNative() {
+  const [isNative, setIsNative] = React.useState(false)
+  React.useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform())
+  }, [])
+  return isNative
+}
 
 /* ---------- small toast helper that tries your global Toaster ---------- */
 function useToastSafe() {
@@ -67,17 +80,27 @@ function AccountPage(){
   const { state } = useApp()
   const { toast, InlineBanner } = useToastSafe()
   const [tab, setTab] = useState<TabKey>('profile')
+  const router = useRouter()
+  const isNative = useIsNative()
 
-  // Restore last tab
+  // Restore last tab or use URL param
   useEffect(()=>{
+    // Check URL params first (for iOS app deep linking)
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlTab = urlParams.get('tab') as TabKey | null
+    if (urlTab && TABS.some(t=>t.key === urlTab)) {
+      setTab(urlTab)
+      return
+    }
+    // Fallback to localStorage
     const saved = localStorage.getItem('accountTab') as TabKey | null
     if (saved && TABS.some(t=>t.key === saved)) setTab(saved)
   },[])
   useEffect(()=>{ localStorage.setItem('accountTab', tab) },[tab])
 
   // normalize role to UI enums we use here
-  const roleUpper = ((state.user.role || 'homeowner').toString().toUpperCase()) as 'HOMEOWNER'|'CONTRACTOR'
-  const name = state.user.name || 'User'
+  const roleUpper = ((state?.user?.role || 'homeowner').toString().toUpperCase()) as 'HOMEOWNER'|'CONTRACTOR'
+  const name = state?.user?.name || 'User'
 
   // Tablist a11y
   const navRef = useRef<HTMLUListElement>(null)
@@ -91,17 +114,50 @@ function AccountPage(){
   }
 
   return (
-    <div className="mx-auto max-w-6xl relative">
-      {InlineBanner}
-
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink dark:text-white">Account</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300">Manage your profile, security, addresses, and preferences.</p>
+    <div
+      className="min-h-screen bg-slate-50 dark:bg-slate-900"
+      style={{
+        paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
+        paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
+      }}
+    >
+      {/* iOS Native Header */}
+      {isNative && (
+        <div
+          className="sticky top-0 z-50"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => safeBack(router, '/dashboard')}
+              className="flex items-center text-white active:opacity-60"
+            >
+              <ArrowLeft className="w-6 h-6" />
+              <span className="ml-1 font-medium">Back</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              Account
+            </h1>
+          </div>
         </div>
-        <Link href="/dashboard" className="btn">Back to Dashboard</Link>
-      </div>
+      )}
+
+      <div className="mx-auto max-w-6xl relative p-4">
+        {InlineBanner}
+
+        {/* Header - Web only */}
+        {!isNative && (
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-ink dark:text-white">Account</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-300">Manage your profile, security, addresses, and preferences.</p>
+            </div>
+            <Link href="/dashboard" className="btn">Back to Dashboard</Link>
+          </div>
+        )}
 
       {/* Layout */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[220px,1fr]">
@@ -210,6 +266,7 @@ function AccountPage(){
             <DangerZoneSection onExport={()=>toast('Export started')} onDelete={()=>toast('Delete requested')} />
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

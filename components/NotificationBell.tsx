@@ -56,7 +56,7 @@ export default function NotificationBell({ className = '' }: NotificationBellPro
     }
 
     return () => {
-      notificationSubscription.unsubscribe()
+      supabase.removeChannel(notificationSubscription)
     }
   }, [user])
 

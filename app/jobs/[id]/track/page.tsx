@@ -136,11 +136,14 @@ export default function TrackContractorPage() {
       if (!user || !jobId) return
 
       try {
+        // Check if ID is a number (job_number) or UUID (backward compatibility)
+        const isJobNumber = /^\d+$/.test(jobId)
+
         // Fetch job
         const { data: jobData, error: jobError } = await supabase
           .from('homeowner_jobs')
           .select('*')
-          .eq('id', jobId)
+          .eq(isJobNumber ? 'job_number' : 'id', jobId)
           .eq('homeowner_id', user.id)
           .single()
 
@@ -152,11 +155,14 @@ export default function TrackContractorPage() {
 
         setJob(jobData)
 
+        // Use the actual job UUID for subsequent queries
+        const actualJobId = jobData.id
+
         // Fetch accepted bid to get contractor
         const { data: bidData, error: bidError } = await supabase
           .from('job_bids')
           .select('contractor_id')
-          .eq('job_id', jobId)
+          .eq('job_id', actualJobId)
           .eq('status', 'accepted')
           .single()
 
@@ -182,8 +188,8 @@ export default function TrackContractorPage() {
         setContractor(contractorData)
         setLoading(false)
 
-        // Subscribe to location updates
-        subscribeToLocation(bidData.contractor_id, jobData)
+        // Subscribe to location updates using the actual job UUID
+        subscribeToLocation(bidData.contractor_id, jobData, actualJobId)
       } catch (err: any) {
         console.error('Error fetching data:', err)
         setError(err.message || 'Failed to load tracking data')
@@ -194,16 +200,16 @@ export default function TrackContractorPage() {
     fetchData()
   }, [user, jobId])
 
-  const subscribeToLocation = (contractorId: string, jobData: Job) => {
+  const subscribeToLocation = (contractorId: string, jobData: Job, actualJobId: string) => {
     const channel = supabase
-      .channel(`contractor-location-${jobId}`)
+      .channel(`contractor-location-${actualJobId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'contractor_location_tracking',
-          filter: `job_id=eq.${jobId}`
+          filter: `job_id=eq.${actualJobId}`
         },
         (payload) => {
           console.log('[TRACKING] Location update:', payload)
@@ -217,18 +223,18 @@ export default function TrackContractorPage() {
       .subscribe()
 
     // Fetch initial location
-    fetchInitialLocation(contractorId, jobData)
+    fetchInitialLocation(contractorId, jobData, actualJobId)
 
     return () => {
       supabase.removeChannel(channel)
     }
   }
 
-  const fetchInitialLocation = async (contractorId: string, jobData: Job) => {
+  const fetchInitialLocation = async (contractorId: string, jobData: Job, actualJobId: string) => {
     const { data, error } = await supabase
       .from('contractor_location_tracking')
       .select('*')
-      .eq('job_id', jobId)
+      .eq('job_id', actualJobId)
       .eq('contractor_id', contractorId)
       .order('last_update_at', { ascending: false })
       .limit(1)
@@ -329,14 +335,18 @@ export default function TrackContractorPage() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-100">
-        <div className="text-center">
-          <img
-          src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-          alt="Loading..."
-          className="h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4 object-contain"
-        />
-          <p className="text-slate-600">Loading tracking...</p>
+      <div className="h-screen flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center">
+          <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
+            <div className="absolute inset-0 rounded-full border-emerald-200 border-t-emerald-600 animate-spin" style={{ borderWidth: 3 }} />
+            <img
+              src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
+              alt="Rushr"
+              style={{ width: 44, height: 44 }}
+              className="object-contain"
+            />
+          </div>
+          <p className="text-slate-600 text-sm mt-3">Loading tracking...</p>
         </div>
       </div>
     )
@@ -348,10 +358,10 @@ export default function TrackContractorPage() {
         <div className="bg-white rounded-xl shadow-lg p-8 max-w-md">
           <p className="text-red-600 mb-4">{error}</p>
           <button
-            onClick={() => router.push('/dashboard/homeowner')}
+            onClick={() => router.push('/')}
             className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
           >
-            Back to Dashboard
+            Back to Home
           </button>
         </div>
       </div>
@@ -359,41 +369,65 @@ export default function TrackContractorPage() {
   }
 
   return (
-    <div className="relative h-screen w-full overflow-hidden">
-      {/* Map */}
-      <div ref={mapContainer} className="absolute inset-0" />
-
-      {/* Top ETA Banner */}
-      <div
-        className="absolute top-0 left-0 right-0 z-10"
-        style={{ paddingTop: isNative ? 'env(safe-area-inset-top)' : '0' }}
-      >
-        <div className="p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-md mx-auto backdrop-blur-sm bg-white/95">
-          <div className="flex items-center gap-4">
-            <div className={`w-3 h-3 rounded-full ${getStatusColor(location?.status)} animate-pulse`}></div>
-            <div className="flex-1">
-              <p className="text-sm text-slate-600">{getStatusText(location?.status)}</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {location?.status === 'arrived' ? 'Arrived!' : `${formatETA(location?.eta_minutes)} away`}
-              </p>
-            </div>
-            {location?.distance_to_job_meters && (
-              <div className="text-right">
-                <p className="text-sm text-slate-600">Distance</p>
-                <p className="text-lg font-semibold text-slate-900">
-                  {(location.distance_to_job_meters / 1000).toFixed(1)} km
-                </p>
-              </div>
-            )}
+    <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+      {/* iOS Native Green Header */}
+      {isNative && (
+        <div
+          className="relative z-50 flex-shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center text-white active:opacity-60"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="ml-1 font-medium">Home</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              Track Contractor
+            </h1>
           </div>
         </div>
+      )}
+
+      {/* Map - Full remaining height */}
+      <div className="flex-1 relative">
+        <div ref={mapContainer} className="absolute inset-0" />
+
+        {/* ETA Card Overlay */}
+        <div className="absolute top-4 left-4 right-4 z-10">
+          <div className="bg-white rounded-2xl shadow-2xl p-4 backdrop-blur-sm bg-white/95">
+            <div className="flex items-center gap-4">
+              <div className={`w-3 h-3 rounded-full ${getStatusColor(location?.status)} animate-pulse`}></div>
+              <div className="flex-1">
+                <p className="text-sm text-slate-600">{getStatusText(location?.status)}</p>
+                <p className="text-2xl font-bold text-slate-900">
+                  {location?.status === 'arrived' ? 'Arrived!' : `${formatETA(location?.eta_minutes)} away`}
+                </p>
+              </div>
+              {location?.distance_to_job_meters && (
+                <div className="text-right">
+                  <p className="text-sm text-slate-600">Distance</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {(location.distance_to_job_meters / 1000).toFixed(1)} km
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Bottom Contractor Card */}
       <div
-        className="absolute bottom-0 left-0 right-0 z-10"
+        className="flex-shrink-0 z-10"
         style={{ paddingBottom: isNative ? 'env(safe-area-inset-bottom)' : '0' }}
       >
         <div className="p-4 pb-2">
@@ -409,16 +443,8 @@ export default function TrackContractorPage() {
                   <h3 className="text-xl font-bold text-slate-900">
                     {contractor.business_name || contractor.name}
                   </h3>
-                  <p className="text-slate-600">{contractor.phone}</p>
+                  <p className="text-slate-600">{contractor.name}</p>
                 </div>
-                <a
-                  href={`tel:${contractor.phone}`}
-                  className="w-12 h-12 bg-emerald-600 hover:bg-emerald-700 rounded-full flex items-center justify-center text-white shadow-lg transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                </a>
               </div>
 
               {/* Job Info */}
@@ -463,19 +489,21 @@ export default function TrackContractorPage() {
         </div>
       </div>
 
-      {/* Back Button */}
-      <button
-        onClick={() => router.push('/dashboard/homeowner')}
-        className="absolute z-20 w-10 h-10 bg-white hover:bg-slate-100 rounded-full shadow-lg flex items-center justify-center transition-colors"
-        style={{
-          top: isNative ? 'calc(16px + env(safe-area-inset-top))' : '16px',
-          left: '16px'
-        }}
-      >
-        <svg className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
+      {/* Web Back Button - only shown when not native */}
+      {!isNative && (
+        <button
+          onClick={() => router.push('/dashboard/homeowner')}
+          className="absolute z-20 w-10 h-10 bg-white hover:bg-slate-100 rounded-full shadow-lg flex items-center justify-center transition-colors"
+          style={{
+            top: '16px',
+            left: '16px'
+          }}
+        >
+          <svg className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }

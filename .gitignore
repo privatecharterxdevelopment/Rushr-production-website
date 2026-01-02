@@ -6,3 +6,5 @@ node_modules
 package-lock.json
 .env.production
 VERCEL_ENV_VARIABLES.txt
+.env*.local
+build/

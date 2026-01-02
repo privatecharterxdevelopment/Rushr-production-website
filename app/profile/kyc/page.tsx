@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabaseClient'
+import { Capacitor } from '@capacitor/core'
+import { safeBack } from '../../../lib/safeBack'
 import {
   Upload,
   FileText,
@@ -17,6 +19,16 @@ import {
   Home,
   User
 } from 'lucide-react'
+import { FullScreenLoading } from '../../../components/LoadingSpinner'
+
+// Hook to safely check if running in native app (avoids hydration mismatch)
+function useIsNative() {
+  const [isNative, setIsNative] = React.useState(false)
+  React.useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform())
+  }, [])
+  return isNative
+}
 
 type DocumentType = 'drivers_license' | 'passport' | 'utility_bill' | 'bank_statement'
 
@@ -31,8 +43,9 @@ interface KYCDocument {
 }
 
 export default function KYCVerificationPage() {
-  const { user, userProfile, refreshProfile } = useAuth()
+  const { user, userProfile, refreshProfile, loading: authLoading } = useAuth()
   const router = useRouter()
+  const isNative = useIsNative()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -103,6 +116,11 @@ export default function KYCVerificationPage() {
     }
   }, [user])
 
+  // Show full-screen loading while auth is loading
+  if (authLoading) {
+    return <FullScreenLoading />
+  }
+
   if (!user || !userProfile) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -117,16 +135,48 @@ export default function KYCVerificationPage() {
   // Show homeowner notice that KYC is optional
   if (userProfile.role === 'homeowner' && !showKYCForm) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <div
+        className="min-h-screen bg-slate-50 dark:bg-slate-900"
+        style={{
+          paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
+          paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
+        }}
+      >
+        {/* iOS Native Header */}
+        {isNative && (
+          <div
+            className="sticky top-0 z-50"
+            style={{
+              background: 'linear-gradient(135deg, #10b981, #059669)',
+              paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+            }}
+          >
+            <div className="flex items-center px-4 py-3">
+              <button
+                onClick={() => safeBack(router, '/dashboard')}
+                className="flex items-center text-white active:opacity-60"
+              >
+                <ArrowLeft className="w-6 h-6" />
+                <span className="ml-1 font-medium">Back</span>
+              </button>
+              <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+                KYC Verification
+              </h1>
+            </div>
+          </div>
+        )}
+
         <div className="container mx-auto px-4 py-8 max-w-4xl">
           <div className="mb-8">
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-4"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Dashboard
-            </Link>
+            {!isNative && (
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-4"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Link>
+            )}
 
             <div className="bg-white dark:bg-slate-800 rounded-xl p-8 border border-slate-200 dark:border-slate-700 text-center">
               <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900 w-fit mx-auto mb-4">
@@ -249,17 +299,49 @@ export default function KYCVerificationPage() {
   const completionPercentage = Math.round((completedDocuments / totalDocuments) * 100)
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <div
+      className="min-h-screen bg-slate-50 dark:bg-slate-900"
+      style={{
+        paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
+        paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
+      }}
+    >
+      {/* iOS Native Header */}
+      {isNative && (
+        <div
+          className="sticky top-0 z-50"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => safeBack(router, '/dashboard')}
+              className="flex items-center text-white active:opacity-60"
+            >
+              <ArrowLeft className="w-6 h-6" />
+              <span className="ml-1 font-medium">Back</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              KYC Verification
+            </h1>
+          </div>
+        </div>
+      )}
+
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         {/* Header */}
         <div className="mb-8">
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-4"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Dashboard
-          </Link>
+          {!isNative && (
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-4"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </Link>
+          )}
 
           <div className="flex items-center gap-3 mb-4">
             <div className="p-3 rounded-xl bg-blue-100 dark:bg-blue-900">

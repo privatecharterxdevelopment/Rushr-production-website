@@ -2,6 +2,7 @@
 
 import React, { useMemo, useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
+import { motion } from 'motion/react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useHomeownerStats } from '../../../lib/hooks/useHomeownerStats'
 import { supabase } from '../../../lib/supabaseClient'
@@ -599,11 +600,7 @@ export default function HomeownerDashboardPage() {
   // NOW SAFE TO HAVE CONDITIONAL RETURNS AFTER ALL HOOKS
   // Show loading while auth is being determined
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner size="lg" text="Loading your dashboard..." />
-      </div>
-    )
+    return <LoadingSpinner size="lg" text="Loading your dashboard..." />
   }
 
   // Redirect to login if not authenticated
@@ -628,17 +625,23 @@ export default function HomeownerDashboardPage() {
 
   // Show loading while stats are still loading
   if (statsLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner size="md" text="Loading your dashboard..." color="emerald" />
-      </div>
-    )
+    return <LoadingSpinner size="lg" text="Loading your dashboard..." />
   }
 
   return (
-    <div className="space-y-8 px-4 sm:px-6 lg:px-8 pt-8 max-w-7xl mx-auto">
+    <motion.div
+      className="page-container section-spacing space-y-8"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
       {/* header */}
-      <div className="mb-2 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <motion.div
+        className="mb-2 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.3 }}
+      >
         <div className="flex items-center gap-4">
           {/* Profile Avatar */}
           <div className="w-16 h-16 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-emerald-500 to-blue-500 flex items-center justify-center">
@@ -686,7 +689,7 @@ export default function HomeownerDashboardPage() {
             Transactions
           </Link>
         </div>
-      </div>
+      </motion.div>
 
       {/* Pending Actions Banner */}
       {pendingActions.length > 0 && (
@@ -1478,7 +1481,7 @@ export default function HomeownerDashboardPage() {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 

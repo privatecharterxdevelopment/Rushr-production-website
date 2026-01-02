@@ -25,14 +25,18 @@ export default function PostJobPage() {
   // Show loading state while checking auth
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 to-white">
-        <div className="text-center">
-          <img
-          src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-          alt="Loading..."
-          className="h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4 object-contain"
-        />
-          <div className="text-lg text-slate-600">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center">
+          <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
+            <div className="absolute inset-0 rounded-full border-emerald-200 border-t-emerald-600 animate-spin" style={{ borderWidth: 3 }} />
+            <img
+              src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
+              alt="Rushr"
+              style={{ width: 44, height: 44 }}
+              className="object-contain"
+            />
+          </div>
+          <p className="text-slate-600 text-sm mt-3">Loading...</p>
         </div>
       </div>
     )
@@ -41,14 +45,18 @@ export default function PostJobPage() {
   // Don't render the form if user is a contractor (redirect handled in useEffect)
   if (userProfile && userProfile.role === 'contractor') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-white">
-        <div className="text-center">
-          <img
-          src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-          alt="Loading..."
-          className="h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4 object-contain"
-        />
-          <div className="text-lg text-slate-600">Redirecting to contractor dashboard...</div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center">
+          <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
+            <div className="absolute inset-0 rounded-full border-emerald-200 border-t-emerald-600 animate-spin" style={{ borderWidth: 3 }} />
+            <img
+              src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
+              alt="Rushr"
+              style={{ width: 44, height: 44 }}
+              className="object-contain"
+            />
+          </div>
+          <p className="text-slate-600 text-sm mt-3">Redirecting...</p>
         </div>
       </div>
     )

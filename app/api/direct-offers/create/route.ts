@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { notifyCustomOffer } from '../../../../lib/emailService'
+import { sendDirectOfferSMS } from '../../../../lib/smsService'
 
 export async function POST(request: NextRequest) {
   try {
@@ -137,10 +138,13 @@ export async function POST(request: NextRequest) {
         .eq('id', user.id)
         .single()
 
+      const contractorName = contractorProfile?.business_name || contractorProfile?.name || 'Professional'
+
+      // Send email notification
       if (contractorAuth?.user?.email && contractorProfile && homeowner) {
         await notifyCustomOffer({
           contractorEmail: contractorAuth.user.email,
-          contractorName: contractorProfile.business_name || contractorProfile.name || 'Professional',
+          contractorName: contractorName,
           homeownerName: homeowner.name,
           jobTitle: title,
           offeredAmount: parseFloat(offered_amount),
@@ -148,9 +152,26 @@ export async function POST(request: NextRequest) {
           category: category
         })
       }
+
+      // Send SMS notification
+      const { data: contractorWithPhone } = await serviceSupabase
+        .from('pro_contractors')
+        .select('phone')
+        .eq('id', contractor_id)
+        .single()
+
+      if (contractorWithPhone?.phone && homeowner) {
+        await sendDirectOfferSMS({
+          contractorPhone: contractorWithPhone.phone,
+          contractorName: contractorName,
+          homeownerName: homeowner.name,
+          jobTitle: title,
+          offeredAmount: parseFloat(offered_amount)
+        })
+      }
     } catch (emailError) {
-      console.error('Failed to send custom offer email:', emailError)
-      // Don't fail the request if email fails
+      console.error('Failed to send custom offer notifications:', emailError)
+      // Don't fail the request if notifications fail
     }
 
     return NextResponse.json(

@@ -35,7 +35,7 @@ import {
   Bug,
 } from 'lucide-react'
 import Hero from '../components/Hero'
-import IOSHomeView from '../components/IOSHomeView'
+import IOSAppWrapper from '../components/IOSAppWrapper'
 
 /* ----------------------------------------------------------------
    Brand helpers (emerald-forward for homeowners)
@@ -71,7 +71,7 @@ export default function HomePage() {
 
   // Show iOS-specific view when in native app
   if (isNativeApp) {
-    return <IOSHomeView />
+    return <IOSAppWrapper />
   }
 
   // Web version - unchanged

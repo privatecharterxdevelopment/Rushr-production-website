@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/navigation'
+import { Capacitor } from '@capacitor/core'
 
 export interface ContractorProfile {
   id: string
@@ -293,7 +294,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [])
 
@@ -345,7 +346,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       console.log('[PRO-AUTH] Cleaning up contractor profile subscription')
-      contractorSubscription.unsubscribe()
+      supabase.removeChannel(contractorSubscription)
     }
   }, [user?.id])
 
@@ -444,6 +445,15 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
       } catch (emailError) {
         console.error('Failed to send welcome email:', emailError)
         // Don't fail signup if email fails
+      }
+
+      // Check if running on iOS native app
+      const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform()
+
+      // iOS native: User is already logged in after signUp, set state immediately
+      if (isNative && authData.user && authData.session) {
+        setUser(authData.user)
+        setSession(authData.session)
       }
 
       console.log('[SIGNUP] Signup complete, redirecting to dashboard')

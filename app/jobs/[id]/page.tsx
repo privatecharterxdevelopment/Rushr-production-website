@@ -7,6 +7,7 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { supabase } from '../../../lib/supabaseClient'
 import QuickBidModal from '../../../components/QuickBidModal'
 import { Capacitor } from '@capacitor/core'
+import { safeBack } from '../../../lib/safeBack'
 import {
   ArrowLeft,
   MapPin,
@@ -18,7 +19,8 @@ import {
   Phone,
   Calendar,
   FileText,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Navigation
 } from 'lucide-react'
 
 const ProMap = dynamic(() => import('../../../components/ProMap'), { ssr: false })
@@ -123,9 +125,13 @@ export default function JobDetail() {
   )
 
   const isContractor = user && userProfile?.role === 'contractor'
+  const isHomeowner = user && userProfile?.role === 'homeowner'
   const jobId = job.job_id || job.id
   const jobNumber = job.job_number
   const rehireURL = `/post-job?title=${encodeURIComponent(job.title)}&cat=${encodeURIComponent(job.category)}`
+
+  // Check if job can be tracked (in_progress or confirmed status)
+  const isTrackable = job.status === 'in_progress' || job.status === 'confirmed'
 
   // Convert priority to urgency score and color
   const getPriorityConfig = (priority: string) => {
@@ -209,7 +215,26 @@ export default function JobDetail() {
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {/* Track Contractor Button - Show for homeowners when job is trackable */}
+            {isHomeowner && isTrackable && (
+              <Link
+                href={`/jobs/${jobNumber || jobId}/track`}
+                className="relative flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white transition-all"
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6, #10b981)',
+                  boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+                }}
+              >
+                {/* Pulsing indicator */}
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <Navigation className="h-4 w-4" />
+                Track Contractor
+              </Link>
+            )}
             {isContractor ? (
               <button
                 className="btn-primary flex items-center gap-2"
@@ -374,12 +399,12 @@ export default function JobDetail() {
           className="relative z-50 flex-shrink-0"
           style={{
             background: 'linear-gradient(135deg, #10b981, #059669)',
-            paddingTop: 'env(safe-area-inset-top, 44px)'
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
           }}
         >
           <div className="flex items-center px-4 py-3">
             <button
-              onClick={() => router.back()}
+              onClick={() => safeBack(router, '/')}
               className="flex items-center text-white active:opacity-60"
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >

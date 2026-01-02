@@ -45,7 +45,7 @@ export default function SupportTicketsPage() {
       .subscribe()
 
     return () => {
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [filter])
 

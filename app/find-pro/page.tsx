@@ -12,6 +12,9 @@ import dynamic from 'next/dynamic'
 import OfferJobModal from '../../components/OfferJobModal'
 import { openAuth } from '../../components/AuthModal'
 import { Capacitor } from '@capacitor/core'
+import { getCurrentLocation } from '../../lib/nativeLocation'
+import { safeBack } from '../../lib/safeBack'
+import IOSTabBar, { TabId } from '../../components/IOSTabBar'
 
 // Dynamically import the Mapbox component to avoid SSR issues
 const FindProMapbox = dynamic(() => import('../../components/FindProMapbox'), {
@@ -124,31 +127,26 @@ export default function FindProPage() {
   const [zip, setZip] = useState('')
   const [fetchingLocation, setFetchingLocation] = useState(false)
 
-  // Fetch user's current location
+  // Fetch user's current location using native Capacitor on iOS
   const fetchUserLocation = async () => {
     setFetchingLocation(true)
     try {
-      if (!navigator.geolocation) {
-        alert('Geolocation is not supported by your browser')
-        return
-      }
+      // Use native location helper (works for both iOS native and web)
+      const result = await getCurrentLocation()
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords
-          setCenter([latitude, longitude])
-          setZip('') // Clear ZIP when using precise location
-          setFetchingLocation(false)
-        },
-        (error) => {
-          console.error('Error getting location:', error)
-          alert('Unable to get your location. Please ensure location permissions are enabled.')
-          setFetchingLocation(false)
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      )
+      if (result.success && result.coordinates) {
+        const { latitude, longitude } = result.coordinates
+        console.log('[FindPro] Got location:', latitude, longitude)
+        setCenter([latitude, longitude])
+        setZip('') // Clear ZIP when using precise location
+      } else {
+        console.error('[FindPro] Location error:', result.error)
+        alert(result.error || 'Unable to get your location. Please ensure location permissions are enabled.')
+      }
     } catch (error) {
-      console.error('Location error:', error)
+      console.error('[FindPro] Location error:', error)
+      alert('Unable to get your location. Please try again.')
+    } finally {
       setFetchingLocation(false)
     }
   }
@@ -173,6 +171,33 @@ export default function FindProPage() {
 
   // Results sort (BELOW the map)
   const [sort, setSort] = useState<'best' | 'distance' | 'rating' | 'experience'>('best')
+
+  // State for iOS filter modals
+  const [showFilterModal, setShowFilterModal] = useState(false)
+  const [showServicesModal, setShowServicesModal] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('home')
+
+  // Handle tab navigation for iOS native
+  const handleTabChange = (tab: TabId) => {
+    setActiveTab(tab)
+    switch (tab) {
+      case 'home':
+        router.push('/')
+        break
+      case 'jobs':
+        router.push('/dashboard/homeowner')
+        break
+      case 'messages':
+        router.push('/messages')
+        break
+      case 'notifications':
+        router.push('/notifications')
+        break
+      case 'profile':
+        router.push('/profile')
+        break
+    }
+  }
 
   // Debounce query so typing is smooth
   useEffect(() => {
@@ -766,31 +791,31 @@ export default function FindProPage() {
     </>
   )
 
-  // iOS native layout with proper scrolling
+  // iOS native layout with proper scrolling and mobile-friendly filters
   if (isNative) {
     return (
       <>
-        <div className="fixed inset-0 flex flex-col bg-white">
+        <div className="fixed inset-0 flex flex-col bg-gray-50">
           {/* iOS Native Header with back button */}
           <div
             className="relative z-50 flex-shrink-0"
             style={{
               background: 'linear-gradient(135deg, #10b981, #059669)',
-              paddingTop: 'env(safe-area-inset-top, 44px)'
+              paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
             }}
           >
             <div className="flex items-center px-4 py-3">
               <button
-                onClick={() => router.back()}
+                onClick={() => router.push('/')}
                 className="flex items-center text-white active:opacity-60"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                <span className="ml-1 font-medium">Back</span>
+                <span className="ml-1 font-medium">Home</span>
               </button>
-              <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              <h1 className="flex-1 text-center text-white font-semibold text-[17px] pr-12">
                 Find a Pro
               </h1>
             </div>
@@ -801,12 +826,295 @@ export default function FindProPage() {
             className="flex-1 overflow-auto"
             style={{
               WebkitOverflowScrolling: 'touch',
-              paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 34px))'
+              paddingBottom: 'calc(100px + env(safe-area-inset-bottom, 34px))'
             }}
           >
-            <section className="mx-auto max-w-6xl space-y-3 px-3 py-3">
-              {renderContent()}
-            </section>
+            {/* Search Bar */}
+            <div className="bg-white border-b border-gray-200 px-4 py-3">
+              <div className="flex gap-2">
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name, city, or service"
+                  className="flex-1 rounded-xl bg-gray-100 px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  onClick={fetchUserLocation}
+                  disabled={fetchingLocation}
+                  className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center active:bg-emerald-600 disabled:opacity-50"
+                >
+                  {fetchingLocation ? (
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* iOS-Friendly Filters - Row 1: Quick filters */}
+            <div className="bg-white border-b border-gray-200 px-4 py-2">
+              <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {/* Services Dropdown */}
+                <button
+                  onClick={() => setShowServicesModal(true)}
+                  className={`flex-shrink-0 px-3 py-2 rounded-full text-[13px] font-medium flex items-center gap-1 ${
+                    services.length > 0 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-700'
+                  } active:opacity-80`}
+                >
+                  <span>{services.length > 0 ? `${services.length} Service${services.length > 1 ? 's' : ''}` : 'Services'}</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Radius Filter */}
+                <button
+                  onClick={() => {
+                    const options = [5, 10, 15, 25, 50]
+                    const currentIndex = options.indexOf(radius)
+                    const nextIndex = (currentIndex + 1) % options.length
+                    setRadius(options[nextIndex] || 15)
+                  }}
+                  className="flex-shrink-0 px-3 py-2 rounded-full bg-gray-100 text-[13px] font-medium text-gray-700 active:bg-gray-200"
+                >
+                  {radius} mi
+                </button>
+
+                {/* Rating Filter */}
+                <button
+                  onClick={() => {
+                    const options = [0, 3, 3.5, 4, 4.5]
+                    const currentIndex = options.indexOf(minRating)
+                    const nextIndex = (currentIndex + 1) % options.length
+                    setMinRating(options[nextIndex])
+                  }}
+                  className={`flex-shrink-0 px-3 py-2 rounded-full text-[13px] font-medium ${
+                    minRating > 0 ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700'
+                  } active:opacity-80`}
+                >
+                  {minRating > 0 ? `${minRating}+ ★` : 'Rating'}
+                </button>
+
+                {/* Experience Filter */}
+                <button
+                  onClick={() => {
+                    const options = [0, 3, 5, 10]
+                    const currentIndex = options.indexOf(minYears)
+                    const nextIndex = (currentIndex + 1) % options.length
+                    setMinYears(options[nextIndex])
+                  }}
+                  className={`flex-shrink-0 px-3 py-2 rounded-full text-[13px] font-medium ${
+                    minYears > 0 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700'
+                  } active:opacity-80`}
+                >
+                  {minYears > 0 ? `${minYears}+ yrs` : 'Experience'}
+                </button>
+
+                {/* Hours Filter */}
+                <button
+                  onClick={() => setShowFilterModal(true)}
+                  className={`flex-shrink-0 px-3 py-2 rounded-full text-[13px] font-medium flex items-center gap-1 ${
+                    hoursTags.length > 0 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-700'
+                  } active:opacity-80`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>{hoursTags.length > 0 ? `${hoursTags.length} Hours` : 'Hours'}</span>
+                </button>
+
+                {/* Top Rated */}
+                <button
+                  onClick={() => setMinRating(minRating >= 4.5 ? 0 : 4.5)}
+                  className={`flex-shrink-0 px-3 py-2 rounded-full text-[13px] font-medium ${
+                    minRating >= 4.5 ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700 border border-amber-200'
+                  } active:opacity-80`}
+                >
+                  Top Rated
+                </button>
+
+                {/* All Filters Button */}
+                <button
+                  onClick={() => setShowFilterModal(true)}
+                  className="flex-shrink-0 px-3 py-2 rounded-full bg-gray-100 text-[13px] font-medium text-gray-700 active:bg-gray-200 flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  <span>Filters</span>
+                </button>
+
+                {/* Reset */}
+                {(services.length > 0 || minRating > 0 || minYears > 0 || hoursTags.length > 0 || query) && (
+                  <button
+                    onClick={resetAll}
+                    className="flex-shrink-0 px-3 py-2 rounded-full bg-red-100 text-[13px] font-medium text-red-600 active:bg-red-200"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Sort Row */}
+            <div className="bg-white border-b border-gray-200 px-4 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] text-gray-500">
+                  <span className="font-semibold text-gray-900">{filtered.length}</span> pros found
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-gray-500">Sort:</span>
+                  <select
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value as any)}
+                    className="rounded-lg border border-gray-200 px-2 py-1.5 text-[13px] bg-white"
+                  >
+                    <option value="best">Best match</option>
+                    <option value="distance">Distance</option>
+                    <option value="rating">Rating</option>
+                    <option value="experience">Experience</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Map Section */}
+            <div className="px-4 pt-3">
+              <FindProMapbox
+                items={filtered}
+                category={services[0] || undefined}
+                radiusMiles={radius}
+                searchCenter={activeCenter}
+                onSearchHere={(c) => setCenter(c)}
+              />
+            </div>
+
+            {/* Results Count */}
+            <div className="px-4 py-3">
+              <p className="text-[13px] text-gray-500">
+                <span className="font-semibold text-gray-900">{filtered.length}</span> pros found
+                {services.length > 0 && <span> for {services.slice(0, 2).join(', ')}{services.length > 2 ? '...' : ''}</span>}
+                {' '}within <span className="font-semibold">{radius} mi</span>
+              </p>
+            </div>
+
+            {/* Contractor List - Scrollable */}
+            <div className="px-4 space-y-3 pb-4">
+              {filtered.length === 0 ? (
+                <div className="bg-white rounded-2xl p-6 text-center border border-gray-200">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-[16px] font-semibold text-gray-900 mb-2">No pros found</h3>
+                  <p className="text-[14px] text-gray-500 mb-4">Try expanding your search radius or removing filters</p>
+                  <button
+                    onClick={resetAll}
+                    className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[14px] font-medium active:bg-emerald-600"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              ) : (
+                filtered.map((c) => {
+                  const d = (c as any).__distance as number | undefined
+                  const svc: string[] = Array.isArray(c?.services) ? c.services : []
+                  const logoUrl = c?.logo_url || c?.avatar_url
+                  return (
+                    <div
+                      key={String(c?.id ?? c?.name)}
+                      className="bg-white rounded-2xl p-4 border border-gray-200 active:bg-gray-50"
+                    >
+                      {/* Header */}
+                      <div className="flex items-start gap-3">
+                        {logoUrl ? (
+                          <img
+                            src={logoUrl}
+                            alt={c?.business_name || c?.name || 'Contractor'}
+                            className="w-12 h-12 rounded-xl object-cover border border-gray-200"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                            <span className="text-emerald-700 font-bold text-lg">{(c?.name || 'C')[0]}</span>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-[15px] font-semibold text-gray-900 truncate">{c?.name || 'Contractor'}</h3>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {c?.rating && (
+                              <span className="text-[13px] text-amber-600 font-medium">★ {Number(c.rating).toFixed(1)}</span>
+                            )}
+                            {c?.city && (
+                              <span className="text-[13px] text-gray-500">{c.city}</span>
+                            )}
+                            {typeof d === 'number' && (
+                              <span className="text-[13px] text-gray-400">{d.toFixed(1)} mi</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Services Tags */}
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {svc.slice(0, 4).map((s: string) => (
+                          <span
+                            key={s}
+                            className="px-2 py-1 rounded-lg bg-gray-100 text-[12px] text-gray-700"
+                          >
+                            {CAT_EMOJI[s] || ''} {s}
+                          </span>
+                        ))}
+                        {svc.length > 4 && (
+                          <span className="px-2 py-1 rounded-lg bg-gray-100 text-[12px] text-gray-500">
+                            +{svc.length - 4} more
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (!user) {
+                              openAuth()
+                            } else if (userProfile?.role === 'homeowner') {
+                              setOfferModalContractor(c)
+                            }
+                          }}
+                          className="flex-1 py-3 bg-emerald-500 text-white rounded-xl text-[14px] font-semibold active:bg-emerald-600"
+                        >
+                          Send Offer
+                        </button>
+                        <button
+                          onClick={() => router.push(`/messages?to=${encodeURIComponent(String(c?.id ?? ''))}`)}
+                          className="w-12 h-12 border border-gray-200 rounded-xl flex items-center justify-center active:bg-gray-50"
+                        >
+                          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => router.push(`/contractors/${encodeURIComponent(String(c?.id ?? ''))}`)}
+                          className="w-12 h-12 border border-gray-200 rounded-xl flex items-center justify-center active:bg-gray-50"
+                        >
+                          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
 
@@ -821,6 +1129,255 @@ export default function FindProPage() {
             }}
           />
         )}
+
+        {/* Services Selection Modal */}
+        {showServicesModal && (
+          <div className="fixed inset-0 z-[100] bg-black/50" onClick={() => setShowServicesModal(false)}>
+            <div
+              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[80vh] overflow-hidden"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 34px)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200">
+                <button
+                  onClick={() => setServices([])}
+                  className="text-[15px] text-gray-500 active:text-gray-700"
+                >
+                  Clear All
+                </button>
+                <h3 className="text-[17px] font-semibold text-gray-900">Select Services</h3>
+                <button
+                  onClick={() => setShowServicesModal(false)}
+                  className="text-[15px] text-emerald-600 font-semibold active:text-emerald-700"
+                >
+                  Done
+                </button>
+              </div>
+
+              {/* Services List */}
+              <div className="overflow-auto max-h-[60vh] px-4 py-3">
+                {Object.entries(serviceCategories).map(([categoryName, categoryServices]) => (
+                  <div key={categoryName} className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[13px] font-semibold text-emerald-700 uppercase tracking-wide">
+                        {categoryName}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const allSelected = categoryServices.every(s => services.includes(s))
+                          if (allSelected) {
+                            setServices(prev => prev.filter(s => !categoryServices.includes(s)))
+                          } else {
+                            setServices(prev => [...new Set([...prev, ...categoryServices])])
+                          }
+                        }}
+                        className="text-[12px] text-emerald-600 font-medium"
+                      >
+                        {categoryServices.every(s => services.includes(s)) ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {categoryServices.map((service) => {
+                        const isSelected = services.includes(service)
+                        return (
+                          <button
+                            key={service}
+                            onClick={() => {
+                              setServices(prev =>
+                                isSelected ? prev.filter(s => s !== service) : [...prev, service]
+                              )
+                            }}
+                            className={`flex items-center gap-2 px-3 py-3 rounded-xl text-left transition ${
+                              isSelected
+                                ? 'bg-emerald-100 border-2 border-emerald-500'
+                                : 'bg-gray-100 border-2 border-transparent'
+                            }`}
+                          >
+                            <span className="text-lg">{CAT_EMOJI[service] || '🔧'}</span>
+                            <span className={`text-[13px] font-medium ${isSelected ? 'text-emerald-700' : 'text-gray-700'}`}>
+                              {service}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Full Filter Modal (Hours, Radius, etc.) */}
+        {showFilterModal && (
+          <div className="fixed inset-0 z-[100] bg-black/50" onClick={() => setShowFilterModal(false)}>
+            <div
+              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[85vh] overflow-hidden"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 34px)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200">
+                <button
+                  onClick={resetAll}
+                  className="text-[15px] text-gray-500 active:text-gray-700"
+                >
+                  Reset All
+                </button>
+                <h3 className="text-[17px] font-semibold text-gray-900">Filters</h3>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="text-[15px] text-emerald-600 font-semibold active:text-emerald-700"
+                >
+                  Done
+                </button>
+              </div>
+
+              {/* Filter Options */}
+              <div className="overflow-auto max-h-[70vh] px-4 py-4 space-y-6">
+                {/* Radius Slider */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[15px] font-semibold text-gray-900">Search Radius</span>
+                    <span className="text-[15px] font-bold text-emerald-600">{radius} miles</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={radius}
+                    onChange={(e) => setRadius(Number(e.target.value))}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  />
+                  <div className="flex justify-between mt-1 text-[11px] text-gray-400">
+                    <span>1 mi</span>
+                    <span>25 mi</span>
+                    <span>50 mi</span>
+                  </div>
+                </div>
+
+                {/* Rating */}
+                <div>
+                  <span className="text-[15px] font-semibold text-gray-900 block mb-3">Minimum Rating</span>
+                  <div className="flex gap-2">
+                    {[0, 3, 3.5, 4, 4.5].map((rating) => (
+                      <button
+                        key={rating}
+                        onClick={() => setMinRating(rating)}
+                        className={`flex-1 py-3 rounded-xl text-[14px] font-medium transition ${
+                          minRating === rating
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        {rating === 0 ? 'Any' : `${rating}+`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Experience */}
+                <div>
+                  <span className="text-[15px] font-semibold text-gray-900 block mb-3">Years of Experience</span>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 0, label: 'Any' },
+                      { value: 3, label: '3+ yrs' },
+                      { value: 5, label: '5+ yrs' },
+                      { value: 10, label: '10+ yrs' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setMinYears(opt.value)}
+                        className={`flex-1 py-3 rounded-xl text-[14px] font-medium transition ${
+                          minYears === opt.value
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Hours of Operation */}
+                <div>
+                  <span className="text-[15px] font-semibold text-gray-900 block mb-3">Hours of Operation</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {HOURS_OPTIONS.map((opt) => {
+                      const isSelected = hoursTags.includes(opt.value)
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={() => toggleHoursTag(opt.value)}
+                          className={`flex items-center gap-2 px-4 py-3 rounded-xl text-left transition ${
+                            isSelected
+                              ? 'bg-purple-100 border-2 border-purple-500'
+                              : 'bg-gray-100 border-2 border-transparent'
+                          }`}
+                        >
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300'
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                          <span className={`text-[14px] font-medium ${isSelected ? 'text-purple-700' : 'text-gray-700'}`}>
+                            {opt.label}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Quick Filters */}
+                <div>
+                  <span className="text-[15px] font-semibold text-gray-900 block mb-3">Quick Filters</span>
+                  <button
+                    onClick={() => setMinRating(minRating >= 4.5 ? 0 : 4.5)}
+                    className={`w-full flex items-center justify-between px-4 py-4 rounded-xl transition ${
+                      minRating >= 4.5
+                        ? 'bg-amber-100 border-2 border-amber-500'
+                        : 'bg-gray-100 border-2 border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">⭐</span>
+                      <div className="text-left">
+                        <span className={`text-[15px] font-semibold ${minRating >= 4.5 ? 'text-amber-700' : 'text-gray-900'}`}>
+                          Top Rated Only
+                        </span>
+                        <p className="text-[12px] text-gray-500">Show only 4.5+ rated pros</p>
+                      </div>
+                    </div>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                      minRating >= 4.5 ? 'border-amber-500 bg-amber-500' : 'border-gray-300'
+                    }`}>
+                      {minRating >= 4.5 && (
+                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* iOS Bottom Tab Bar */}
+        <IOSTabBar
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+        />
       </>
     )
   }

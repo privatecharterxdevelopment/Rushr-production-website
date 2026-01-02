@@ -154,7 +154,7 @@ export default function ContractorMessagesPage() {
       .subscribe()
 
     return () => {
-      conversationSubscription.unsubscribe()
+      supabase.removeChannel(conversationSubscription)
     }
   }, [user])
 
@@ -214,8 +214,8 @@ export default function ContractorMessagesPage() {
       .subscribe()
 
     return () => {
-      messageSubscription.unsubscribe()
-      typingChannel.unsubscribe()
+      supabase.removeChannel(messageSubscription)
+      supabase.removeChannel(typingChannel)
     }
   }, [conversationId, conversations, user])
 

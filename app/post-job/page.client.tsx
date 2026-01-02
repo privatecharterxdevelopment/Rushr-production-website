@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { openAuth } from '../../components/AuthModal'
 import { Capacitor } from '@capacitor/core'
 import { getCurrentLocation, reverseGeocode, isNativePlatform } from '../../lib/nativeLocation'
+import { safeBack } from '../../lib/safeBack'
 import {
   Check,
   Clock,
@@ -923,15 +924,12 @@ export default function PostJobInner({ userId }: Props) {
       return
     }
 
+    // Set sending state FIRST to show loading indicator
     setSending(true)
+    console.log('[SUBMIT] Starting job submission, sending=true')
 
     try {
       console.log('Submitting emergency job to database...')
-
-      // Import supabase
-      const { supabase } = await import('../../lib/supabaseClient')
-
-      console.log({ supabase })
 
       // Auto-generate title from emergency type
       const emergencyTypeLabels: Record<string, string> = {
@@ -942,14 +940,21 @@ export default function PostJobInner({ userId }: Props) {
         'water-damage': 'Water Damage Emergency',
         'locksmith': 'Lockout Emergency',
         'appliance': 'Appliance Emergency',
+        'battery': 'Dead Battery Emergency',
+        'tire': 'Flat Tire Emergency',
+        'lockout': 'Car Lockout Emergency',
+        'tow': 'Towing Emergency',
+        'fuel': 'Out of Fuel Emergency',
+        'mechanic': 'Breakdown Emergency',
+        'other': 'Other Emergency',
       }
-      const autoTitle = emergencyTypeLabels[emergencyType] || `${category} Emergency`
+      const autoTitle = emergencyTypeLabels[emergencyType] || `${category || 'Home'} Emergency`
 
       // Prepare job data
       const jobData = {
         title: autoTitle,
         description: details || autoTitle,
-        category: emergencyType || category,
+        category: emergencyType || category || 'other',
         priority: 'emergency', // All post-job submissions are emergency
         status: 'pending', // Waiting for contractors to accept
         address: address,
@@ -964,7 +969,7 @@ export default function PostJobInner({ userId }: Props) {
         requested_contractor_name: !sendAll && selectedContractor ? selectedContractor.name : null,
       }
 
-      console.log('Job data:', jobData)
+      console.log('[SUBMIT] Job data prepared:', jobData)
 
       // Insert job into database
       const { data: insertedJob, error } = await supabase
@@ -972,23 +977,25 @@ export default function PostJobInner({ userId }: Props) {
         .insert([jobData])
         .select()
         .single()
-      
+
       if (error) {
-        console.error('Error creating job:', error)
-        alert('Failed to submit emergency request. Please try again.')
+        console.error('[SUBMIT] Error creating job:', error)
+        setErrorPopup('Failed to submit emergency request. Please try again.')
         setSending(false)
         return
       }
 
-      console.log('Job created successfully:', insertedJob)
+      console.log('[SUBMIT] Job created successfully:', insertedJob)
 
       // Redirect to job success page with real-time bid notifications
-      setSending(false)
-      router.push(`/jobs/${insertedJob.job_number || insertedJob.id}/success`)
+      // Don't set sending to false before redirect - keep the loading state
+      const jobId = insertedJob.job_number || insertedJob.id
+      console.log('[SUBMIT] Redirecting to:', `/jobs/${jobId}/success`)
+      router.push(`/jobs/${jobId}/success`)
 
     } catch (err) {
-      console.error('Error submitting job:', err)
-      alert('Failed to submit emergency request. Please try again.')
+      console.error('[SUBMIT] Error submitting job:', err)
+      setErrorPopup('Failed to submit emergency request. Please try again.')
       setSending(false)
     }
   }
@@ -999,17 +1006,50 @@ export default function PostJobInner({ userId }: Props) {
       <div className="fixed inset-0 flex flex-col bg-white">
         <TopProgress active={sending} />
 
+        {/* Full-screen sending overlay - Same style as splash */}
+        {sending && (
+          <div
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-center"
+            style={{ background: 'linear-gradient(160deg, #10b981 0%, #059669 50%, #047857 100%)' }}
+          >
+            <div className="relative">
+              <div
+                className="absolute inset-0 w-24 h-24 rounded-3xl"
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  animation: 'ping 2s cubic-bezier(0, 0, 0.2, 1) infinite'
+                }}
+              />
+              <div className="relative w-24 h-24 bg-white rounded-3xl flex items-center justify-center shadow-2xl p-3">
+                <img
+                  src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
+                  alt="Rushr"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            </div>
+            <p className="text-white font-semibold text-lg mt-6">Submitting Request...</p>
+            <p className="text-white/70 text-sm mt-1">Finding available pros in your area</p>
+            <style jsx>{`
+              @keyframes ping {
+                0% { transform: scale(1); opacity: 0.8; }
+                75%, 100% { transform: scale(1.3); opacity: 0; }
+              }
+            `}</style>
+          </div>
+        )}
+
         {/* iOS Native Header with back button - uses safe-area-inset-top */}
         <div
           className="relative z-50 flex-shrink-0"
           style={{
             background: 'linear-gradient(135deg, #10b981, #059669)',
-            paddingTop: 'env(safe-area-inset-top, 44px)'
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
           }}
         >
           <div className="flex items-center px-4 py-3">
             <button
-              onClick={() => router.back()}
+              onClick={() => safeBack(router, '/')}
               className="flex items-center text-white active:opacity-60"
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
@@ -1169,144 +1209,133 @@ export default function PostJobInner({ userId }: Props) {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-          {/* Left column: Emergency form */}
-          {/* Left column: Multi-step form */}
-          <div className="lg:col-span-2">
-            <PostJobMultiStep
-              address={address}
-              setAddress={setAddress}
-              phone={phone}
-              setPhone={setPhone}
+        {/* iOS Mobile Layout: Map -> Form -> Contractors */}
+        <div className="space-y-4">
+          {/* 1. Map at top - shorter height for mobile */}
+          <div className="card p-0 overflow-hidden relative" style={{ height: '180px' }}>
+            <ProMap
+              centerZip={address.match(/\d{5}/)?.[0] || '10001'}
               category={category}
-              setCategory={setCategory}
-              emergencyType={emergencyType}
-              setEmergencyType={setEmergencyType}
-              details={details}
-              setDetails={setDetails}
-              sendAll={sendAll}
-              setSendAll={setSendAll}
-              picked={picked}
-              setPicked={setPicked}
-              errors={errors}
-              touched={touched}
-              validateField={validateField}
-              handleFieldBlur={handleFieldBlur}
-              emergencyCategories={EMERGENCY_CATEGORIES}
-              emergencyTypesMap={EMERGENCY_TYPES_MAP}
-              nearbyContractors={nearbyContractors}
-              selectedContractor={selectedContractor}
-              getCurrentLocation={fetchCurrentLocation}
-              onSubmit={submit}
-              photos={photos}
-              setPhotos={setPhotos}
-              onUpload={onUpload}
-              uploadError={uploadError}
-              userId={userId}
-              initialStep={category && emergencyType ? 2 : 1}
+              radiusMiles={15}
+              searchCenter={userLocation || undefined}
+              contractors={nearbyContractorsWithLocation}
             />
+
+            {/* Overlay prompt when no location */}
+            {!userLocation && !address.match(/\d{5}/) && (
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/95 to-white/95 z-10 grid place-items-center">
+                <div className="text-center px-4">
+                  <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
+                    <MapPin className="h-5 w-5" />
+                  </div>
+                  <div className="font-medium text-slate-900 text-sm">See nearby pros on the map</div>
+                  <button
+                    type="button"
+                    onClick={fetchCurrentLocation}
+                    className="mt-2 px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium"
+                  >
+                    📍 Use My Location
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Right column: Map and emergency pros */}
-          <div className="space-y-6 lg:col-span-3">
-            <div className="card p-0 overflow-hidden relative">
-              {/* Always show the map */}
-              <ProMap
-                centerZip={address.match(/\d{5}/)?.[0] || '10001'}
-                category={category}
-                radiusMiles={15}
-                searchCenter={userLocation || undefined}
-                contractors={nearbyContractorsWithLocation}
-              />
+          {/* 2. Form - right below the map */}
+          <PostJobMultiStep
+            address={address}
+            setAddress={setAddress}
+            phone={phone}
+            setPhone={setPhone}
+            category={category}
+            setCategory={setCategory}
+            emergencyType={emergencyType}
+            setEmergencyType={setEmergencyType}
+            details={details}
+            setDetails={setDetails}
+            sendAll={sendAll}
+            setSendAll={setSendAll}
+            picked={picked}
+            setPicked={setPicked}
+            errors={errors}
+            touched={touched}
+            validateField={validateField}
+            handleFieldBlur={handleFieldBlur}
+            emergencyCategories={EMERGENCY_CATEGORIES}
+            emergencyTypesMap={EMERGENCY_TYPES_MAP}
+            nearbyContractors={nearbyContractors}
+            selectedContractor={selectedContractor}
+            getCurrentLocation={fetchCurrentLocation}
+            onSubmit={submit}
+            photos={photos}
+            setPhotos={setPhotos}
+            onUpload={onUpload}
+            uploadError={uploadError}
+            userId={userId}
+            initialStep={category && emergencyType ? 2 : 1}
+          />
 
-              {/* Overlay prompt when no location */}
-              {!userLocation && !address.match(/\d{5}/) && (
-                <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/95 to-white/95 z-10 grid place-items-center">
-                  <div className="text-center">
-                    <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
-                      <MapPin className="h-6 w-6" />
-                    </div>
-                    <div className="font-medium text-slate-900">Click to see nearby pros on the map</div>
-                    <p className="mt-1 text-sm text-slate-500">Use your location or enter an address above</p>
-                    <button
-                      type="button"
-                      onClick={fetchCurrentLocation}
-                      className="mt-4 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
-                    >
-                      📍 Use My Current Location
-                    </button>
-                  </div>
-                </div>
-              )}
+          {/* 3. Finding contractors section - below the form */}
+          <div className="space-y-4">
+            {/* Header */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-base font-semibold text-slate-900">Live Contractors for Direct Offers</div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs"
+              >
+                <option value="eta">Response Time</option>
+                <option value="distance">Distance</option>
+                <option value="rating">Rating</option>
+              </select>
             </div>
 
-            {/* Emergency pros filters */}
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="text-lg font-semibold text-slate-900">Emergency Professionals Nearby</div>
-              <div className="flex items-center gap-4">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="accent-emerald-600"
-                    checked={onlyActive}
-                    onChange={(e) => setOnlyActive(e.target.checked)}
-                  />
-                  <span className="text-sm text-slate-600">Available now</span>
-                </label>
-
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                >
-                  <option value="eta">Sort: Response Time</option>
-                  <option value="distance">Sort: Distance</option>
-                  <option value="rating">Sort: Rating</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Professionals list */}
+            {/* Contractors list with Rushr animation */}
             {sending ? (
               <ListSkeleton rows={3} />
             ) : !userLocation && !address.match(/\d{5}/) ? (
-              <div className="card p-8 text-center bg-slate-50">
-                <MapPin className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-slate-900 mb-2">Provide Your Location</h3>
-                <p className="text-slate-600 mb-4">
-                  Enter your address or use your current location to see available emergency professionals nearby.
+              <div className="bg-white rounded-xl p-6 text-center border border-slate-100">
+                <MapPin className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-sm font-medium text-slate-900 mb-1">Set your location</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  We'll find available pros nearby
                 </p>
                 <button
                   type="button"
                   onClick={fetchCurrentLocation}
-                  className="px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium"
                 >
-                  📍 Use My Current Location
+                  📍 Use My Location
                 </button>
               </div>
             ) : loadingContractors ? (
-              <div className="card p-8 text-center bg-slate-50">
-                <img
-                  src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-                  alt="Loading..."
-                  className="w-16 h-16 object-contain mx-auto mb-4"
-                />
-                <h3 className="text-lg font-medium text-slate-900 mb-2">Finding Emergency Professionals</h3>
-                <p className="text-slate-600">
-                  Searching for available contractors in your area...
-                </p>
+              <div className="bg-white rounded-xl p-6 text-center border border-slate-100">
+                <div className="relative w-16 h-16 mx-auto mb-3">
+                  <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
+                  <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
+                  <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-slate-600 font-medium text-sm">Finding available pros...</p>
+                <p className="text-slate-400 text-xs mt-1">Usually takes 30-60 seconds</p>
               </div>
             ) : filteredNearby.length === 0 ? (
-              <div className="card p-8 text-center bg-slate-50">
-                <Users className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-slate-900 mb-2">No Contractors Available</h3>
-                <p className="text-slate-600">
-                  No emergency professionals found in your area at this time.
+              <div className="bg-white rounded-xl p-6 text-center border border-slate-100">
+                <Users className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-sm font-medium text-slate-900 mb-1">No Pros Available</h3>
+                <p className="text-xs text-slate-500">
+                  No contractors found in your area right now
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {/* Show only first 'showCount' contractors */}
+              <div className="space-y-3">
                 {filteredNearby.slice(0, showCount).map((c) => (
                   <ContractorCard
                     key={c.id}
@@ -1316,31 +1345,12 @@ export default function PostJobInner({ userId }: Props) {
                   />
                 ))}
 
-                {/* Show More / See All buttons */}
                 {filteredNearby.length > showCount && (
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setShowCount(prev => prev + 5)}
-                      className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors"
-                    >
-                      Show More ({filteredNearby.length - showCount} remaining)
-                    </button>
-                    <button
-                      onClick={() => window.location.href = `/find-pro?near=${address.match(/\d{5}/)?.[0] || ''}&category=${emergencyType || ''}`}
-                      className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
-                    >
-                      See All Pros
-                    </button>
-                  </div>
-                )}
-
-                {/* See All button when all are shown */}
-                {filteredNearby.length > 5 && showCount >= filteredNearby.length && (
                   <button
-                    onClick={() => window.location.href = `/find-pro?near=${address.match(/\d{5}/)?.[0] || ''}&category=${emergencyType || ''}`}
-                    className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
+                    onClick={() => setShowCount(prev => prev + 5)}
+                    className="w-full px-4 py-2.5 bg-slate-100 text-slate-700 font-medium rounded-lg text-sm"
                   >
-                    See All Pros
+                    Show More ({filteredNearby.length - showCount} remaining)
                   </button>
                 )}
               </div>

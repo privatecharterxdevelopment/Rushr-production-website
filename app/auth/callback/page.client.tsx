@@ -71,16 +71,16 @@ export default function AuthCallbackClient() {
     handleCallback()
   }, [router, sp])
 
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      {error ? (
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error}</p>
           <a href="/" className="text-blue-600 hover:underline">Go to Home</a>
         </div>
-      ) : (
-        <LoadingSpinner size="lg" text="Finishing sign-in..." />
-      )}
-    </div>
-  )
+      </div>
+    )
+  }
+
+  return <LoadingSpinner size="lg" text="Finishing sign-in..." />
 }

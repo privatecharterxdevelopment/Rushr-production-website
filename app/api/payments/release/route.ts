@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import Stripe from 'stripe'
+import { getStripe } from '../../../../lib/stripe'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia'
-})
 
 /**
  * POST /api/payments/release
@@ -71,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Create Stripe Transfer to contractor
-    const transfer = await stripe.transfers.create({
+    const transfer = await getStripe().transfers.create({
       amount: Math.round(paymentHold.contractor_payout * 100), // Convert to cents
       currency: 'usd',
       destination: connectAccount.stripe_account_id,

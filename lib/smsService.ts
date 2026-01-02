@@ -101,3 +101,157 @@ export async function sendBidAcceptedSMS({
 
   return sendSMS({ to: contractorPhone, message })
 }
+
+/**
+ * Send SMS notification to contractor when their bid is rejected
+ */
+export async function sendBidRejectedSMS({
+  contractorPhone,
+  contractorName,
+  jobTitle,
+}: {
+  contractorPhone: string
+  contractorName: string
+  jobTitle: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${contractorName}, your bid for "${jobTitle}" was not accepted. Don't worry - more opportunities await! View jobs at https://rushr-main.vercel.app/dashboard/contractor`
+
+  return sendSMS({ to: contractorPhone, message })
+}
+
+/**
+ * Send SMS notification to contractor when they receive a direct offer
+ */
+export async function sendDirectOfferSMS({
+  contractorPhone,
+  contractorName,
+  homeownerName,
+  jobTitle,
+  offeredAmount,
+}: {
+  contractorPhone: string
+  contractorName: string
+  homeownerName: string
+  jobTitle: string
+  offeredAmount: number
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${contractorName}! ${homeownerName} sent you a direct job offer for "${jobTitle}" - $${offeredAmount}. View offer at https://rushr-main.vercel.app/dashboard/contractor/offers`
+
+  return sendSMS({ to: contractorPhone, message })
+}
+
+/**
+ * Send SMS notification to homeowner when payment is completed
+ */
+export async function sendPaymentCompletedSMSHomeowner({
+  homeownerPhone,
+  homeownerName,
+  jobTitle,
+  amount,
+  contractorName,
+}: {
+  homeownerPhone: string
+  homeownerName: string
+  jobTitle: string
+  amount: number
+  contractorName: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${homeownerName}! Your payment of $${amount} for "${jobTitle}" is confirmed. ${contractorName} has been notified and will begin work soon.`
+
+  return sendSMS({ to: homeownerPhone, message })
+}
+
+/**
+ * Send SMS notification to contractor when payment is completed
+ */
+export async function sendPaymentCompletedSMSContractor({
+  contractorPhone,
+  contractorName,
+  jobTitle,
+  amount,
+  homeownerName,
+}: {
+  contractorPhone: string
+  contractorName: string
+  jobTitle: string
+  amount: number
+  homeownerName: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${contractorName}! ${homeownerName} has paid $${amount} for "${jobTitle}". You can now start work. Payment will be released upon completion.`
+
+  return sendSMS({ to: contractorPhone, message })
+}
+
+/**
+ * Send SMS notification to homeowner when work is started
+ */
+export async function sendWorkStartedSMSHomeowner({
+  homeownerPhone,
+  homeownerName,
+  contractorName,
+  jobTitle,
+}: {
+  homeownerPhone: string
+  homeownerName: string
+  contractorName: string
+  jobTitle: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${homeownerName}! ${contractorName} has started work on "${jobTitle}". Track progress at https://rushr-main.vercel.app/dashboard/homeowner`
+
+  return sendSMS({ to: homeownerPhone, message })
+}
+
+/**
+ * Send SMS notification to contractor confirming work started
+ */
+export async function sendWorkStartedSMSContractor({
+  contractorPhone,
+  contractorName,
+  jobTitle,
+}: {
+  contractorPhone: string
+  contractorName: string
+  jobTitle: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${contractorName}! Work started for "${jobTitle}" has been recorded. The homeowner has been notified. Update your progress at https://rushr-main.vercel.app/dashboard/contractor`
+
+  return sendSMS({ to: contractorPhone, message })
+}
+
+/**
+ * Send SMS notification to homeowner when work is completed
+ */
+export async function sendWorkCompletedSMSHomeowner({
+  homeownerPhone,
+  homeownerName,
+  contractorName,
+  jobTitle,
+}: {
+  homeownerPhone: string
+  homeownerName: string
+  contractorName: string
+  jobTitle: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${homeownerName}! ${contractorName} has completed work on "${jobTitle}". Please review and rate the work at https://rushr-main.vercel.app/dashboard/homeowner`
+
+  return sendSMS({ to: homeownerPhone, message })
+}
+
+/**
+ * Send SMS notification to contractor confirming work completed
+ */
+export async function sendWorkCompletedSMSContractor({
+  contractorPhone,
+  contractorName,
+  jobTitle,
+  homeownerName,
+}: {
+  contractorPhone: string
+  contractorName: string
+  jobTitle: string
+  homeownerName: string
+}): Promise<{ success: boolean; error?: string }> {
+  const message = `Hi ${contractorName}! Job "${jobTitle}" marked as complete. ${homeownerName} has been notified. Payment will be released soon!`
+
+  return sendSMS({ to: contractorPhone, message })
+}

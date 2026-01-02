@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import Stripe from 'stripe'
+import { getStripe } from '../../../../../lib/stripe'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia'
-})
 
 /**
  * POST /api/stripe/connect/onboarding-link
@@ -47,7 +44,7 @@ export async function POST(request: NextRequest) {
     console.log('[Stripe Onboarding] Using app URL:', appUrl)
 
     // Create account link for onboarding
-    const accountLink = await stripe.accountLinks.create({
+    const accountLink = await getStripe().accountLinks.create({
       account: connectAccount.stripe_account_id,
       refresh_url: `${appUrl}/dashboard/contractor/stripe/refresh`,
       return_url: `${appUrl}/dashboard/contractor/stripe/success`,

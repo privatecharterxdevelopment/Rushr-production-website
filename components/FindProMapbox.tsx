@@ -2,7 +2,7 @@
 'use client'
 
 import 'mapbox-gl/dist/mapbox-gl.css'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useImperativeHandle, forwardRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 
 type LatLng = [number, number]
@@ -41,18 +41,32 @@ interface Props {
   radiusMiles: number
   searchCenter: LatLng
   onSearchHere?: (center: LatLng) => void
+  onContractorSelect?: (contractor: any) => void
   category?: string
   fullscreen?: boolean
+  hideSearchButton?: boolean
+  hideControls?: boolean
 }
 
-export default function FindProMapbox({
+export interface FindProMapboxHandle {
+  zoomIn: () => void
+  zoomOut: () => void
+  showRoute: (fromLat: number, fromLng: number, toLat: number, toLng: number) => void
+  clearRoute: () => void
+  flyToLocation: (lat: number, lng: number, zoom?: number) => void
+}
+
+const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
   items = [],
   radiusMiles = 10,
   searchCenter,
   onSearchHere,
+  onContractorSelect,
   category,
   fullscreen = false,
-}: Props) {
+  hideSearchButton = false,
+  hideControls = false,
+}, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapObjRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<mapboxgl.Marker[]>([])
@@ -116,11 +130,15 @@ export default function FindProMapbox({
       style: 'mapbox://styles/mapbox/light-v11',
       center: [searchCenter[1], searchCenter[0]], // Mapbox uses [lng, lat]
       zoom: 11,
-      projection: { name: 'mercator' } as any,
+      pitch: 45, // Enable 3D view with 45 degree tilt
+      bearing: 0, // No rotation
+      antialias: true, // Smooth edges for 3D buildings
     })
 
-    // Add navigation controls
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right')
+    // Add navigation controls (unless hidden)
+    if (!hideControls) {
+      map.addControl(new mapboxgl.NavigationControl(), 'top-right')
+    }
 
     // Add radius circle when map loads
     map.on('load', () => {
@@ -152,32 +170,74 @@ export default function FindProMapbox({
           'line-opacity': 0.5
         }
       })
+
+      // Add 3D buildings layer
+      const layers = map.getStyle().layers
+      const labelLayerId = layers?.find(
+        (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
+      )?.id
+
+      map.addLayer(
+        {
+          id: '3d-buildings',
+          source: 'composite',
+          'source-layer': 'building',
+          filter: ['==', 'extrude', 'true'],
+          type: 'fill-extrusion',
+          minzoom: 15,
+          paint: {
+            'fill-extrusion-color': '#aaa',
+            'fill-extrusion-height': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15,
+              0,
+              15.05,
+              ['get', 'height']
+            ],
+            'fill-extrusion-base': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15,
+              0,
+              15.05,
+              ['get', 'min_height']
+            ],
+            'fill-extrusion-opacity': 0.6
+          }
+        },
+        labelLayerId
+      )
     })
 
-    // Add search here button
-    const searchHereBtn = document.createElement('button')
-    searchHereBtn.className = 'mapboxgl-ctrl-search-here'
-    searchHereBtn.textContent = '🔍 Search this area'
-    searchHereBtn.style.cssText = `
-      position: absolute;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: white;
-      border: 1px solid #ddd;
-      padding: 8px 16px;
-      border-radius: 20px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      z-index: 1;
-    `
-    searchHereBtn.addEventListener('click', () => {
-      const center = map.getCenter()
-      onSearchHere?.([center.lat, center.lng])
-    })
-    mapRef.current.appendChild(searchHereBtn)
+    // Add search here button (only if not hidden)
+    if (!hideSearchButton) {
+      const searchHereBtn = document.createElement('button')
+      searchHereBtn.className = 'mapboxgl-ctrl-search-here'
+      searchHereBtn.textContent = '🔍 Search this area'
+      searchHereBtn.style.cssText = `
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        border: 1px solid #ddd;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        z-index: 1;
+      `
+      searchHereBtn.addEventListener('click', () => {
+        const center = map.getCenter()
+        onSearchHere?.([center.lat, center.lng])
+      })
+      mapRef.current.appendChild(searchHereBtn)
+    }
 
     mapObjRef.current = map
 
@@ -228,8 +288,16 @@ export default function FindProMapbox({
         </div>
       `
 
-      // Create popup
-      const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+      // Handle click - call callback if provided, otherwise show popup
+      if (onContractorSelect) {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation()
+          onContractorSelect(item)
+        })
+      }
+
+      // Create popup (only if no callback)
+      const popup = onContractorSelect ? undefined : new mapboxgl.Popup({ offset: 25 }).setHTML(`
         <div style="padding: 8px;">
           <h3 style="font-weight: 600; margin: 0 0 4px 0;">${item?.name || 'Contractor'}</h3>
           <p style="margin: 0; font-size: 12px; color: #666;">${item?.city || ''}</p>
@@ -242,8 +310,12 @@ export default function FindProMapbox({
         anchor: 'center' // Center the marker exactly on coordinates
       })
         .setLngLat([lng, lat])
-        .setPopup(popup)
-        .addTo(map)
+
+      if (popup) {
+        marker.setPopup(popup)
+      }
+
+      marker.addTo(map)
 
       markersRef.current.push(marker)
     })
@@ -289,6 +361,106 @@ export default function FindProMapbox({
     }
   }, [radiusMiles, searchCenter])
 
+  // Expose zoom and route methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      const map = mapObjRef.current
+      if (map) {
+        map.zoomIn()
+      }
+    },
+    zoomOut: () => {
+      const map = mapObjRef.current
+      if (map) {
+        map.zoomOut()
+      }
+    },
+    showRoute: async (fromLat: number, fromLng: number, toLat: number, toLng: number) => {
+      const map = mapObjRef.current
+      if (!map) return
+
+      const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (!MAPBOX_TOKEN) return
+
+      try {
+        // Fetch route from Mapbox Directions API
+        const response = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${fromLng},${fromLat};${toLng},${toLat}?geometries=geojson&access_token=${MAPBOX_TOKEN}`
+        )
+        const data = await response.json()
+
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0].geometry
+
+          // Remove existing route layer if present
+          if (map.getLayer('route')) {
+            map.removeLayer('route')
+          }
+          if (map.getSource('route')) {
+            map.removeSource('route')
+          }
+
+          // Add route source
+          map.addSource('route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: route
+            }
+          })
+
+          // Add route layer
+          map.addLayer({
+            id: 'route',
+            type: 'line',
+            source: 'route',
+            layout: {
+              'line-join': 'round',
+              'line-cap': 'round'
+            },
+            paint: {
+              'line-color': '#10b981',
+              'line-width': 5,
+              'line-opacity': 0.8
+            }
+          })
+
+          // Fit map to show entire route
+          const bounds = new mapboxgl.LngLatBounds()
+          bounds.extend([fromLng, fromLat])
+          bounds.extend([toLng, toLat])
+          map.fitBounds(bounds, { padding: 80, maxZoom: 14 })
+        }
+      } catch (error) {
+        console.error('Error fetching route:', error)
+      }
+    },
+    clearRoute: () => {
+      const map = mapObjRef.current
+      if (!map) return
+
+      if (map.getLayer('route')) {
+        map.removeLayer('route')
+      }
+      if (map.getSource('route')) {
+        map.removeSource('route')
+      }
+    },
+    flyToLocation: (lat: number, lng: number, zoom: number = 14) => {
+      const map = mapObjRef.current
+      if (map) {
+        map.flyTo({
+          center: [lng, lat],
+          zoom: zoom,
+          pitch: 45,
+          bearing: -17.6,
+          duration: 1500
+        })
+      }
+    }
+  }), [])
+
   return (
     <div className={fullscreen ? "absolute inset-0" : "relative"}>
       <div
@@ -306,4 +478,8 @@ export default function FindProMapbox({
       )}
     </div>
   )
-}
+})
+
+FindProMapbox.displayName = 'FindProMapbox'
+
+export default FindProMapbox

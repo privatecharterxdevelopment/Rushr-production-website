@@ -74,7 +74,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" suppressHydrationWarning data-site={isPro ? 'pro' : 'main'} className={satoshi.variable}>
       <head>
-        {/* keep theme + density pre hydration */}
+        {/* Enable edge-to-edge content on iOS (map behind status bar) */}
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+        {/* iOS status bar appearance */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        {/* keep theme + density pre hydration + native app detection */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -87,6 +92,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
     var dens = localStorage.getItem('al:density') || 'comfortable';
     html.classList.toggle('compact', dens === 'compact');
+
+    // Detect native Capacitor app BEFORE React hydration to prevent header/footer flash
+    // Check for Capacitor bridge OR custom user agent (fallback for cached pages)
+    var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    var isNativeUA = navigator.userAgent.indexOf('Rushr-iOS-Native') !== -1;
+    if (isNative || isNativeUA) {
+      html.classList.add('native-app');
+    }
   } catch(e) {}
 })();`
           }}
@@ -112,3 +125,4 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     </html>
   )
 }
+// Trigger rebuild v2 - force native detection deploy

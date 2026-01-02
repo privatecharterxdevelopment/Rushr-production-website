@@ -179,7 +179,7 @@ The Rushr Team`
       .subscribe()
 
     return () => {
-      messageSubscription.unsubscribe()
+      supabase.removeChannel(messageSubscription)
     }
   }, [user, userProfile])
 
@@ -303,7 +303,7 @@ The Rushr Team`
 
     return () => {
       if (subscription) {
-        subscription.unsubscribe()
+        supabase.removeChannel(subscription)
       }
     }
   }, [user, userProfile])

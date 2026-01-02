@@ -143,7 +143,7 @@ export default function LiveTrackingMap({
     fetchInitialLocation()
 
     return () => {
-      channel.unsubscribe()
+      supabase.removeChannel(channel)
     }
   }, [jobId])
 

@@ -5,7 +5,8 @@ import { useApp } from '@/lib/state'
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
   const { state, openAuth } = useApp()
-  useEffect(() => { if (!state.user.signedIn) openAuth() }, [state.user.signedIn, openAuth])
-  if (!state.user.signedIn) return null
+  const isSignedIn = state?.user?.signedIn ?? false
+  useEffect(() => { if (!isSignedIn) openAuth() }, [isSignedIn, openAuth])
+  if (!isSignedIn) return null
   return <>{children}</>
 }

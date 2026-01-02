@@ -772,6 +772,51 @@ export async function sendEarlyAccessConfirmation(params: {
 }
 
 /**
+ * Notify contractor when their bid is rejected
+ */
+export async function notifyBidRejected(params: {
+  contractorEmail: string
+  contractorName: string
+  jobTitle: string
+  homeownerName: string
+}) {
+  const { contractorEmail, contractorName, jobTitle, homeownerName } = params
+
+  const subject = `Bid Update - "${jobTitle}"`
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #6B7280;">Bid Not Accepted</h2>
+      <p>Hi ${contractorName},</p>
+      <p>Unfortunately, <strong>${homeownerName}</strong> has decided not to accept your bid for:</p>
+
+      <div style="background: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 5px 0;"><strong>Job:</strong> ${jobTitle}</p>
+      </div>
+
+      <p>Don't be discouraged! There are plenty of other opportunities waiting for you.</p>
+
+      <p>
+        <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/jobs"
+           style="background: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+          Browse Available Jobs
+        </a>
+      </p>
+
+      <p style="color: #6B7280; font-size: 14px; margin-top: 30px;">
+        Rushr Pro - Get More Jobs
+      </p>
+    </div>
+  `
+
+  return sendEmail({
+    to: contractorEmail,
+    subject,
+    html,
+    text: `Hi ${contractorName}, Your bid for "${jobTitle}" was not accepted by ${homeownerName}. Browse more jobs at ${process.env.NEXT_PUBLIC_SITE_URL}/dashboard/contractor/jobs`
+  })
+}
+
+/**
  * Notify contractor when homeowner sends them a custom job offer
  */
 export async function notifyCustomOffer(params: {

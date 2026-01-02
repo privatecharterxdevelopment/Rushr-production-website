@@ -11,9 +11,5 @@ export default function SignInRedirect() {
     router.replace('/?auth=signin')
   }, [router])
 
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <LoadingSpinner size="lg" text="Redirecting to sign in..." />
-    </div>
-  )
+  return <LoadingSpinner size="lg" text="Redirecting to sign in..." />
 }

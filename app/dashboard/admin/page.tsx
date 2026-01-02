@@ -212,8 +212,8 @@ export default function AdminDashboard() {
       .subscribe()
 
     return () => {
-      contractorSubscription.unsubscribe()
-      supportSubscription.unsubscribe()
+      supabase.removeChannel(contractorSubscription)
+      supabase.removeChannel(supportSubscription)
     }
   }, [])
 

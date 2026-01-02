@@ -166,7 +166,7 @@ export default function ContractorApprovalsPage() {
       .subscribe()
 
     return () => {
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [filter])
 

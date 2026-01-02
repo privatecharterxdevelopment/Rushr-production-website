@@ -13,7 +13,8 @@ import {
   User,
   CheckCircle2,
   MessageSquare,
-  Star
+  Star,
+  XCircle
 } from 'lucide-react'
 
 const PaymentModal = dynamic(() => import('../../../../components/PaymentModal'), { ssr: false })
@@ -35,8 +36,15 @@ export default function HomeownerBidsPage() {
   const [bids, setBids] = useState<Bid[]>([])
   const [loading, setLoading] = useState(true)
   const [acceptingBid, setAcceptingBid] = useState<string | null>(null)
+  const [rejectingBid, setRejectingBid] = useState<string | null>(null)
   const [selectedBid, setSelectedBid] = useState<Bid | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [activeTab, setActiveTab] = useState<'pending' | 'accepted' | 'rejected'>('pending')
+
+  // Filter bids by status
+  const pendingBids = bids.filter(b => b.status === 'pending')
+  const acceptedBids = bids.filter(b => b.status === 'accepted')
+  const rejectedBids = bids.filter(b => b.status === 'rejected')
 
   const fetchBids = async () => {
     if (!user) return
@@ -153,6 +161,49 @@ export default function HomeownerBidsPage() {
     }
   }
 
+  const handleRejectBid = async (bid: Bid) => {
+    if (!user || rejectingBid) return
+
+    if (!confirm('Are you sure you want to reject this bid? This action cannot be undone.')) {
+      return
+    }
+
+    setRejectingBid(bid.id)
+
+    try {
+      // Call API to reject bid and send notifications
+      const response = await fetch('/api/bids/reject', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bidId: bid.id,
+          jobTitle: bid.job_title,
+          homeownerId: user.id
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        alert('Error rejecting bid: ' + (data.error || 'Unknown error'))
+        setRejectingBid(null)
+        return
+      }
+
+      alert('Bid rejected. The contractor has been notified.')
+
+      // Refresh bids to show updated status
+      fetchBids()
+      setRejectingBid(null)
+    } catch (err) {
+      console.error('Error rejecting bid:', err)
+      alert('Error rejecting bid')
+      setRejectingBid(null)
+    }
+  }
+
   const handleOpenPayment = (bid: Bid) => {
     setSelectedBid(bid)
     setShowPaymentModal(true)
@@ -186,6 +237,9 @@ export default function HomeownerBidsPage() {
     )
   }
 
+  // Get current tab's bids
+  const currentBids = activeTab === 'pending' ? pendingBids : activeTab === 'accepted' ? acceptedBids : rejectedBids
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Header */}
@@ -201,16 +255,58 @@ export default function HomeownerBidsPage() {
         <p className="text-slate-600 mt-1">Review and accept bids from contractors</p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6 border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'pending'
+              ? 'border-amber-500 text-amber-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Pending ({pendingBids.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('accepted')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'accepted'
+              ? 'border-emerald-500 text-emerald-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Accepted ({acceptedBids.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('rejected')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'rejected'
+              ? 'border-red-500 text-red-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Rejected ({rejectedBids.length})
+        </button>
+      </div>
+
       {/* Bids List */}
-      {bids.length === 0 ? (
+      {currentBids.length === 0 ? (
         <div className="text-center py-12 bg-slate-50 rounded-lg">
           <MessageSquare className="h-12 w-12 text-slate-400 mx-auto mb-3" />
-          <p className="text-slate-600">No bids yet</p>
-          <p className="text-sm text-slate-500 mt-1">Contractors will bid on your posted jobs</p>
+          <p className="text-slate-600">
+            {activeTab === 'pending' && 'No pending bids'}
+            {activeTab === 'accepted' && 'No accepted bids yet'}
+            {activeTab === 'rejected' && 'No rejected bids'}
+          </p>
+          <p className="text-sm text-slate-500 mt-1">
+            {activeTab === 'pending' && 'Contractors will bid on your posted jobs'}
+            {activeTab === 'accepted' && 'Accept a bid to see it here'}
+            {activeTab === 'rejected' && 'Rejected bids will appear here'}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
-          {bids.map((bid) => (
+          {currentBids.map((bid) => (
             <div key={bid.id} className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
               {/* Bid Header */}
               <div className="flex items-start justify-between mb-4">
@@ -261,7 +357,7 @@ export default function HomeownerBidsPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleAcceptBid(bid)}
-                    disabled={acceptingBid === bid.id}
+                    disabled={acceptingBid === bid.id || rejectingBid === bid.id}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {acceptingBid === bid.id ? (
@@ -277,6 +373,27 @@ export default function HomeownerBidsPage() {
                       <>
                         <CheckCircle2 className="h-4 w-4" />
                         Accept Bid
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleRejectBid(bid)}
+                    disabled={acceptingBid === bid.id || rejectingBid === bid.id}
+                    className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {rejectingBid === bid.id ? (
+                      <>
+                        <img
+                          src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
+                          alt="Loading..."
+                          className="w-4 h-4 object-contain"
+                        />
+                        Rejecting...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-4 w-4" />
+                        Reject
                       </>
                     )}
                   </button>
@@ -298,6 +415,25 @@ export default function HomeownerBidsPage() {
                       <DollarSign className="h-5 w-5" />
                       Place Payment
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Show Message Button for Rejected Bids */}
+              {bid.status === 'rejected' && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">Changed your mind?</p>
+                      <p className="text-sm text-gray-500">You can still message this contractor</p>
+                    </div>
+                    <Link
+                      href={`/messages?to=${bid.contractor_id}`}
+                      className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Message
+                    </Link>
                   </div>
                 </div>
               )}

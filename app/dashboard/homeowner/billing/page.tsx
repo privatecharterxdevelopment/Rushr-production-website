@@ -2,14 +2,26 @@
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '../../../../contexts/AuthContext'
 import { supabase } from '../../../../lib/supabaseClient'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { ArrowLeft, CreditCard, CheckCircle2, Plus, Trash2 } from 'lucide-react'
-import LoadingSpinner from '../../../../components/LoadingSpinner'
+import LoadingSpinner, { FullScreenLoading } from '../../../../components/LoadingSpinner'
+import { Capacitor } from '@capacitor/core'
+import { safeBack } from '../../../../lib/safeBack'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+
+// Hook to safely check if running in native app (avoids hydration mismatch)
+function useIsNative() {
+  const [isNative, setIsNative] = useState(false)
+  useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform())
+  }, [])
+  return isNative
+}
 
 interface PaymentMethod {
   id: string
@@ -144,6 +156,8 @@ function AddPaymentMethodForm({ customerId, onSuccess }: { customerId: string; o
 
 function BillingPageContent() {
   const { user, userProfile, loading: authLoading } = useAuth()
+  const router = useRouter()
+  const isNative = useIsNative()
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [defaultPaymentMethodId, setDefaultPaymentMethodId] = useState<string | null>(null)
@@ -196,12 +210,9 @@ function BillingPageContent() {
     fetchPaymentMethods()
   }
 
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner size="lg" text="Loading billing..." color="emerald" />
-      </div>
-    )
+  // Show full-screen loading while auth or payment methods are loading
+  if (authLoading || loading) {
+    return <FullScreenLoading />
   }
 
   if (!user || !userProfile || userProfile.role !== 'homeowner') {
@@ -216,42 +227,76 @@ function BillingPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center gap-4 mb-2">
-            <Link href="/dashboard/homeowner" className="btn btn-outline">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Link>
+    <div
+      className="min-h-screen bg-gray-50"
+      style={{
+        paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
+        paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
+      }}
+    >
+      {/* iOS Native Header */}
+      {isNative && (
+        <div
+          className="sticky top-0 z-50"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => safeBack(router, '/dashboard')}
+              className="flex items-center text-white active:opacity-60"
+            >
+              <ArrowLeft className="w-6 h-6" />
+              <span className="ml-1 font-medium">Back</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              Billing & Payments
+            </h1>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing & Payment Methods</h1>
-          <p className="text-gray-600 mt-1">Manage your payment methods for hiring contractors</p>
         </div>
-      </div>
+      )}
+
+      {/* Web Header */}
+      {!isNative && (
+        <div
+          className="relative z-20"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)'
+          }}
+        >
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-3 mb-3">
+              <Link
+                href="/dashboard/homeowner"
+                className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"
+              >
+                <ArrowLeft className="h-5 w-5 text-white" />
+              </Link>
+              <h1 className="text-xl font-semibold text-white">Billing & Payments</h1>
+            </div>
+            <p className="text-white/80 text-sm">Manage your payment methods for hiring contractors</p>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {loading ? (
-          <div className="text-center py-12">
-            <LoadingSpinner size="lg" text="Loading payment methods..." color="emerald" />
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Payment Methods List */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Payment Methods</h2>
-                {!showAddCard && (
-                  <button
-                    onClick={() => setShowAddCard(true)}
-                    className="btn btn-outline flex items-center gap-2"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add Card
-                  </button>
-                )}
+        <div className="space-y-6">
+          {/* Payment Methods List */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Payment Methods</h2>
+              {!showAddCard && (
+                <button
+                  onClick={() => setShowAddCard(true)}
+                  className="btn btn-outline flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Card
+                </button>
+              )}
               </div>
 
               {paymentMethods.length === 0 && !showAddCard ? (
@@ -325,7 +370,6 @@ function BillingPageContent() {
               </p>
             </div>
           </div>
-        )}
       </div>
     </div>
   )

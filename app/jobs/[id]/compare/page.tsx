@@ -116,10 +116,11 @@ export default function CompareBids() {
       >
         {isNative && (
           <div className="bg-gradient-to-b from-emerald-600 to-emerald-500 text-white">
-            <div className="px-4 py-4" style={{ paddingTop: 'calc(12px + env(safe-area-inset-top))' }}>
+            <div className="px-4 py-4" style={{ paddingTop: 'max(calc(12px + env(safe-area-inset-top)), 59px)' }}>
               <div className="flex items-center justify-between">
-                <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-white/20">
+                <button onClick={() => router.push('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 flex items-center">
                   <ArrowLeft className="h-6 w-6" />
+                  <span className="ml-1">Home</span>
                 </button>
                 <h1 className="text-lg font-bold flex-1 text-center">Compare Bids</h1>
                 <div className="w-10" />
@@ -128,12 +129,18 @@ export default function CompareBids() {
           </div>
         )}
         <div className="flex items-center justify-center py-20">
-          <img
-            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-            alt="Loading..."
-            className="h-10 w-10 object-contain"
-          />
-          <span className="ml-3 text-slate-600">Loading bids...</span>
+          <div className="flex flex-col items-center">
+            <div className="relative flex items-center justify-center" style={{ width: 56, height: 56 }}>
+              <div className="absolute inset-0 rounded-full border-emerald-200 border-t-emerald-600 animate-spin" style={{ borderWidth: 3 }} />
+              <img
+                src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
+                alt="Rushr"
+                style={{ width: 32, height: 32 }}
+                className="object-contain"
+              />
+            </div>
+            <p className="text-slate-600 text-sm mt-3">Loading bids...</p>
+          </div>
         </div>
       </div>
     )
@@ -218,10 +225,11 @@ export default function CompareBids() {
       >
         {isNative && (
           <div className="bg-gradient-to-b from-emerald-600 to-emerald-500 text-white">
-            <div className="px-4 py-4" style={{ paddingTop: 'calc(12px + env(safe-area-inset-top))' }}>
+            <div className="px-4 py-4" style={{ paddingTop: 'max(calc(12px + env(safe-area-inset-top)), 59px)' }}>
               <div className="flex items-center justify-between">
-                <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-white/20">
+                <button onClick={() => router.push('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 flex items-center">
                   <ArrowLeft className="h-6 w-6" />
+                  <span className="ml-1">Home</span>
                 </button>
                 <h1 className="text-lg font-bold flex-1 text-center">Compare Bids</h1>
                 <div className="w-10" />
@@ -233,8 +241,8 @@ export default function CompareBids() {
           {!isNative && (
             <div className="flex items-center justify-between mb-6">
               <h1 className="text-3xl font-bold text-slate-900">See Bids</h1>
-              <Link href="/dashboard/homeowner" className="px-4 py-2 text-emerald-600 hover:text-emerald-700 font-medium">
-                Back to Dashboard
+              <Link href="/" className="px-4 py-2 text-emerald-600 hover:text-emerald-700 font-medium">
+                Back to Home
               </Link>
             </div>
           )}
@@ -262,10 +270,11 @@ export default function CompareBids() {
         {/* iOS Native Header */}
         {isNative && (
           <div className="bg-gradient-to-b from-emerald-600 to-emerald-500 text-white sticky top-0 z-50">
-            <div className="px-4 py-4" style={{ paddingTop: 'calc(12px + env(safe-area-inset-top))' }}>
+            <div className="px-4 py-4" style={{ paddingTop: 'max(calc(12px + env(safe-area-inset-top)), 59px)' }}>
               <div className="flex items-center justify-between">
-                <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-white/20 active:bg-white/30">
+                <button onClick={() => router.push('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 active:bg-white/30 flex items-center">
                   <ArrowLeft className="h-6 w-6" />
+                  <span className="ml-1">Home</span>
                 </button>
                 <div className="flex-1 text-center">
                   <h1 className="text-lg font-bold">Compare Bids</h1>

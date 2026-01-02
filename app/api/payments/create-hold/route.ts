@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import Stripe from 'stripe'
+import { getStripe } from '../../../../lib/stripe'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia'
-})
 
 /**
  * POST /api/payments/create-hold
@@ -78,7 +74,7 @@ export async function POST(request: NextRequest) {
         .single()
 
       // Create Stripe customer
-      const customer = await stripe.customers.create({
+      const customer = await getStripe().customers.create({
         email: homeowner?.email,
         name: homeowner?.name,
         metadata: {
@@ -105,7 +101,7 @@ export async function POST(request: NextRequest) {
 
     // 5. Create Stripe PaymentIntent (authorize but don't capture yet)
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentIntent = await getStripe().paymentIntents.create({
       amount: Math.round(bidAmount * 100), // Convert to cents
       currency: 'usd',
       customer: stripeCustomerId,
@@ -146,7 +142,7 @@ export async function POST(request: NextRequest) {
 
     if (holdError) {
       // Cancel the payment intent if DB insert fails
-      await stripe.paymentIntents.cancel(paymentIntent.id)
+      await getStripe().paymentIntents.cancel(paymentIntent.id)
       throw holdError
     }
 

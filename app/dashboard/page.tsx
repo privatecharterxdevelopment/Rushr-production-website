@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProAuth } from '../../contexts/ProAuthContext'
 import Link from 'next/link'
-import LoadingSpinner from '../../components/LoadingSpinner'
+import { FullScreenLoading } from '../../components/LoadingSpinner'
 
 export default function DashboardChooser() {
   const { user: homeownerUser, userProfile, loading: homeownerLoading } = useAuth()
@@ -44,11 +44,7 @@ export default function DashboardChooser() {
   }, [user, userProfile, contractorProfile, loading, router])
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Loading dashboard..." />
-      </div>
-    )
+    return <FullScreenLoading />
   }
 
   if (!user) {

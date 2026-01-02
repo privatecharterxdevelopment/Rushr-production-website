@@ -2,10 +2,22 @@
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '../../../../contexts/AuthContext'
 import { supabase } from '../../../../lib/supabaseClient'
 import { ArrowLeft, DollarSign, ChevronRight, Clock, CheckCircle2 } from 'lucide-react'
-import LoadingSpinner from '../../../../components/LoadingSpinner'
+import { FullScreenLoading } from '../../../../components/LoadingSpinner'
+import { Capacitor } from '@capacitor/core'
+import { safeBack } from '../../../../lib/safeBack'
+
+// Hook to safely check if running in native app (avoids hydration mismatch)
+function useIsNative() {
+  const [isNative, setIsNative] = useState(false)
+  useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform())
+  }, [])
+  return isNative
+}
 
 interface Transaction {
   id: string
@@ -23,8 +35,23 @@ interface Transaction {
 
 export default function TransactionsPage() {
   const { user, userProfile, loading: authLoading } = useAuth()
+  const router = useRouter()
+  const isNative = useIsNative()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
+  const [showLoadingScreen, setShowLoadingScreen] = useState(false)
+
+  // Only show loading screen if loading takes longer than 500ms
+  useEffect(() => {
+    if (authLoading || loading) {
+      const timer = setTimeout(() => {
+        setShowLoadingScreen(true)
+      }, 500)
+      return () => clearTimeout(timer)
+    } else {
+      setShowLoadingScreen(false)
+    }
+  }, [authLoading, loading])
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -139,17 +166,13 @@ export default function TransactionsPage() {
     fetchTransactions()
   }, [user])
 
-  // Show loading while auth is being determined
-  if (authLoading || loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner size="lg" text="Loading transactions..." />
-      </div>
-    )
+  // Show full-screen loading only if loading takes too long
+  if ((authLoading || loading) && showLoadingScreen) {
+    return <FullScreenLoading />
   }
 
   // Redirect to login if not authenticated
-  if (!user || !userProfile) {
+  if (!authLoading && !loading && (!user || !userProfile)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -181,22 +204,59 @@ export default function TransactionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4 mb-2">
-            <Link href="/dashboard/homeowner" className="btn btn-outline">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Link>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Transactions</h1>
-            <p className="text-gray-600 dark:text-slate-400">View your payment history and receipts</p>
+    <div
+      className="min-h-screen bg-gray-50 dark:bg-slate-950"
+      style={{
+        paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
+        paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
+      }}
+    >
+      {/* iOS Native Header */}
+      {isNative && (
+        <div
+          className="sticky top-0 z-50"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => safeBack(router, '/dashboard')}
+              className="flex items-center text-white active:opacity-60"
+            >
+              <ArrowLeft className="w-6 h-6" />
+              <span className="ml-1 font-medium">Back</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              Transactions
+            </h1>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Web Header */}
+      {!isNative && (
+        <div
+          className="relative z-20"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)'
+          }}
+        >
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-3 mb-3">
+              <Link
+                href="/dashboard/homeowner"
+                className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"
+              >
+                <ArrowLeft className="h-5 w-5 text-white" />
+              </Link>
+              <h1 className="text-xl font-semibold text-white">Transactions</h1>
+            </div>
+            <p className="text-white/80 text-sm">View your payment history and receipts</p>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto p-6">

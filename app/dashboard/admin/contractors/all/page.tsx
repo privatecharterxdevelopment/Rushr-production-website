@@ -35,7 +35,7 @@ export default function AllContractorsPage() {
       .subscribe()
 
     return () => {
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [])
 

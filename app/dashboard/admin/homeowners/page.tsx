@@ -35,7 +35,7 @@ export default function HomeownersPage() {
       .subscribe()
 
     return () => {
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [])
 

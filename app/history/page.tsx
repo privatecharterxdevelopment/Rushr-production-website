@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
-import LoadingSpinner from '../../components/LoadingSpinner'
+import { FullScreenLoading } from '../../components/LoadingSpinner'
 import {
   ArrowLeft,
   Clock,
@@ -51,7 +51,7 @@ interface Payment {
 }
 
 export default function History() {
-  const { user, userProfile } = useAuth()
+  const { user, userProfile, loading: authLoading } = useAuth()
   const [jobs, setJobs] = useState<Job[]>([])
   const [contractors, setContractors] = useState<Record<string, Contractor>>({})
   const [payments, setPayments] = useState<Record<string, Payment>>({})
@@ -139,6 +139,11 @@ export default function History() {
 
     fetchJobs()
   }, [user])
+
+  // Show full-screen loading while auth is being determined
+  if (authLoading || loading) {
+    return <FullScreenLoading />
+  }
 
   if (!user) {
     return (

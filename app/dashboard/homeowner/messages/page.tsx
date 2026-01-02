@@ -230,7 +230,7 @@ function MessagesContent() {
     return () => {
       isMounted = false
       if (debounceTimer) clearTimeout(debounceTimer)
-      conversationSubscription.unsubscribe()
+      supabase.removeChannel(conversationSubscription)
     }
   }, [user?.id, authLoading])
 
@@ -290,8 +290,8 @@ function MessagesContent() {
       .subscribe()
 
     return () => {
-      messageSubscription.unsubscribe()
-      typingChannel.unsubscribe()
+      supabase.removeChannel(messageSubscription)
+      supabase.removeChannel(typingChannel)
     }
   }, [conversationId, conversations, user])
 

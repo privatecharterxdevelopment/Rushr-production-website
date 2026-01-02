@@ -4,6 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useAuth } from '../../../contexts/AuthContext'
 import { loadStripe } from '@stripe/stripe-js'
+import { safeBack } from '../../../lib/safeBack'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
@@ -93,7 +94,7 @@ function CheckoutContent() {
           <h2 className="text-xl font-semibold text-red-900 mb-4">Payment Error</h2>
           <p className="text-red-700 mb-6">{error}</p>
           <button
-            onClick={() => router.back()}
+            onClick={() => safeBack(router, '/dashboard')}
             className="w-full px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white font-medium rounded-lg"
           >
             Go Back

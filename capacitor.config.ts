@@ -1,17 +1,16 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+// Production - Load from new Vercel deployment
 const config: CapacitorConfig = {
-  appId: 'com.rushr.app',
+  appId: 'com.userushr.app',
   appName: 'Rushr',
   webDir: 'out',
   server: {
-    // For development: use local server
-    // For production: change to your deployed URL
-    url: 'http://localhost:3001',
-    cleartext: true
+    url: 'https://staging-rushr-five.vercel.app',
+    cleartext: false
   },
   ios: {
-    contentInset: 'automatic',
+    contentInset: 'never',
     scheme: 'Rushr',
     backgroundColor: '#ffffff'
   }

@@ -8,9 +8,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia'
-})
+// Lazy initialization to prevent build-time errors
+let stripe: Stripe | null = null
+function getStripe() {
+  if (!stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error('STRIPE_SECRET_KEY is not configured')
+    }
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2024-11-20.acacia'
+    })
+  }
+  return stripe
+}
 
 /**
  * POST /api/direct-offers/create-payment
@@ -77,7 +87,7 @@ export async function POST(request: NextRequest) {
         .single()
 
       // Create Stripe customer
-      const customer = await stripe.customers.create({
+      const customer = await getStripe().customers.create({
         email: homeowner?.email,
         name: homeowner?.name,
         metadata: { user_id: homeownerId }
@@ -101,7 +111,7 @@ export async function POST(request: NextRequest) {
     const stripeFee = Math.round((offerAmount * 0.029 + 0.30) * 100) / 100
 
     // 5. Create Stripe PaymentIntent
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentIntent = await getStripe().paymentIntents.create({
       amount: Math.round(offerAmount * 100), // Convert to cents
       currency: 'usd',
       customer: stripeCustomerId,
@@ -140,7 +150,7 @@ export async function POST(request: NextRequest) {
 
     if (holdError) {
       // Cancel the payment intent if DB insert fails
-      await stripe.paymentIntents.cancel(paymentIntent.id)
+      await getStripe().paymentIntents.cancel(paymentIntent.id)
       throw holdError
     }
 

@@ -28,13 +28,23 @@ export function useConversations(userId?: string, role?: 'homeowner' | 'pro') {
   }, [])
 
   const loadConversations = useCallback(async () => {
-    if (!user?.id) return
+    if (!user?.id) {
+      setLoading(false)
+      return
+    }
 
     try {
       setLoading(true)
 
-      // Fetch real conversations from database
-      const realConversations = await MessagingAPI.getConversations(user.id)
+      // Fetch real conversations from database with timeout (20s for slow connections)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout - conversations took too long to load')), 20000)
+      )
+
+      const realConversations = await Promise.race([
+        MessagingAPI.getConversations(user.id),
+        timeoutPromise
+      ])
 
       // Transform to add display names for Rushr Support
       const transformedConversations = realConversations.map(conv => {
@@ -54,9 +64,18 @@ export function useConversations(userId?: string, role?: 'homeowner' | 'pro') {
 
       setConversations(transformedConversations)
       setError(null)
-    } catch (err) {
-      console.error('Error loading conversations:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load conversations')
+    } catch (err: any) {
+      // Better error logging for Supabase errors
+      const errorMessage = err?.message || err?.error_description || (typeof err === 'object' ? JSON.stringify(err) : String(err)) || 'Failed to load conversations'
+      // Only log non-timeout errors as errors (timeouts are expected on slow networks)
+      if (errorMessage.includes('timeout')) {
+        console.warn('Conversations load timed out - will retry on refresh')
+      } else {
+        console.error('Error loading conversations:', errorMessage, err)
+      }
+      setError(errorMessage)
+      // Set empty conversations on error so app can still function
+      setConversations([])
     } finally {
       setLoading(false)
     }

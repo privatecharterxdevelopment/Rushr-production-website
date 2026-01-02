@@ -196,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false
       clearTimeout(loadingTimeout)
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [router])
 
@@ -302,7 +302,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(data.user)
         setSession(data.session)
         if (role === 'homeowner') {
+          // Wait a moment for the profile to be created in the database
+          await new Promise(resolve => setTimeout(resolve, 500))
           await fetchUserProfile(data.user.id)
+
+          // If profile still doesn't have name, set it directly
+          // This handles race condition where profile was fetched before insert completed
+          if (!userProfile?.name) {
+            setUserProfile({
+              id: data.user.id,
+              email: data.user.email!,
+              name,
+              role: 'homeowner',
+              subscription_type: 'free',
+              created_at: new Date().toISOString()
+            })
+          }
         }
       }
 

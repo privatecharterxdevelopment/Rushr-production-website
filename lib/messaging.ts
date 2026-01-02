@@ -84,7 +84,11 @@ export class MessagingAPI {
       .eq('status', 'active')
       .order('last_message_at', { ascending: false })
 
-    if (error) throw error
+    if (error) {
+      // Create a proper Error with message for better logging
+      const errorMessage = error.message || error.details || error.hint || 'Failed to fetch conversations'
+      throw new Error(errorMessage)
+    }
     return data || []
   }
 

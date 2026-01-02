@@ -21,6 +21,7 @@ export default function Footer() {
   }, [])
 
   // Hide footer in native iOS/Android app
+  // Note: CSS also hides footer via html.native-app class before React hydrates
   if (isNative) {
     return null
   }

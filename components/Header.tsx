@@ -97,6 +97,7 @@ export default function Header() {
   }, [])
 
   // Hide header in native iOS/Android app
+  // Note: CSS also hides header via html.native-app class before React hydrates
   if (isNative) {
     return null
   }

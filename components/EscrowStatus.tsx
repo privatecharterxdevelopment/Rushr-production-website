@@ -71,7 +71,7 @@ export default function EscrowStatus({
       .subscribe()
 
     return () => {
-      subscription.unsubscribe()
+      supabase.removeChannel(subscription)
     }
   }, [user, bidId])
 
