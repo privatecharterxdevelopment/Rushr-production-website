@@ -69,10 +69,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify contractor exists
+    // Verify contractor exists and offers this service
     const { data: contractor, error: contractorError } = await supabase
       .from('pro_contractors')
-      .select('id')
+      .select('id, categories, specialties')
       .eq('id', contractor_id)
       .single()
 
@@ -80,6 +80,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Contractor not found' },
         { status: 404 }
+      )
+    }
+
+    // Validate that contractor offers this category/service
+    const contractorServices = contractor.categories || contractor.specialties || []
+    if (contractorServices.length > 0 && !contractorServices.includes(category)) {
+      console.log('[DirectOffer] Category mismatch:', { category, contractorServices })
+      return NextResponse.json(
+        { error: `This contractor does not offer ${category} services. They specialize in: ${contractorServices.join(', ')}` },
+        { status: 400 }
       )
     }
 

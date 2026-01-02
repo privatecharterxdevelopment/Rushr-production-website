@@ -15,14 +15,6 @@ const supabase = createClient(
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check if Stripe is configured
-    if (!stripe) {
-      return NextResponse.json(
-        { error: 'Payment system not configured. Please add STRIPE_SECRET_KEY to environment variables.' },
-        { status: 503 }
-      )
-    }
-
     const { paymentHoldId, homeownerId } = await request.json()
 
     if (!paymentHoldId || !homeownerId) {
