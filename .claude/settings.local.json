@@ -32,7 +32,8 @@
       "Bash(echo:*)",
       "Bash(fi)",
       "Bash(done)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []
