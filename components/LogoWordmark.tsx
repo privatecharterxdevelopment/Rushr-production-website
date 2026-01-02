@@ -37,7 +37,10 @@ export default function LogoWordmark({ className = '', variant = 'header' }: { c
   const alt = isPro ? 'Rushr — for pros' : 'Rushr'
 
   // Different sizes for header vs footer - smaller for better mobile fit
-  const heightClass = variant === 'footer' ? 'h-8' : 'h-10'
+  // Contractor logos are larger images so need smaller height
+  const heightClass = variant === 'footer'
+    ? (isPro ? 'h-6' : 'h-8')  // Contractor footer smaller
+    : (isPro ? 'h-8' : 'h-10') // Contractor header smaller
 
   return (
     <img

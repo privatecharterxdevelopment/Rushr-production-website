@@ -114,7 +114,7 @@ function Hero() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="text-4xl font-black tracking-tight text-gray-900 md:text-6xl"
+            className="text-3xl font-semibold tracking-tight text-gray-900 md:text-5xl"
           >
             Win jobs before competitors even quote
           </motion.h1>
