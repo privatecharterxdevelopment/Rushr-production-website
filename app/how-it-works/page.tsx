@@ -37,10 +37,10 @@ export default function HowItWorksPage(){
             Post a Job
           </button>
           <Link
-            href="/rushrmap"
+            href="/find-pro"
             className="border border-gray-300 hover:border-gray-400 text-gray-700 hover:text-gray-900 px-8 py-3 rounded-lg font-semibold transition-colors"
           >
-            Browse Professionals
+            Find a Pro
           </Link>
         </div>
       </section>
@@ -279,8 +279,8 @@ export default function HowItWorksPage(){
           <button onClick={postOrAuth} className="bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-4 rounded-lg font-bold text-lg">
             Post a Job
           </button>
-          <Link href="/rushrmap" className="border border-gray-300 hover:border-gray-400 text-gray-700 hover:text-gray-900 px-10 py-4 rounded-lg font-bold text-lg">
-            Browse Professionals
+          <Link href="/find-pro" className="border border-gray-300 hover:border-gray-400 text-gray-700 hover:text-gray-900 px-10 py-4 rounded-lg font-bold text-lg">
+            Find a Pro
           </Link>
         </div>
 
