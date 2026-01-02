@@ -37,8 +37,7 @@ export default function LogoWordmark({ className = '', variant = 'header' }: { c
   const alt = isPro ? 'Rushr — for pros' : 'Rushr'
 
   // Different sizes for header vs footer
-  // All logos now use same smaller sizes
-  const heightClass = variant === 'footer' ? 'h-5' : 'h-6'
+  const heightClass = variant === 'footer' ? 'h-6' : 'h-8'
 
   return (
     <img
