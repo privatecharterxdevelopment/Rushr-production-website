@@ -69,9 +69,15 @@ export default function Hero(){
   const [placeholderText, setPlaceholderText] = useState('')
   const [currentScenarioIndex, setCurrentScenarioIndex] = useState(0)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isInputFocused, setIsInputFocused] = useState(false)
 
-  // Typing animation effect
+  // Typing animation effect - pauses when user is typing or input is focused
   useEffect(() => {
+    // Stop animation if user has typed something or input is focused
+    if (searchQuery.length > 0 || isInputFocused) {
+      return
+    }
+
     const currentScenario = EMERGENCY_SCENARIOS[currentScenarioIndex]
     const typingSpeed = isDeleting ? 30 : 60
     const pauseAfterComplete = 1000
@@ -99,7 +105,7 @@ export default function Hero(){
     }, typingSpeed)
 
     return () => clearTimeout(timer)
-  }, [placeholderText, isDeleting, currentScenarioIndex])
+  }, [placeholderText, isDeleting, currentScenarioIndex, searchQuery, isInputFocused])
 
   // Get user's location and convert to ZIP
   const getUserLocation = async () => {
@@ -223,9 +229,11 @@ export default function Hero(){
             <div className="relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white rounded-xl shadow-lg overflow-hidden">
               <input
                 type="text"
-                placeholder={placeholderText}
+                placeholder={placeholderText || 'What do you need help with?'}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
                 className="flex-1 px-5 py-4 text-gray-900 placeholder-gray-500 focus:outline-none text-base md:text-lg border-b sm:border-b-0 sm:border-r border-gray-200"
               />
               <div className="flex items-center">
@@ -244,11 +252,7 @@ export default function Hero(){
                   title="Use my location"
                 >
                   {loadingLocation ? (
-                    <img
-                      src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-                      alt="Loading..."
-                      className="w-6 h-6 object-contain"
-                    />
+                    <div className="w-6 h-6 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
                   ) : (
                     <svg className="h-6 w-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
