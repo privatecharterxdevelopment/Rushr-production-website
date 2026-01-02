@@ -30,8 +30,8 @@ export default function LogoWordmark({ className = '', variant = 'header' }: { c
     // Contractors keep their existing logos
     src = variant === 'footer' ? '/rushr-contractor-footer.jpeg' : '/rushr-contractor-header.jpeg'
   } else {
-    // Homeowners get the new vector SVG logo
-    src = 'https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg'
+    // Homeowners
+    src = variant === 'footer' ? '/rushr-homeowner-footer.jpeg' : 'https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg'
   }
 
   const alt = isPro ? 'Rushr — for pros' : 'Rushr'
