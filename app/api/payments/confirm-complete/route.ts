@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getStripe } from '../../../../lib/stripe'
 import { notifyPaymentCompleted } from '../../../../lib/emailService'
 import { sendWorkCompletedSMSHomeowner, sendWorkCompletedSMSContractor } from '../../../../lib/smsService'
 
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
     const { data: updated, error: updateError } = await supabase
       .from('payment_holds')
       .update(updateFields)
-      .eq('id', paymentHoldId)
+      .eq('id', paymentHold.id)
       .select()
       .single()
 
@@ -152,12 +153,96 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 5. If both confirmed, update job status
+    // 5. If both confirmed, release payment and update job status
     if (bothConfirmed) {
+      // 5a. Get contractor's Stripe Connect account
+      const { data: connectAccount } = await supabase
+        .from('stripe_connect_accounts')
+        .select('stripe_account_id, payouts_enabled')
+        .eq('contractor_id', paymentHold.contractor_id)
+        .single()
+
+      if (!connectAccount || !connectAccount.payouts_enabled) {
+        // Contractor hasn't completed Stripe Connect - still mark as confirmed but can't transfer yet
+        console.error('Contractor has not completed Stripe Connect onboarding:', paymentHold.contractor_id)
+
+        // Update payment hold to show it's ready for release but pending Connect
+        await supabase
+          .from('payment_holds')
+          .update({ status: 'pending_connect' })
+          .eq('id', paymentHold.id)
+
+        return NextResponse.json({
+          success: true,
+          bothConfirmed: true,
+          paymentReleased: false,
+          pendingReason: 'Contractor must complete Stripe Connect onboarding to receive payment',
+          homeowerConfirmed: true,
+          contractorConfirmed: true
+        })
+      }
+
+      // 5b. Create Stripe Transfer to contractor (minus platform fee already calculated)
+      try {
+        const transfer = await getStripe().transfers.create({
+          amount: Math.round(paymentHold.contractor_payout * 100), // Convert to cents
+          currency: 'usd',
+          destination: connectAccount.stripe_account_id,
+          transfer_group: paymentHold.job_id || paymentHold.offer_id,
+          metadata: {
+            payment_hold_id: paymentHold.id,
+            job_id: paymentHold.job_id,
+            offer_id: paymentHold.offer_id,
+            homeowner_id: paymentHold.homeowner_id,
+            contractor_id: paymentHold.contractor_id
+          },
+          description: `Rushr payout - Job completion`
+        })
+
+        // 5c. Update payment hold with transfer details
+        await supabase
+          .from('payment_holds')
+          .update({
+            status: 'released',
+            stripe_transfer_id: transfer.id,
+            released_at: new Date().toISOString()
+          })
+          .eq('id', paymentHold.id)
+
+        console.log('Payment released successfully:', {
+          transferId: transfer.id,
+          amount: paymentHold.contractor_payout,
+          contractorId: paymentHold.contractor_id
+        })
+      } catch (stripeError: any) {
+        console.error('Stripe transfer failed:', stripeError)
+
+        // Update status to show transfer failed
+        await supabase
+          .from('payment_holds')
+          .update({ status: 'transfer_failed' })
+          .eq('id', paymentHold.id)
+
+        return NextResponse.json({
+          success: false,
+          error: 'Both parties confirmed but payment transfer failed. Please contact support.',
+          stripeError: stripeError.message
+        }, { status: 500 })
+      }
+
+      // 5d. Update job status
       await supabase
         .from('homeowner_jobs')
         .update({ status: 'completed' })
         .eq('id', paymentHold.job_id)
+
+      // Also update direct_offers if this was from a direct offer
+      if (paymentHold.offer_id) {
+        await supabase
+          .from('direct_offers')
+          .update({ status: 'completed' })
+          .eq('id', paymentHold.offer_id)
+      }
 
       // 6. Send payment completed email to both parties (non-blocking)
       try {
