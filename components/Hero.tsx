@@ -153,39 +153,11 @@ export default function Hero(){
     )
   }
 
-  const onFindPro = async (e: React.FormEvent)=>{
+  const onFindPro = (e: React.FormEvent) => {
     e.preventDefault()
-    // No login check here - user can browse and will be prompted at Step 4
 
-    // If location is empty and geolocation is available, try to get it
-    let finalLocation = location.trim()
-    if (!finalLocation && navigator.geolocation) {
-      setLoadingLocation(true)
-      try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject)
-        })
-
-        const { latitude, longitude } = position.coords
-        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-
-        if (MAPBOX_TOKEN) {
-          const response = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${MAPBOX_TOKEN}&types=postcode`
-          )
-          const data = await response.json()
-
-          if (data.features && data.features.length > 0) {
-            finalLocation = data.features[0].text
-            setLocation(finalLocation)
-            localStorage.setItem('housecall.defaultZip', finalLocation)
-          }
-        }
-      } catch (error) {
-        console.error('Error getting location:', error)
-      }
-      setLoadingLocation(false)
-    }
+    // Get location from input or localStorage
+    const finalLocation = location.trim() || (typeof window !== 'undefined' ? localStorage.getItem('housecall.defaultZip') : '') || ''
 
     // Extract zip code from location or search query
     const zipMatch = (finalLocation + ' ' + searchQuery).match(/\b\d{5}\b/)
@@ -199,9 +171,10 @@ export default function Hero(){
     const detectedCategory = detectCategory(searchQuery)
 
     const q = new URLSearchParams()
-    if(zip) q.set('near', zip)
-    if(detectedCategory) q.set('category', detectedCategory)
+    if (zip) q.set('near', zip)
+    if (detectedCategory) q.set('category', detectedCategory)
 
+    // Navigate immediately - find-pro page handles GPS auto-fetch
     router.push(`/find-pro${q.toString() ? `?${q.toString()}` : ''}`)
   }
 
