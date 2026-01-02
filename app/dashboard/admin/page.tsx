@@ -107,8 +107,8 @@ export default function AdminDashboard() {
         supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
         supabase.from('pro_contractors').select('*', { count: 'exact', head: true }).eq('status', 'rejected'),
         supabase.from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'homeowner'),
-        supabase.from('support_messages').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
-        supabase.from('support_messages').select('*', { count: 'exact', head: true }).eq('status', 'new').catch(() => ({ count: 0 })),
+        supabase.from('support_messages').select('*', { count: 'exact', head: true }).then(res => res).catch(() => ({ count: 0, data: null, error: null })),
+        supabase.from('support_messages').select('*', { count: 'exact', head: true }).eq('status', 'new').then(res => res).catch(() => ({ count: 0, data: null, error: null })),
         supabase.from('homeowner_jobs').select('*', { count: 'exact', head: true }).in('status', ['pending', 'bid_accepted', 'confirmed', 'in_progress']),
         supabase.from('homeowner_jobs').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
       ])
