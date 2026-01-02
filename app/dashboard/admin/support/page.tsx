@@ -168,7 +168,7 @@ export default function SupportTicketsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading support tickets..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

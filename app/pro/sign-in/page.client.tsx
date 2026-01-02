@@ -73,7 +73,7 @@ export default function ProSignInPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Checking authentication..." color="blue" />
+        <LoadingSpinner size="lg"  color="blue" />
       </div>
     )
   }

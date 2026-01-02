@@ -82,5 +82,5 @@ export default function AuthCallbackClient() {
     )
   }
 
-  return <LoadingSpinner size="lg" text="Finishing sign-in..." />
+  return <LoadingSpinner size="lg"  />
 }

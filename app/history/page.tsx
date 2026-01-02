@@ -221,7 +221,7 @@ export default function History() {
         {/* Loading State */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <LoadingSpinner size="lg" text="Loading your job history..." color="emerald" />
+            <LoadingSpinner size="lg"  color="emerald" />
           </div>
         ) : jobs.length === 0 ? (
           /* No Jobs State */

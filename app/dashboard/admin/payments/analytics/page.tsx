@@ -74,7 +74,7 @@ export default function RevenueAnalyticsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading analytics..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

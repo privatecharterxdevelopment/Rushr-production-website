@@ -65,7 +65,7 @@ export default function ProHome() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Loading Rushr Pro..." color="blue" />
+        <LoadingSpinner size="lg"  color="blue" />
       </div>
     )
   }
@@ -74,7 +74,7 @@ export default function ProHome() {
   if (user && contractorProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Redirecting to dashboard..." color="blue" />
+        <LoadingSpinner size="lg"  color="blue" />
       </div>
     )
   }

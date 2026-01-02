@@ -122,7 +122,7 @@ export default function TransactionsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading transactions..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

@@ -9,7 +9,7 @@ import LoadingSpinner from '../../../components/LoadingSpinner';
 /** Wrapper to satisfy Next 14 requirement: useSearchParams must be inside Suspense */
 export default function Page() {
   return (
-    <Suspense fallback={<LoadingSpinner size="lg" text="Loading..." color="blue" />}>
+    <Suspense fallback={<LoadingSpinner size="lg"  color="blue" />}>
       <ClientInner />
     </Suspense>
   );
@@ -30,7 +30,7 @@ function ClientInner() {
   /* ====================== Render ====================== */
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <LoadingSpinner size="lg" text="Redirecting to registration wizard..." color="blue" />
+      <LoadingSpinner size="lg"  color="blue" />
     </div>
   )
 }

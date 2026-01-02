@@ -273,7 +273,7 @@ export default function PaymentsOverviewPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading financial data..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

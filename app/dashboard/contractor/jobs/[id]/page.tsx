@@ -203,7 +203,7 @@ export default function ContractorJobDetailsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner size="lg" text="Loading job details..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

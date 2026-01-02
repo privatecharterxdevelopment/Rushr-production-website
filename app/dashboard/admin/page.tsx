@@ -220,7 +220,7 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading admin dashboard..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

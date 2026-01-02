@@ -254,7 +254,7 @@ export default function ContractorApprovalsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading contractors..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

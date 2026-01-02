@@ -600,7 +600,7 @@ export default function HomeownerDashboardPage() {
   // NOW SAFE TO HAVE CONDITIONAL RETURNS AFTER ALL HOOKS
   // Show loading while auth is being determined
   if (loading) {
-    return <LoadingSpinner size="lg" text="Loading your dashboard..." />
+    return <LoadingSpinner size="lg"  />
   }
 
   // Redirect to login if not authenticated
@@ -625,7 +625,7 @@ export default function HomeownerDashboardPage() {
 
   // Show loading while stats are still loading
   if (statsLoading) {
-    return <LoadingSpinner size="lg" text="Loading your dashboard..." />
+    return <LoadingSpinner size="lg"  />
   }
 
   return (

@@ -7,7 +7,7 @@ import LoadingSpinner from '../../../components/LoadingSpinner'
 
 export default function Page() {
   return (
-    <Suspense fallback={<LoadingSpinner size="lg" text="Authenticating..." />}>
+    <Suspense fallback={<LoadingSpinner size="lg"  />}>
       <AuthCallbackClient />
     </Suspense>
   )

@@ -98,7 +98,7 @@ export default function SignUpPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Loading..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

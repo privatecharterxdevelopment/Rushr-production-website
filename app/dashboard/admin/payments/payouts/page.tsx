@@ -101,7 +101,7 @@ export default function ContractorPayoutsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading contractor payouts..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

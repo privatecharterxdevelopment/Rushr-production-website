@@ -65,7 +65,7 @@ export default function HomeownersPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" text="Loading homeowners..." />
+        <LoadingSpinner size="lg"  />
       </div>
     )
   }

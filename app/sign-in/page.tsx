@@ -11,5 +11,5 @@ export default function SignInRedirect() {
     router.replace('/?auth=signin')
   }, [router])
 
-  return <LoadingSpinner size="lg" text="Redirecting to sign in..." />
+  return <LoadingSpinner size="lg"  />
 }
