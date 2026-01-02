@@ -109,6 +109,34 @@ export default function Footer() {
           <p className="max-w-xs">
             Linking Homeowners with Local Pros Instantly. Post a job, get bids, hire with confidence.
           </p>
+
+          {/* App Store Buttons */}
+          <div className="flex flex-wrap gap-3 mt-4">
+            <a
+              href="https://apps.apple.com/app/rushr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block"
+            >
+              <img
+                src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg"
+                alt="Download on the App Store"
+                className="h-10"
+              />
+            </a>
+            <a
+              href="https://play.google.com/store/apps/details?id=com.rushr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block"
+            >
+              <img
+                src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png"
+                alt="Get it on Google Play"
+                className="h-10"
+              />
+            </a>
+          </div>
         </div>
 
         <div>
