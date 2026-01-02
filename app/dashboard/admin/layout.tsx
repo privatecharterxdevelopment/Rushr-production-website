@@ -1,18 +1,14 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAuth } from '../../../contexts/AuthContext'
-import { isAdminUser } from '../../../lib/adminConfig'
 import {
   Users,
   UserCheck,
   MessageSquare,
   Settings,
   BarChart3,
-  CheckCircle,
-  AlertCircle,
   Shield,
   Menu,
   X,
@@ -20,38 +16,33 @@ import {
 } from 'lucide-react'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { userProfile } = useAuth()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [isLocalhost, setIsLocalhost] = useState(true) // Default to true to avoid flash
 
-  // Check if running on localhost
-  const isLocalhost = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' ||
-     window.location.hostname === '127.0.0.1' ||
-     window.location.hostname.includes('localhost'))
+  useEffect(() => {
+    // Check hostname only once on mount
+    const hostname = window.location.hostname
+    setIsLocalhost(
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.includes('localhost')
+    )
+  }, [])
 
-  // Check if user is admin (skip check on localhost)
-  const isAdmin = isLocalhost || isAdminUser(userProfile?.email, userProfile?.role)
-
-  if (!isAdmin) {
+  // On localhost, always allow access (no auth check needed)
+  // In production, you'd add proper auth check here
+  if (!isLocalhost) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-slate-950 flex items-center justify-center">
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-lg shadow-md border border-gray-200 dark:border-slate-800">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md border">
           <div className="flex items-center gap-3 mb-4">
             <Shield className="h-8 w-8 text-red-500" />
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Access Denied</h1>
+            <h1 className="text-2xl font-bold">Access Denied</h1>
           </div>
-          <p className="text-gray-600 dark:text-slate-300">
-            You don't have permission to access the admin panel.
-          </p>
-          <p className="text-sm text-gray-500 dark:text-slate-400 mt-2">
-            Admin access required. Contact support if you need access.
-          </p>
-          <Link
-            href="/dashboard"
-            className="mt-6 inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-          >
-            Go to Dashboard
+          <p className="text-gray-600">Admin access required.</p>
+          <Link href="/" className="mt-6 inline-block bg-blue-600 text-white px-4 py-2 rounded-md">
+            Go Home
           </Link>
         </div>
       </div>
@@ -177,8 +168,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 dark:border-slate-800">
           <div className="text-xs text-gray-500 dark:text-slate-400">
-            <div className="font-medium text-gray-700 dark:text-slate-300">{userProfile?.name}</div>
-            <div className="truncate">{userProfile?.email}</div>
+            <div className="font-medium text-gray-700 dark:text-slate-300">Admin</div>
+            <div className="truncate">localhost</div>
           </div>
         </div>
       </aside>
