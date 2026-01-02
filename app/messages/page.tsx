@@ -253,11 +253,7 @@ export default function MessagesPage() {
             <div className="p-4 space-y-2">
               {convsLoading ? (
                 <div className="text-center py-12">
-                  <img
-                    src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-                    alt="Loading..."
-                    className="h-8 w-8 mx-auto mb-2 object-contain"
-                  />
+                  <div className="h-8 w-8 mx-auto mb-2 border-3 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
                   <p className="text-slate-500 text-sm">Loading conversations...</p>
                 </div>
               ) : filteredConversations.length === 0 ? (
@@ -378,11 +374,7 @@ export default function MessagesPage() {
         <div className="p-4 space-y-2">
           {convsLoading ? (
             <div className="text-center py-12">
-              <img
-                src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-                alt="Loading..."
-                className="h-8 w-8 mx-auto mb-2 object-contain"
-              />
+              <div className="h-8 w-8 mx-auto mb-2 border-3 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
               <p className="text-slate-500 text-sm">Loading conversations...</p>
             </div>
           ) : filteredConversations.length === 0 ? (
@@ -491,11 +483,7 @@ export default function MessagesPage() {
       >
         {msgsLoading ? (
           <div className="text-center py-8">
-            <img
-              src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-              alt="Loading..."
-              className="h-8 w-8 mx-auto mb-2 object-contain"
-            />
+            <div className="h-8 w-8 mx-auto mb-2 border-3 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
             <p className="text-slate-500 text-sm">Loading messages...</p>
           </div>
         ) : messages.length === 0 ? (

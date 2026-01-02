@@ -126,6 +126,7 @@ export default function FindProPage() {
   })
   const [zip, setZip] = useState('')
   const [fetchingLocation, setFetchingLocation] = useState(false)
+  const [userLocation, setUserLocation] = useState<LatLng | null>(null)
 
   // Fetch user's current location using native Capacitor on iOS
   const fetchUserLocation = async () => {
@@ -138,6 +139,7 @@ export default function FindProPage() {
         const { latitude, longitude } = result.coordinates
         console.log('[FindPro] Got location:', latitude, longitude)
         setCenter([latitude, longitude])
+        setUserLocation([latitude, longitude])
         setZip('') // Clear ZIP when using precise location
       } else {
         console.error('[FindPro] Location error:', result.error)
@@ -168,6 +170,40 @@ export default function FindProPage() {
       setQuery(search)
     }
   }, [searchParams])
+
+  // Auto-fetch user's GPS location on page load (unless exact lat/lng provided)
+  useEffect(() => {
+    const lat = searchParams.get('lat')
+    const lng = searchParams.get('lng')
+
+    // Only skip auto-fetch if EXACT coordinates are provided in URL
+    if (lat && lng) {
+      return // Already have exact location from URL
+    }
+
+    // Auto-fetch user's GPS location
+    const timer = setTimeout(() => {
+      if (navigator.geolocation) {
+        setFetchingLocation(true)
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords
+            setCenter([latitude, longitude])
+            setUserLocation([latitude, longitude])
+            setZip('') // Clear ZIP when we have exact location
+            setFetchingLocation(false)
+            console.log('[FindPro] Auto-location success:', latitude, longitude)
+          },
+          (error) => {
+            console.warn('[FindPro] Auto-location failed:', error.message)
+            setFetchingLocation(false)
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        )
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Results sort (BELOW the map)
   const [sort, setSort] = useState<'best' | 'distance' | 'rating' | 'experience'>('best')
@@ -627,6 +663,7 @@ export default function FindProPage() {
         radiusMiles={radius}
         searchCenter={activeCenter}
         onSearchHere={(c) => setCenter(c)}
+        userLocation={userLocation}
       />
 
       {/* Results header + sort */}
@@ -993,6 +1030,7 @@ export default function FindProPage() {
                 radiusMiles={radius}
                 searchCenter={activeCenter}
                 onSearchHere={(c) => setCenter(c)}
+                userLocation={userLocation}
               />
             </div>
 

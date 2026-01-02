@@ -46,6 +46,7 @@ interface Props {
   fullscreen?: boolean
   hideSearchButton?: boolean
   hideControls?: boolean
+  userLocation?: LatLng | null  // User's exact GPS location for green dot
 }
 
 export interface FindProMapboxHandle {
@@ -66,10 +67,12 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
   fullscreen = false,
   hideSearchButton = false,
   hideControls = false,
+  userLocation = null,
 }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapObjRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<mapboxgl.Marker[]>([])
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const radiusLayerId = 'radius-circle'
   const radiusSourceId = 'radius-source'
 
@@ -460,6 +463,41 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
       }
     }
   }), [])
+
+  // Green pulsing dot for user's exact location
+  useEffect(() => {
+    const map = mapObjRef.current
+    if (!map) return
+
+    // Remove existing user marker
+    if (userMarkerRef.current) {
+      userMarkerRef.current.remove()
+      userMarkerRef.current = null
+    }
+
+    // Add new marker if userLocation exists
+    if (userLocation) {
+      const el = document.createElement('div')
+      el.className = 'user-location-marker'
+      el.innerHTML = `
+        <div style="position: relative; width: 20px; height: 20px;">
+          <div style="position: absolute; width: 20px; height: 20px; background: rgba(16, 185, 129, 0.3); border-radius: 50%; animation: pulse 2s infinite;"></div>
+          <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: #10b981; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>
+        </div>
+        <style>
+          @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.8); opacity: 0.5; }
+            100% { transform: scale(2.5); opacity: 0; }
+          }
+        </style>
+      `
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([userLocation[1], userLocation[0]])
+        .addTo(map)
+      userMarkerRef.current = marker
+    }
+  }, [userLocation])
 
   return (
     <div className={fullscreen ? "absolute inset-0" : "relative"}>
