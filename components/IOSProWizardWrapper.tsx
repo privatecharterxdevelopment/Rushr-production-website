@@ -10,16 +10,11 @@ interface IOSProWizardWrapperProps {
   children: React.ReactNode
 }
 
-// Animated loading logo
+// Simple loading spinner
 const LoadingLogo = () => (
   <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
-    <div className="relative flex items-center justify-center">
-      <div className="absolute w-20 h-20 bg-emerald-400/20 rounded-2xl animate-ping" style={{ animationDuration: '2s' }} />
-      <div className="relative w-14 h-14 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
-        <span className="text-white font-bold text-2xl">R</span>
-      </div>
-    </div>
-    <p className="text-gray-500 text-sm mt-6">Loading...</p>
+    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+    <p className="text-gray-500 text-sm mt-4">Loading...</p>
   </div>
 )
 

@@ -26,12 +26,9 @@ export default function ProRouteGuard({ children }: { children: React.ReactNode 
     return (
       <div className="min-h-screen flex items-center justify-center bg-blue-50">
         <div className="text-center">
-          <img
-            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-            alt="Loading..."
-            className="w-12 h-12 object-contain mx-auto mb-4"
-          />
-          <div className="text-sm text-slate-600">Loading Pro Dashboard...</div>
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="text-lg font-medium text-slate-800 mb-1">Welcome to Rushr Pro</div>
+          <div className="text-sm text-slate-600">Loading your dashboard...</div>
         </div>
       </div>
     )
@@ -41,12 +38,9 @@ export default function ProRouteGuard({ children }: { children: React.ReactNode 
     return (
       <div className="min-h-screen flex items-center justify-center bg-blue-50">
         <div className="text-center">
-          <img
-            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-            alt="Loading..."
-            className="w-12 h-12 object-contain mx-auto mb-4"
-          />
-          <div className="text-sm text-slate-600">Loading Home Owner Dashboard...</div>
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="text-lg font-medium text-slate-800 mb-1">Welcome to Rushr Pro</div>
+          <div className="text-sm text-slate-600">Loading your dashboard...</div>
         </div>
       </div>
     )

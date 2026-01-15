@@ -474,7 +474,11 @@ export default function ContractorDashboardPage() {
   if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="text-lg font-medium text-slate-800 mb-1">Welcome to Rushr Pro</div>
+          <div className="text-sm text-slate-600">Loading your dashboard...</div>
+        </div>
       </div>
     )
   }
@@ -483,7 +487,10 @@ export default function ContractorDashboardPage() {
     // Redirect handled by useEffect above
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="text-sm text-slate-600">Redirecting...</div>
+        </div>
       </div>
     )
   }
@@ -658,8 +665,9 @@ export default function ContractorDashboardPage() {
             </select>
           </div>
           <Link
-            href="/dashboard/contractor/jobs"
-            className="btn-primary whitespace-nowrap flex-shrink-0"
+            href={isVerified ? "/dashboard/contractor/jobs" : "#"}
+            className={`btn-primary whitespace-nowrap flex-shrink-0 ${!isVerified ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+            onClick={(e) => !isVerified && e.preventDefault()}
           >
             Browse Jobs
           </Link>

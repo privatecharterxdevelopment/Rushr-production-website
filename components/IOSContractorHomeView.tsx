@@ -87,28 +87,10 @@ const triggerNotification = async (type: NotificationType) => {
   try { await Haptics.notification({ type }) } catch (e) {}
 }
 
-// Animated loading logo - Blue theme
+// Simple loading spinner
 const LoadingLogo = () => (
   <div className="flex flex-col items-center justify-center">
-    <div className="relative flex items-center justify-center">
-      <div
-        className="absolute w-16 h-16 rounded-2xl"
-        style={{
-          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(59, 130, 246, 0.1))',
-          animation: 'pulse-ring 1.5s ease-in-out infinite'
-        }}
-      />
-      <div className="relative w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-        <span className="text-white font-bold text-xl">R</span>
-      </div>
-    </div>
-    <style jsx>{`
-      @keyframes pulse-ring {
-        0% { transform: scale(0.95); opacity: 0.7; }
-        50% { transform: scale(1.1); opacity: 0.3; }
-        100% { transform: scale(0.95); opacity: 0.7; }
-      }
-    `}</style>
+    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
   </div>
 )
 

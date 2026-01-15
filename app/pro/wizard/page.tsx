@@ -596,9 +596,8 @@ async function submitAll(e?: React.FormEvent) {
       console.log('[WIZARD] Stripe create-account data:', stripeData)
 
       if (!stripeData.success) {
-        console.error('[WIZARD] ❌ Stripe account creation failed:', stripeData.error)
-        toast.error(`Stripe setup failed: ${stripeData.error}. Complete setup later from dashboard.`, { duration: 6000 })
-        // Don't fail wizard - can complete Stripe setup later from dashboard
+        console.log('[WIZARD] Stripe account creation deferred:', stripeData.error)
+        // Don't show error - Stripe setup can be completed after admin verification
       } else {
         console.log('[WIZARD] ✅ Stripe Connect account created:', stripeData.accountId)
 
