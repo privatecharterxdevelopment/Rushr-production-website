@@ -39,7 +39,7 @@ export default function Footer() {
   const isProRoute = pathname.startsWith('/pro') || pathname.startsWith('/dashboard/contractor')
 
   // Brand colors
-  const brandColor = isProRoute ? '#0072f5' : '#47B46B'
+  const brandColor = isProRoute ? '#0072f5' : '#047857'
 
   // For local development, use relative paths instead of cross-site URLs
   const isLocalDev = !process.env.NEXT_PUBLIC_PRO_URL && !process.env.NEXT_PUBLIC_MAIN_URL
@@ -158,7 +158,6 @@ export default function Footer() {
             <li><FLink href="/pro/how-it-works">How it Works For Pros</FLink></li>
             {/* <li><FLink href="/teams">Rushr Teams</FLink></li> */}
             <li><FLink href="/find-pro">Search For A Pro</FLink></li>
-            <li><FLink href="/dashboard/contractor/jobs">Find Jobs (Contractors)</FLink></li>
             <li><FLink href="/post-job">Post a Job</FLink></li>
           </ul>
         </div>

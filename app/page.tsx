@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useRef, useState, useEffect } from 'react'
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { motion, useMotionValue, useSpring, useTransform, useInView } from 'motion/react'
 import { Button } from '../components/ui/button'
@@ -36,6 +36,12 @@ import {
 } from 'lucide-react'
 import Hero from '../components/Hero'
 import IOSAppWrapper from '../components/IOSAppWrapper'
+import dynamic from 'next/dynamic'
+
+// Dynamically import the InstantMatchOverlay to avoid SSR issues with maps
+const InstantMatchOverlay = dynamic(() => import('../components/InstantMatchOverlay'), {
+  ssr: false
+})
 
 /* ----------------------------------------------------------------
    Brand helpers (emerald-forward for homeowners)
@@ -49,6 +55,20 @@ export default function HomePage() {
   // Use state to detect native platform after hydration
   const [isNativeApp, setIsNativeApp] = useState(false)
   const [checkingPlatform, setCheckingPlatform] = useState(true)
+
+  // Instant Match Overlay state
+  const [overlayOpen, setOverlayOpen] = useState(false)
+  const [overlayCategory, setOverlayCategory] = useState('')
+  const [overlaySearchQuery, setOverlaySearchQuery] = useState('')
+  const [overlayLocation, setOverlayLocation] = useState<{ lat: number; lng: number; zip?: string } | null>(null)
+
+  // Handler for triggering the instant match overlay
+  const handleInstantMatch = useCallback((category: string, searchQuery: string, location: { lat: number; lng: number; zip?: string }) => {
+    setOverlayCategory(category)
+    setOverlaySearchQuery(searchQuery)
+    setOverlayLocation(location)
+    setOverlayOpen(true)
+  }, [])
 
   useEffect(() => {
     setIsNativeApp(Capacitor.isNativePlatform())
@@ -74,16 +94,25 @@ export default function HomePage() {
     return <IOSAppWrapper />
   }
 
-  // Web version - unchanged
+  // Web version - with Instant Match Overlay
   return (
     <div className="relative min-h-screen overflow-clip bg-gray-50">
       <GradientMesh />
 
+      {/* INSTANT MATCH OVERLAY - Uber-style contractor discovery */}
+      <InstantMatchOverlay
+        isOpen={overlayOpen}
+        onClose={() => setOverlayOpen(false)}
+        category={overlayCategory}
+        searchQuery={overlaySearchQuery}
+        userLocation={overlayLocation || undefined}
+      />
+
       {/* HERO */}
-      <Hero />
+      <Hero onInstantMatch={handleInstantMatch} />
 
       {/* POPULAR EMERGENCIES (Home / Auto / General) */}
-      <PopularEmergencies />
+      <PopularEmergencies onInstantMatch={handleInstantMatch} />
 
       {/* HOW IT WORKS */}
       <HowItWorksHome />
@@ -388,9 +417,14 @@ function useCountUp(to: number, duration = 800) {
 /* -------------------------------------------
    POPULAR EMERGENCIES — tabs + centered rows via ghost pads
 -------------------------------------------- */
-function PopularEmergencies() {
+interface PopularEmergenciesProps {
+  onInstantMatch?: (category: string, searchQuery: string, location: { lat: number; lng: number; zip?: string }) => void
+}
+
+function PopularEmergencies({ onInstantMatch }: PopularEmergenciesProps) {
   type Group = 'Home' | 'Auto'
   const [group, setGroup] = useState<Group>('Home')
+  const [gettingLocation, setGettingLocation] = useState(false)
 
   // Detect intended column count by breakpoint (tailwind defaults)
   const cols = useGridCols() // 2 (base), 3 (sm+), 4 (lg+)
@@ -434,22 +468,21 @@ function PopularEmergencies() {
   }, [isInView, hasAnimated])
 
   return (
-    <section ref={ref} className="mx-auto max-w-7xl px-6 py-8">
+    <section ref={ref} className="mx-auto max-w-7xl px-6 py-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
         transition={{ duration: 0.5 }}
-        className="mx-auto max-w-3xl text-center"
       >
-        {/* Enhanced Segmented control with smooth sliding animation */}
-        <div className="flex justify-center">
-          <div className="relative inline-flex rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100 p-1.5 shadow-lg shadow-slate-200/50 border border-slate-200/60">
+        {/* Compact segmented control - left aligned */}
+        <div className="flex justify-start">
+          <div className="relative inline-flex rounded-lg bg-gradient-to-b from-slate-50 to-slate-100 p-1 shadow-md shadow-slate-200/50 border border-slate-200/60">
             {/* Single sliding pill background */}
             <motion.div
-              className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-lg shadow-emerald-600/40"
+              className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-md bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-md shadow-emerald-600/40"
               initial={false}
               animate={{
-                x: group === 'Home' ? 6 : 'calc(100% + 6px)'
+                x: group === 'Home' ? 4 : 'calc(100% + 4px)'
               }}
               transition={{
                 type: 'spring',
@@ -466,11 +499,11 @@ function PopularEmergencies() {
                   key={g}
                   onClick={() => setGroup(g)}
                   className={`
-                    relative z-10 px-6 py-2.5 text-sm font-semibold rounded-xl transition-colors duration-200 flex items-center gap-2 flex-1 justify-center
+                    relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors duration-200 flex items-center gap-1.5 justify-center
                     ${active ? 'text-white' : 'text-slate-600 hover:text-slate-900'}
                   `}
                 >
-                  <span className="text-lg">{icon}</span>
+                  <span className="text-sm">{icon}</span>
                   <span>{g}</span>
                 </button>
               )
@@ -480,7 +513,7 @@ function PopularEmergencies() {
       </motion.div>
 
       {/* Strict grid: 2 / 3 / 4 columns — no awkward last row thanks to ghost pads */}
-      <div className="mt-6 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="mt-4 grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
         {cats.map((c, i) => (
           <motion.div
             key={`${group}-${i}`}
@@ -488,22 +521,75 @@ function PopularEmergencies() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: hasAnimated ? 0 : 0.4, delay: hasAnimated ? 0 : 0.3, ease: [0.22, 1, 0.36, 1] }}
           >
-            <Link href={c.href} className="group block">
-              <Card className="relative h-full overflow-hidden border-emerald-200/60 bg-white/85 p-3 transition-all duration-300 hover:shadow-lg hover:scale-105 hover:-translate-y-1">
+            <button
+              onClick={async () => {
+                // If onInstantMatch is available, use the new Uber-style flow
+                if (onInstantMatch) {
+                  setGettingLocation(true)
+                  try {
+                    // Get user's location
+                    if (navigator.geolocation) {
+                      navigator.geolocation.getCurrentPosition(
+                        async (position) => {
+                          const { latitude, longitude } = position.coords
+                          let zip: string | undefined
+
+                          // Reverse geocode to get ZIP
+                          const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+                          if (MAPBOX_TOKEN) {
+                            try {
+                              const response = await fetch(
+                                `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${MAPBOX_TOKEN}&types=postcode`
+                              )
+                              const data = await response.json()
+                              if (data.features && data.features.length > 0) {
+                                zip = data.features[0].text
+                              }
+                            } catch (err) {
+                              console.error('Geocoding error:', err)
+                            }
+                          }
+
+                          setGettingLocation(false)
+                          onInstantMatch(c.name, c.name, { lat: latitude, lng: longitude, zip })
+                        },
+                        (error) => {
+                          console.error('Geolocation error:', error)
+                          setGettingLocation(false)
+                          alert('Please enable location access to find pros near you.')
+                        }
+                      )
+                    } else {
+                      setGettingLocation(false)
+                      alert('Geolocation is not supported by your browser.')
+                    }
+                  } catch (err) {
+                    setGettingLocation(false)
+                    console.error('Error getting location:', err)
+                  }
+                } else {
+                  // Fallback: navigate to post-job
+                  window.location.href = c.href
+                }
+              }}
+              disabled={gettingLocation}
+              className="group block w-full text-left"
+            >
+              <Card className={`relative h-full overflow-hidden border-emerald-200/60 bg-white/85 p-2 transition-all duration-300 hover:shadow-lg hover:scale-105 hover:-translate-y-1 ${gettingLocation ? 'opacity-70' : ''}`}>
                 <GradientBorder emerald />
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 ${homeText} group-hover:bg-emerald-100 transition-colors`}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 ${homeText} group-hover:bg-emerald-100 transition-colors [&>svg]:h-5 [&>svg]:w-5`}
                   >
                     {c.icon}
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-900 group-hover:text-emerald-700 transition-colors">{c.name}</div>
-                    <div className="truncate text-[11px] text-slate-500">{c.hint ?? '\u00A0'}</div>
+                    <div className="truncate text-[10px] text-slate-500 leading-tight">{c.hint ?? '\u00A0'}</div>
                   </div>
                 </div>
               </Card>
-            </Link>
+            </button>
           </motion.div>
         ))}
 

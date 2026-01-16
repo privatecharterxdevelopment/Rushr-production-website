@@ -1,10 +1,17 @@
 // components/Hero.tsx
 'use client'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../contexts/AuthContext'
 import { openAuth } from './AuthModal'
+import { supabase } from '../lib/supabaseClient'
+import toast, { Toaster } from 'react-hot-toast'
 import styles from './Hero.module.css'
+
+// Props for triggering instant match overlay
+interface HeroProps {
+  onInstantMatch?: (category: string, searchQuery: string, location: { lat: number; lng: number; zip?: string }) => void
+}
 
 // Emergency scenarios for typing effect
 const EMERGENCY_SCENARIOS = [
@@ -59,9 +66,10 @@ function detectCategory(searchText: string): string | null {
   return null
 }
 
-export default function Hero(){
+export default function Hero({ onInstantMatch }: HeroProps = {}){
   const router = useRouter()
   const { user, userProfile } = useAuth()
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [location, setLocation] = useState('')
@@ -70,6 +78,25 @@ export default function Hero(){
   const [currentScenarioIndex, setCurrentScenarioIndex] = useState(0)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isInputFocused, setIsInputFocused] = useState(false)
+  const [jobCount, setJobCount] = useState<number | null>(null)
+
+  // Fetch job count from database
+  useEffect(() => {
+    async function fetchJobCount() {
+      try {
+        const { count, error } = await supabase
+          .from('homeowner_jobs')
+          .select('*', { count: 'exact', head: true })
+
+        if (!error && count !== null) {
+          setJobCount(count)
+        }
+      } catch (err) {
+        console.error('Error fetching job count:', err)
+      }
+    }
+    fetchJobCount()
+  }, [])
 
   // Typing animation effect - pauses when user is typing or input is focused
   useEffect(() => {
@@ -108,58 +135,119 @@ export default function Hero(){
   }, [placeholderText, isDeleting, currentScenarioIndex, searchQuery, isInputFocused])
 
   // Get user's location and convert to ZIP
-  const getUserLocation = async () => {
+  const getUserLocation = async (): Promise<{ lat: number; lng: number; zip?: string } | null> => {
     setLoadingLocation(true)
 
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser')
       setLoadingLocation(false)
+      return null
+    }
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords
+          let zip: string | undefined
+
+          try {
+            // Reverse geocode to get ZIP code
+            const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+            if (MAPBOX_TOKEN) {
+              const response = await fetch(
+                `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${MAPBOX_TOKEN}&types=postcode`
+              )
+              const data = await response.json()
+
+              if (data.features && data.features.length > 0) {
+                zip = data.features[0].text
+                setLocation(zip)
+                localStorage.setItem('housecall.defaultZip', zip)
+              } else {
+                setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+              }
+            }
+          } catch (error) {
+            console.error('Error reverse geocoding:', error)
+            setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+          }
+
+          setLoadingLocation(false)
+          const coords = { lat: latitude, lng: longitude, zip }
+          setUserCoords(coords)
+          resolve(coords)
+        },
+        (error) => {
+          console.error('Geolocation error:', error)
+          alert('Unable to get your location. Please enter your ZIP code manually.')
+          setLoadingLocation(false)
+          resolve(null)
+        }
+      )
+    })
+  }
+
+  const onFindPro = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Detect category from search query
+    const detectedCategory = detectCategory(searchQuery)
+
+    // Check if category is selected
+    if (!detectedCategory && !searchQuery.trim()) {
+      toast.error('Please choose the service you need', {
+        duration: 3000,
+        position: 'top-center',
+        style: {
+          background: '#fef2f2',
+          color: '#dc2626',
+          border: '1px solid #fecaca',
+        },
+      })
       return
     }
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords
+    // If onInstantMatch callback is provided, use the new Uber-style flow
+    if (onInstantMatch) {
+      // Get user's location first
+      let coords = userCoords
 
-        try {
-          // Reverse geocode to get ZIP code
-          const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-          if (MAPBOX_TOKEN) {
+      if (!coords) {
+        // Try to get location from GPS
+        coords = await getUserLocation()
+      }
+
+      // If still no coords, try to geocode the ZIP
+      if (!coords && location.trim()) {
+        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+        if (MAPBOX_TOKEN) {
+          try {
             const response = await fetch(
-              `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${MAPBOX_TOKEN}&types=postcode`
+              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location.trim())}.json?access_token=${MAPBOX_TOKEN}&limit=1`
             )
             const data = await response.json()
-
             if (data.features && data.features.length > 0) {
-              const zip = data.features[0].text
-              setLocation(zip)
-              localStorage.setItem('housecall.defaultZip', zip)
-            } else {
-              setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+              const [lng, lat] = data.features[0].center
+              coords = { lat, lng, zip: location.trim() }
             }
+          } catch (err) {
+            console.error('Geocoding error:', err)
           }
-        } catch (error) {
-          console.error('Error reverse geocoding:', error)
-          setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
         }
-
-        setLoadingLocation(false)
-      },
-      (error) => {
-        console.error('Geolocation error:', error)
-        alert('Unable to get your location. Please enter your ZIP code manually.')
-        setLoadingLocation(false)
       }
-    )
-  }
 
-  const onFindPro = (e: React.FormEvent) => {
-    e.preventDefault()
+      if (coords) {
+        // Trigger the instant match overlay
+        onInstantMatch(detectedCategory || searchQuery || 'General', searchQuery, coords)
+        return
+      } else {
+        alert('Please enable location access or enter a ZIP code to find pros near you.')
+        return
+      }
+    }
 
-    // Get location from input or localStorage
+    // Fallback: Original navigation behavior
     const finalLocation = location.trim() || (typeof window !== 'undefined' ? localStorage.getItem('housecall.defaultZip') : '') || ''
-
-    // Extract zip code from location or search query
     const zipMatch = (finalLocation + ' ' + searchQuery).match(/\b\d{5}\b/)
     const zip = zipMatch ? zipMatch[0] : finalLocation
 
@@ -167,38 +255,36 @@ export default function Hero(){
       try { localStorage.setItem('housecall.defaultZip', zip) } catch {}
     }
 
-    // Detect category from search query
-    const detectedCategory = detectCategory(searchQuery)
-
     const q = new URLSearchParams()
     if (zip) q.set('near', zip)
     if (detectedCategory) q.set('category', detectedCategory)
 
-    // Navigate immediately - find-pro page handles GPS auto-fetch
     router.push(`/find-pro${q.toString() ? `?${q.toString()}` : ''}`)
   }
 
   return (
     <section className={`relative ${styles.gradientContainer}`}>
+      <Toaster />
       {/* Animated gradient layers */}
       <div className={styles.waveLayer1}></div>
       <div className={styles.waveLayer2}></div>
 
-      <div className={`relative mx-auto max-w-7xl px-6 py-16 lg:py-24 ${styles.contentWrapper}`}>
-        {/* Centered content - no map */}
-        <div className="text-white text-center max-w-3xl mx-auto space-y-6">
-          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
-            Emergency help,<br />
-            <span className="text-emerald-200">on the way in minutes</span>
-          </h1>
+      <div className={`relative mx-auto max-w-7xl px-6 py-6 lg:py-6 ${styles.contentWrapper}`}>
+        {/* Two-column layout: content left, phone mockup right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
+          {/* Left side - content */}
+          <div className="text-white text-center lg:text-left space-y-2">
+            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold leading-tight">
+              Emergency help,<br />
+              <span className="text-emerald-200">on the way in minutes</span>
+            </h1>
 
-          <p className="text-base md:text-lg text-emerald-50">
-            Tap once. Get matched with a vetted pro. Track their live ETA.
-            Upfront pricing and no hidden fees.
-          </p>
+            <p className="text-sm md:text-base text-emerald-50">
+              Tap once. Get matched with a vetted pro. Track their live ETA.
+            </p>
 
-          {/* Search Form - centered */}
-          <form onSubmit={onFindPro} className="max-w-xl mx-auto">
+            {/* Search Form */}
+            <form onSubmit={onFindPro} className="max-w-xl lg:mx-0 mx-auto">
             {/* Mobile: stacked layout */}
             <div className="sm:hidden bg-white rounded-xl shadow-lg overflow-hidden">
               <input
@@ -288,29 +374,28 @@ export default function Hero(){
             </div>
           </form>
 
-          {/* Trust indicators - centered */}
-          <div className="flex flex-wrap items-center justify-center gap-4 text-emerald-100">
-            <div className="flex items-center gap-1">
-              <span className="text-lg">★★★★★</span>
-              <span className="text-sm md:text-base ml-1">4.5 average</span>
+            {/* Trust indicators - compact single row */}
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 text-emerald-100 text-xs md:text-sm">
+              <span className="flex items-center gap-1">
+                <span>★★★★★</span>
+                <span>4.5 avg</span>
+              </span>
+              <span>•</span>
+              <span>{jobCount !== null ? jobCount.toLocaleString() : '10k+'} jobs</span>
+              <span>•</span>
+              <span>Background-checked</span>
+              <span>•</span>
+              <span>Upfront pricing</span>
             </div>
-            <span className="text-sm md:text-base">(10k+ jobs)</span>
-            <span className="text-sm md:text-base">Background-checked pros</span>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <div className="flex items-center gap-2 text-emerald-100">
-              <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm md:text-base">Upfront pricing</span>
-            </div>
-            <div className="flex items-center gap-2 text-emerald-100">
-              <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              <span className="text-sm md:text-base">Secure payments</span>
-            </div>
+          {/* Right side - phone mockup */}
+          <div className="hidden lg:flex justify-center items-end -mb-40">
+            <img
+              src="/PHOTO-2025-10-24-16-31-22-removebg-preview.png"
+              alt="Rushr app on phone"
+              className="h-[520px] w-auto object-contain drop-shadow-2xl"
+            />
           </div>
         </div>
       </div>
