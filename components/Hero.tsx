@@ -80,16 +80,14 @@ export default function Hero({ onInstantMatch }: HeroProps = {}){
   const [isInputFocused, setIsInputFocused] = useState(false)
   const [jobCount, setJobCount] = useState<number | null>(null)
 
-  // Fetch job count from database
+  // Fetch job count from API (bypasses RLS)
   useEffect(() => {
     async function fetchJobCount() {
       try {
-        const { count, error } = await supabase
-          .from('homeowner_jobs')
-          .select('*', { count: 'exact', head: true })
-
-        if (!error && count !== null) {
-          setJobCount(count)
+        const res = await fetch('/api/stats/job-count')
+        const data = await res.json()
+        if (data.count !== null) {
+          setJobCount(data.count)
         }
       } catch (err) {
         console.error('Error fetching job count:', err)

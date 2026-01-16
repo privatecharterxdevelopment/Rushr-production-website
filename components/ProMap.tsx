@@ -109,7 +109,7 @@ export default function ProMap(props: Props){
 
   if (loading) {
     return (
-      <div className="h-[360px] w-full flex items-center justify-center bg-slate-50">
+      <div className="h-full w-full min-h-[400px] flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="w-8 h-8 mx-auto mb-2 border-3 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
           <div className="text-sm text-slate-600">Loading map...</div>
@@ -120,7 +120,7 @@ export default function ProMap(props: Props){
 
   console.log('ProMap: Rendering ProMapInner with', contractors.length, 'contractors')
   return (
-    <div className="h-[360px] w-full" key={mapKey}>
+    <div className="h-full w-full min-h-[400px]" key={mapKey}>
       <ProMapInner {...props} items={contractors} hideSidebar={true} />
     </div>
   )

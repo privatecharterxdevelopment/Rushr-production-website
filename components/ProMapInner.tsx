@@ -523,17 +523,23 @@ export default function ProMapInner({
     })()
 
     return () => {
-      if (map) {
-        map.remove()
+      try {
+        if (map) {
+          map.remove()
+        }
+        // Clean up user location marker
+        if (userLocationMarkerRef.current) {
+          userLocationMarkerRef.current.remove()
+          userLocationMarkerRef.current = null
+        }
+        // Clean up contractor markers
+        markersRef.current.forEach(marker => {
+          try { marker.remove() } catch (e) { /* ignore */ }
+        })
+        markersRef.current = []
+      } catch (e) {
+        // Ignore cleanup errors (e.g., WebSocket already closed)
       }
-      // Clean up user location marker
-      if (userLocationMarkerRef.current) {
-        userLocationMarkerRef.current.remove()
-        userLocationMarkerRef.current = null
-      }
-      // Clean up contractor markers
-      markersRef.current.forEach(marker => marker.remove())
-      markersRef.current = []
 
       mapObjRef.current = null
       layerRef.current = null

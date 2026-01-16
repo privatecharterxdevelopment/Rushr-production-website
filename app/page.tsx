@@ -54,7 +54,6 @@ const homeRing = 'focus-visible:ring-[var(--home)]'
 export default function HomePage() {
   // Use state to detect native platform after hydration
   const [isNativeApp, setIsNativeApp] = useState(false)
-  const [checkingPlatform, setCheckingPlatform] = useState(true)
 
   // Instant Match Overlay state
   const [overlayOpen, setOverlayOpen] = useState(false)
@@ -71,23 +70,11 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    setIsNativeApp(Capacitor.isNativePlatform())
-    setCheckingPlatform(false)
+    // Check if native platform - if true, component will re-render with iOS view
+    if (Capacitor.isNativePlatform()) {
+      setIsNativeApp(true)
+    }
   }, [])
-
-  // Show loading while checking platform
-  if (checkingPlatform) {
-    return (
-      <div className="fixed inset-0 bg-white flex items-center justify-center">
-        <div className="relative flex items-center justify-center">
-          <div className="absolute w-16 h-16 rounded-2xl bg-emerald-400/20 animate-ping" style={{ animationDuration: '2s' }} />
-          <div className="relative w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
-            <span className="text-white font-bold text-xl">R</span>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   // Show iOS-specific view when in native app
   if (isNativeApp) {

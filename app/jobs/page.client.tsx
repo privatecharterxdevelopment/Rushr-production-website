@@ -3,11 +3,12 @@
 export const dynamic = 'force-dynamic'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { useProAuth } from '../../contexts/ProAuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import JobCard from '../../components/JobCard'
 import Skeleton from '../../components/Skeleton'
+import LoadingSpinner from '../../components/LoadingSpinner'
 
 interface Job {
   id: string
@@ -27,13 +28,15 @@ interface Job {
 }
 
 export default function JobsInner() {
-  const { user, contractorProfile } = useProAuth()
+  const { user, contractorProfile, loading: authLoading } = useProAuth()
+  const router = useRouter()
   const sp = useSearchParams()
   const paramCat = sp.get('cat') || 'All'
 
   // Real job categories
   const categories = ['Plumbing', 'Electrical', 'HVAC', 'Locksmith', 'Garage Door', 'Glass Repair', 'Appliance Repair', 'Handyman', 'Roofing', 'Fencing', 'Gas', 'Snow Removal', 'Security', 'Water Damage', 'Drywall']
 
+  // All hooks must be called before any conditional returns
   const [jobs, setJobs] = useState<Job[]>([])
   const [q, setQ] = useState('')
   const [cat, setCat] = useState(categories.includes(paramCat) ? paramCat : 'All')
@@ -42,6 +45,14 @@ export default function JobsInner() {
   const [sort, setSort] = useState<'Newest'|'Budget high'|'Budget low'|'Urgency high'>('Newest')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Contractor-only guard - redirect non-contractors
+  useEffect(() => {
+    if (!authLoading && !contractorProfile) {
+      // Not a contractor - redirect to pro sign-in
+      router.push('/pro/sign-in?callback=/jobs')
+    }
+  }, [authLoading, contractorProfile, router])
 
   // Load real jobs from database
   useEffect(() => {
@@ -143,8 +154,26 @@ export default function JobsInner() {
     const a = document.createElement('a'); a.href = url; a.download = 'rushr-jobs.csv'; a.click(); URL.revokeObjectURL(url)
   }
 
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner size="lg" />
+      </div>
+    )
+  }
+
+  // Don't render content for non-contractors (they'll be redirected)
+  if (!contractorProfile) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner size="lg" />
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-8 mt-8">
+    <div className="container-max section space-y-8">
       {/* Header */}
       <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex items-start justify-between">

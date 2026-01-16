@@ -33,7 +33,9 @@
       "Bash(fi)",
       "Bash(done)",
       "Bash(ls:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(grep:*)",
+      "Bash(npx sharp-cli:*)"
     ],
     "deny": [],
     "ask": []

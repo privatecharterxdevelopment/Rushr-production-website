@@ -452,7 +452,7 @@ export default function InstantMatchOverlay({
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white">
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold flex-shrink-0">
+                <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-sm font-semibold flex-shrink-0">
                   {category || 'Finding Pros'}
                 </span>
                 {(locationName || searchZip) && (
@@ -609,7 +609,7 @@ export default function InstantMatchOverlay({
 
                           setHasFetched(false)
                         }}
-                        className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                        className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
                       >
                         Apply
                       </button>
@@ -642,20 +642,31 @@ export default function InstantMatchOverlay({
                   {/* Contractor Tabs List */}
                   {phase === 'connected' && visibleContractors.length > 0 && (
                     <div className="border-b border-slate-200 bg-white">
-                      <div className="flex overflow-x-auto p-2 gap-1 scrollbar-hide">
-                        {visibleContractors.map((contractor) => (
-                          <button
-                            key={contractor.id}
-                            onClick={() => handleSwitchContractor(contractor)}
-                            className={`flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                              selectedContractor?.id === contractor.id
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                            }`}
-                          >
-                            {contractor.business_name?.split(' ')[0] || 'Pro'}
-                          </button>
-                        ))}
+                      <div className="p-2">
+                        <p className="text-xs text-slate-500 mb-2 px-1">{visibleContractors.length} pro{visibleContractors.length > 1 ? 's' : ''} available nearby</p>
+                        <div className="flex overflow-x-auto gap-2 scrollbar-hide">
+                          {visibleContractors.map((contractor) => (
+                            <button
+                              key={contractor.id}
+                              onClick={() => handleSwitchContractor(contractor)}
+                              className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
+                                selectedContractor?.id === contractor.id
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50'
+                              }`}
+                            >
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                selectedContractor?.id === contractor.id ? 'bg-white/20' : 'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                {contractor.business_name?.charAt(0) || 'P'}
+                              </div>
+                              <span>{contractor.business_name?.split(' ')[0] || 'Pro'}</span>
+                              <span className={`text-xs ${selectedContractor?.id === contractor.id ? 'text-emerald-100' : 'text-slate-400'}`}>
+                                {contractor.eta_minutes}m
+                              </span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -667,115 +678,100 @@ export default function InstantMatchOverlay({
                         key={selectedContractor.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="space-y-4"
+                        className="space-y-3"
                       >
-                        {/* Profile Header */}
-                        <div className="text-center">
-                          {selectedContractor.profile_image ? (
-                            <img
-                              src={selectedContractor.profile_image}
-                              alt={selectedContractor.business_name}
-                              className="w-20 h-20 rounded-2xl object-cover mx-auto border-4 border-white shadow-lg"
-                            />
-                          ) : (
-                            <div className="w-20 h-20 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto border-4 border-white shadow-lg">
-                              <span className="text-white font-bold text-2xl">
-                                {selectedContractor.business_name?.charAt(0) || 'P'}
-                              </span>
+                        {/* Compact Profile Card */}
+                        <div className="bg-white rounded-xl p-4 border border-slate-200">
+                          <div className="flex items-start gap-3">
+                            {selectedContractor.profile_image ? (
+                              <img
+                                src={selectedContractor.profile_image}
+                                alt={selectedContractor.business_name}
+                                className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-14 h-14 rounded-xl bg-emerald-600 flex items-center justify-center flex-shrink-0">
+                                <span className="text-white font-bold text-xl">
+                                  {selectedContractor.business_name?.charAt(0) || 'P'}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-slate-900 truncate">
+                                {selectedContractor.business_name}
+                              </h3>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
+                                <span className="font-medium text-sm text-slate-900">{selectedContractor.rating.toFixed(1)}</span>
+                                <span className="text-slate-400 text-xs">({selectedContractor.total_jobs})</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  Verified
+                                </span>
+                                <span className="text-xs text-slate-500">{selectedContractor.categories?.[0] || category}</span>
+                              </div>
                             </div>
-                          )}
-                          <h3 className="mt-3 text-lg font-bold text-slate-900">
-                            {selectedContractor.business_name}
-                          </h3>
-                          <div className="flex items-center justify-center gap-1 mt-1">
-                            <Star className="w-4 h-4 text-amber-500 fill-current" />
-                            <span className="font-semibold text-slate-900">{selectedContractor.rating.toFixed(1)}</span>
-                            <span className="text-slate-500 text-sm">({selectedContractor.total_jobs} jobs)</span>
                           </div>
                         </div>
 
-                        {/* Stats */}
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="bg-white rounded-xl p-3 text-center shadow-sm">
-                            <MapPin className="w-5 h-5 text-blue-600 mx-auto mb-1" />
-                            <div className="font-bold text-slate-900">{(realDistance ?? selectedContractor.distance_miles).toFixed(1)}</div>
-                            <div className="text-xs text-slate-500">miles</div>
+                        {/* ETA & Distance Highlight */}
+                        <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center">
+                                <Clock className="w-5 h-5 text-white" />
+                              </div>
+                              <div>
+                                <div className="text-2xl font-bold text-emerald-700">{realEta ?? selectedContractor.eta_minutes} min</div>
+                                <div className="text-xs text-emerald-600">Estimated arrival</div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-semibold text-slate-700">{(realDistance ?? selectedContractor.distance_miles).toFixed(1)} mi</div>
+                              <div className="text-xs text-slate-500">away</div>
+                            </div>
                           </div>
-                          <div className="bg-white rounded-xl p-3 text-center shadow-sm">
-                            <Clock className="w-5 h-5 text-blue-600 mx-auto mb-1" />
-                            <div className="font-bold text-slate-900">{realEta ?? selectedContractor.eta_minutes}</div>
-                            <div className="text-xs text-slate-500">min ETA</div>
-                          </div>
-                          <div className="bg-white rounded-xl p-3 text-center shadow-sm">
-                            <DollarSign className="w-5 h-5 text-blue-600 mx-auto mb-1" />
-                            <div className="font-bold text-slate-900">${selectedContractor.hourly_rate}</div>
+                        </div>
+
+                        {/* Quick Stats Row */}
+                        <div className="flex gap-2">
+                          <div className="flex-1 bg-white rounded-lg p-3 border border-slate-200 text-center">
+                            <div className="text-lg font-bold text-slate-900">${selectedContractor.hourly_rate}</div>
                             <div className="text-xs text-slate-500">per hour</div>
                           </div>
-                        </div>
-
-                        {/* Details */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                              <Briefcase className="w-4 h-4 text-blue-600" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{selectedContractor.years_in_business} years</div>
-                              <div className="text-xs text-slate-500">in business</div>
-                            </div>
+                          <div className="flex-1 bg-white rounded-lg p-3 border border-slate-200 text-center">
+                            <div className="text-lg font-bold text-slate-900">{selectedContractor.years_in_business}+</div>
+                            <div className="text-xs text-slate-500">years exp</div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                              <Zap className="w-4 h-4 text-green-600" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{selectedContractor.response_time_minutes} min</div>
-                              <div className="text-xs text-slate-500">avg response</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                              <Award className="w-4 h-4 text-amber-600" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{selectedContractor.categories?.slice(0, 2).join(', ') || category}</div>
-                              <div className="text-xs text-slate-500">specialties</div>
-                            </div>
+                          <div className="flex-1 bg-white rounded-lg p-3 border border-slate-200 text-center">
+                            <div className="text-lg font-bold text-slate-900">{selectedContractor.response_time_minutes}m</div>
+                            <div className="text-xs text-slate-500">response</div>
                           </div>
                         </div>
-
-                        {/* Bio */}
-                        {selectedContractor.bio && (
-                          <div className="bg-white rounded-xl p-4 shadow-sm">
-                            <h4 className="text-sm font-semibold text-slate-900 mb-2">About</h4>
-                            <p className="text-sm text-slate-600 leading-relaxed">{selectedContractor.bio}</p>
-                          </div>
-                        )}
 
                         {/* Book Now Button */}
                         <button
                           onClick={handleConfirmConnection}
-                          className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                          className="w-full py-3.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25"
                         >
                           <CheckCircle className="w-5 h-5" />
-                          Book Now
+                          Book {selectedContractor.business_name?.split(' ')[0]}
                         </button>
 
-                        <button
-                          onClick={handleCancel}
-                          className="w-full py-2.5 border border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
-                        >
-                          Cancel
-                        </button>
+                        <p className="text-center text-xs text-slate-500">
+                          Auto-booking in <span className="font-semibold text-emerald-600">{countdown}s</span> • Click another pro to switch
+                        </p>
                       </motion.div>
                     )}
 
                     {/* Searching State */}
                     {phase === 'searching' && (
                       <div className="flex flex-col items-center justify-center h-full">
-                        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
-                        <p className="text-slate-900 font-medium">Finding {category || 'pros'}...</p>
-                        <p className="text-slate-500 text-sm mt-1">Searching nearby</p>
+                        <div className="w-14 h-14 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
+                        <p className="text-slate-900 font-semibold">Finding {category || 'pros'}...</p>
+                        <p className="text-slate-500 text-sm mt-1">Searching nearby professionals</p>
                       </div>
                     )}
 
@@ -786,16 +782,16 @@ export default function InstantMatchOverlay({
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                         >
-                          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Clock className="w-8 h-8 text-amber-600" />
+                          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Clock className="w-8 h-8 text-slate-400" />
                           </div>
                           <h3 className="text-lg font-semibold text-slate-900">No {category || 'pros'} available</h3>
                           <p className="text-sm text-slate-600 mt-2">
-                            All professionals are currently busy. Post a job and we'll notify you.
+                            All professionals are currently busy. Post a job and we'll notify you when one becomes available.
                           </p>
                           <button
                             onClick={() => router.push('/post-job?category=' + encodeURIComponent(category))}
-                            className="mt-4 w-full py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                            className="mt-4 w-full py-2.5 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors"
                           >
                             Post a Job
                           </button>

@@ -78,16 +78,19 @@ export default function ContractorMap({
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: 'mapbox://styles/mapbox/streets-v12',
       center: initialCenter,
-      zoom: 11,
-      pitch: 45, // Enable 3D tilt
+      zoom: 13,
+      pitch: 45,
       bearing: 0,
       attributionControl: false,
-      antialias: true
+      antialias: true,
+      minZoom: 8,
+      maxZoom: 19 // Allow street-level zoom
     })
 
     map.current.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right')
+    map.current.addControl(new mapboxgl.FullscreenControl(), 'top-right')
 
     map.current.on('load', () => {
       if (!map.current) return
@@ -159,7 +162,7 @@ export default function ContractorMap({
         }
       })
 
-      // Add connection line layer
+      // Add connection line layer (actual route)
       map.current.addLayer({
         id: 'connection-line',
         type: 'line',
@@ -169,11 +172,27 @@ export default function ContractorMap({
           'line-cap': 'round'
         },
         paint: {
-          'line-color': '#3B82F6',
-          'line-width': 3,
-          'line-dasharray': [2, 2]
+          'line-color': '#10B981',
+          'line-width': 4,
+          'line-opacity': 0.85
         }
       })
+
+      // Add route outline for better visibility
+      map.current.addLayer({
+        id: 'connection-line-outline',
+        type: 'line',
+        source: 'connection-line',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round'
+        },
+        paint: {
+          'line-color': '#065F46',
+          'line-width': 6,
+          'line-opacity': 0.3
+        }
+      }, 'connection-line')
 
       setMapLoaded(true)
     })
@@ -201,7 +220,7 @@ export default function ContractorMap({
     }
   }, [userLocation, mapLoaded, radiusMiles])
 
-  // Draw connection line when contractor is selected
+  // Fetch real driving route and draw it
   useEffect(() => {
     if (!map.current || !mapLoaded) return
 
@@ -220,22 +239,67 @@ export default function ContractorMap({
       return
     }
 
-    // Draw straight line from contractor to user
-    source.setData({
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [selectedContractor.longitude, selectedContractor.latitude],
-          [userLocation.lng, userLocation.lat]
-        ]
+    // Fetch real driving directions from Mapbox
+    const fetchRoute = async () => {
+      const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (!MAPBOX_TOKEN) {
+        // Fallback to straight line
+        source.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [selectedContractor.longitude, selectedContractor.latitude],
+              [userLocation.lng, userLocation.lat]
+            ]
+          }
+        })
+        const etaMinutes = Math.ceil((selectedContractor.distance_miles / 25) * 60) + 5
+        onRouteCalculated?.(etaMinutes, selectedContractor.distance_miles)
+        return
       }
-    })
 
-    // Calculate ETA based on distance
-    const etaMinutes = Math.ceil((selectedContractor.distance_miles / 25) * 60) + 5
-    onRouteCalculated?.(etaMinutes, selectedContractor.distance_miles)
+      try {
+        const response = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${selectedContractor.longitude},${selectedContractor.latitude};${userLocation.lng},${userLocation.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`
+        )
+        const data = await response.json()
+
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0]
+
+          // Draw the actual driving route
+          source.setData({
+            type: 'Feature',
+            properties: {},
+            geometry: route.geometry
+          })
+
+          // Calculate real ETA (duration is in seconds)
+          const durationMinutes = Math.ceil(route.duration / 60)
+          const distanceMiles = route.distance / 1609.34 // meters to miles
+
+          onRouteCalculated?.(durationMinutes, distanceMiles)
+        }
+      } catch (err) {
+        console.error('Error fetching route:', err)
+        // Fallback to straight line
+        source.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [selectedContractor.longitude, selectedContractor.latitude],
+              [userLocation.lng, userLocation.lat]
+            ]
+          }
+        })
+      }
+    }
+
+    fetchRoute()
 
     // Fit bounds to show both points
     const bounds = new mapboxgl.LngLatBounds()
@@ -243,9 +307,9 @@ export default function ContractorMap({
     bounds.extend([selectedContractor.longitude, selectedContractor.latitude])
 
     map.current.fitBounds(bounds, {
-      padding: { top: 80, bottom: 80, left: 80, right: 80 },
-      maxZoom: 14,
-      duration: 500
+      padding: { top: 100, bottom: 100, left: 400, right: 100 },
+      maxZoom: 15,
+      duration: 800
     })
   }, [selectedContractor, userLocation, mapLoaded, onRouteCalculated])
 
@@ -316,12 +380,14 @@ export default function ContractorMap({
       if (markersRef.current[contractor.id]) {
         const el = markersRef.current[contractor.id].getElement()
         if (el) {
-          const dot = el.querySelector('.contractor-dot') as HTMLElement
-          if (dot) {
-            dot.style.width = isSelected ? '16px' : '12px'
-            dot.style.height = isSelected ? '16px' : '12px'
-            dot.style.background = isSelected ? '#1D4ED8' : '#3B82F6'
-            dot.style.boxShadow = isSelected ? '0 0 0 4px rgba(59, 130, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.2)'
+          const markerEl = el.querySelector('.contractor-marker') as HTMLElement
+          if (markerEl) {
+            markerEl.style.transform = isSelected ? 'scale(1.2)' : 'scale(1)'
+            const dot = markerEl.querySelector('.marker-dot') as HTMLElement
+            if (dot) {
+              dot.style.background = isSelected ? '#059669' : '#10B981'
+              dot.style.boxShadow = isSelected ? '0 0 0 4px rgba(16, 185, 129, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)'
+            }
           }
         }
         return
@@ -332,15 +398,40 @@ export default function ContractorMap({
       el.style.cursor = 'pointer'
 
       el.innerHTML = `
-        <div class="contractor-dot" style="
-          width: ${isSelected ? '16px' : '12px'};
-          height: ${isSelected ? '16px' : '12px'};
-          background: ${isSelected ? '#1D4ED8' : '#3B82F6'};
-          border: 2px solid white;
-          border-radius: 50%;
-          box-shadow: ${isSelected ? '0 0 0 4px rgba(59, 130, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.2)'};
-          transition: all 0.2s ease;
-        "></div>
+        <div class="contractor-marker" style="
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          transition: transform 0.2s ease;
+          transform: ${isSelected ? 'scale(1.2)' : 'scale(1)'};
+        ">
+          <div class="marker-dot" style="
+            width: 32px;
+            height: 32px;
+            background: ${isSelected ? '#059669' : '#10B981'};
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: ${isSelected ? '0 0 0 4px rgba(16, 185, 129, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)'};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.2s ease;
+          ">${contractor.business_name?.charAt(0) || 'P'}</div>
+          <div style="
+            margin-top: 4px;
+            background: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #10B981;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            white-space: nowrap;
+          ">${contractor.eta_minutes} min</div>
+        </div>
       `
 
       el.addEventListener('click', () => {
@@ -348,16 +439,16 @@ export default function ContractorMap({
       })
 
       el.addEventListener('mouseenter', () => {
-        const dot = el.querySelector('.contractor-dot') as HTMLElement
-        if (dot) dot.style.transform = 'scale(1.3)'
+        const markerEl = el.querySelector('.contractor-marker') as HTMLElement
+        if (markerEl) markerEl.style.transform = 'scale(1.2)'
       })
 
       el.addEventListener('mouseleave', () => {
-        const dot = el.querySelector('.contractor-dot') as HTMLElement
-        if (dot && !isSelected) dot.style.transform = 'scale(1)'
+        const markerEl = el.querySelector('.contractor-marker') as HTMLElement
+        if (markerEl && !isSelected) markerEl.style.transform = 'scale(1)'
       })
 
-      const marker = new mapboxgl.Marker({ element: el })
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
         .setLngLat([contractor.longitude, contractor.latitude])
         .addTo(map.current!)
 
