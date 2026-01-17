@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap } from 'lucide-react'
+import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { openAuth } from './AuthModal'
 import { useAuth } from '../contexts/AuthContext'
@@ -99,6 +99,12 @@ export default function InstantMatchOverlay({
   const [realEta, setRealEta] = useState<number | null>(null)
   const [realDistance, setRealDistance] = useState<number | null>(null)
 
+  // Saved payment method
+  const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null>(null)
+
+  // Job description from homeowner
+  const [jobDescription, setJobDescription] = useState('')
+
   // Current search location (can be overridden by settings ZIP)
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number; zip?: string } | null>(userLocation || null)
   const [locationName, setLocationName] = useState<string>('')
@@ -110,6 +116,23 @@ export default function InstantMatchOverlay({
       setSearchZip(userLocation.zip || '')
     }
   }, [userLocation])
+
+  // Fetch saved payment method when user is logged in
+  useEffect(() => {
+    if (user && isOpen) {
+      fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.paymentMethods?.length > 0) {
+            const defaultPm = data.paymentMethods.find((pm: any) => pm.id === data.defaultPaymentMethodId) || data.paymentMethods[0]
+            if (defaultPm?.card) {
+              setSavedCard({ brand: defaultPm.card.brand, last4: defaultPm.card.last4 })
+            }
+          }
+        })
+        .catch(err => console.error('Error fetching payment methods:', err))
+    }
+  }, [user, isOpen])
 
   // Refs
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
@@ -342,7 +365,7 @@ export default function InstantMatchOverlay({
     startCountdown()
   }
 
-  const handleConfirmConnection = () => {
+  const handleConfirmConnection = async () => {
     if (!connectedContractor) return
 
     if (!user) {
@@ -351,13 +374,34 @@ export default function InstantMatchOverlay({
         category,
         searchQuery,
         userLocation,
+        jobDescription,
         timestamp: Date.now()
       }))
       openAuth('/post-job')
       return
     }
 
-    router.push(`/book/${connectedContractor.id}?category=${encodeURIComponent(category)}&rate=${connectedContractor.hourly_rate}`)
+    // Send email notification to contractor with job details
+    try {
+      await fetch('/api/notify-contractor-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contractorId: connectedContractor.id,
+          contractorName: connectedContractor.business_name,
+          category,
+          jobDescription: jobDescription || `${category} service needed`,
+          userLocation: currentLocation,
+          locationName: locationName || searchZip,
+          homeownerId: user.id,
+          homeownerEmail: user.email
+        })
+      })
+    } catch (err) {
+      console.error('Error sending contractor notification:', err)
+    }
+
+    router.push(`/book/${connectedContractor.id}?category=${encodeURIComponent(category)}&rate=${connectedContractor.hourly_rate}&description=${encodeURIComponent(jobDescription)}`)
   }
 
   const handleCancel = () => {
@@ -424,6 +468,8 @@ export default function InstantMatchOverlay({
       setRealEta(null)
       setRealDistance(null)
       setSidebarCollapsed(false)
+      setSavedCard(null)
+      setJobDescription('')
       notificationsSentRef.current = false
       if (countdownRef.current) clearInterval(countdownRef.current)
       if (postJobTimerRef.current) clearTimeout(postJobTimerRef.current)
@@ -703,7 +749,6 @@ export default function InstantMatchOverlay({
                               <div className="flex items-center gap-1 mt-0.5">
                                 <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
                                 <span className="font-medium text-sm text-slate-900">{selectedContractor.rating.toFixed(1)}</span>
-                                <span className="text-slate-400 text-xs">({selectedContractor.total_jobs})</span>
                               </div>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
@@ -735,20 +780,57 @@ export default function InstantMatchOverlay({
                           </div>
                         </div>
 
-                        {/* Quick Stats Row */}
-                        <div className="flex gap-2">
-                          <div className="flex-1 bg-white rounded-lg p-3 border border-slate-200 text-center">
-                            <div className="text-lg font-bold text-slate-900">${selectedContractor.hourly_rate}</div>
-                            <div className="text-xs text-slate-500">per hour</div>
+                        {/* Quick Stats Row - Compact */}
+                        <div className="flex gap-1.5">
+                          <div className="flex-1 bg-white rounded-lg px-2 py-1.5 border border-slate-200 text-center">
+                            <div className="text-sm font-bold text-slate-900">${selectedContractor.hourly_rate}</div>
+                            <div className="text-[10px] text-slate-500">per hour</div>
                           </div>
-                          <div className="flex-1 bg-white rounded-lg p-3 border border-slate-200 text-center">
-                            <div className="text-lg font-bold text-slate-900">{selectedContractor.years_in_business}+</div>
-                            <div className="text-xs text-slate-500">years exp</div>
+                          <div className="flex-1 bg-white rounded-lg px-2 py-1.5 border border-slate-200 text-center">
+                            <div className="text-sm font-bold text-slate-900">{selectedContractor.years_in_business}+</div>
+                            <div className="text-[10px] text-slate-500">years</div>
                           </div>
-                          <div className="flex-1 bg-white rounded-lg p-3 border border-slate-200 text-center">
-                            <div className="text-lg font-bold text-slate-900">{selectedContractor.response_time_minutes}m</div>
-                            <div className="text-xs text-slate-500">response</div>
+                          <div className="flex-1 bg-white rounded-lg px-2 py-1.5 border border-slate-200 text-center">
+                            <div className="text-sm font-bold text-slate-900">{selectedContractor.response_time_minutes}m</div>
+                            <div className="text-[10px] text-slate-500">response</div>
                           </div>
+                        </div>
+
+                        {/* Job Description Input */}
+                        <div className="bg-white rounded-lg border border-slate-200 p-3">
+                          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                            Describe your issue
+                          </label>
+                          <textarea
+                            value={jobDescription}
+                            onChange={(e) => setJobDescription(e.target.value)}
+                            placeholder={`What ${category?.toLowerCase() || 'service'} help do you need?`}
+                            className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                            rows={2}
+                          />
+                        </div>
+
+                        {/* Payment Method Card */}
+                        <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border ${savedCard ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${savedCard ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                            <CreditCard className={`w-4 h-4 ${savedCard ? 'text-emerald-600' : 'text-amber-600'}`} />
+                          </div>
+                          {savedCard ? (
+                            <div className="flex-1">
+                              <div className="text-xs font-medium text-emerald-800">Payment method</div>
+                              <div className="text-sm text-emerald-700 capitalize">{savedCard.brand} •••• {savedCard.last4}</div>
+                            </div>
+                          ) : (
+                            <div className="flex-1">
+                              <div className="text-xs font-medium text-amber-800">No payment method</div>
+                              <button
+                                onClick={() => router.push('/dashboard/homeowner/billing')}
+                                className="text-sm text-amber-700 underline hover:text-amber-800"
+                              >
+                                Connect a card to book
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Book Now Button */}
@@ -825,6 +907,19 @@ export default function InstantMatchOverlay({
                   onRouteCalculated={(eta, distance) => {
                     setRealEta(eta)
                     setRealDistance(distance)
+                    // Update the selected contractor's ETA in the arrays to sync map markers
+                    if (selectedContractor) {
+                      setVisibleContractors(prev => prev.map(c =>
+                        c.id === selectedContractor.id
+                          ? { ...c, eta_minutes: eta, distance_miles: distance }
+                          : c
+                      ))
+                      setContractors(prev => prev.map(c =>
+                        c.id === selectedContractor.id
+                          ? { ...c, eta_minutes: eta, distance_miles: distance }
+                          : c
+                      ))
+                    }
                   }}
                 />
               </div>
