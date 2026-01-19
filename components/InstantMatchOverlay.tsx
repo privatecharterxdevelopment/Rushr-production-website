@@ -1042,6 +1042,30 @@ export default function InstantMatchOverlay({
                             <>Auto-booking in <span className="font-semibold text-emerald-600">{countdown}s</span> • Click another pro to switch</>
                           )}
                         </p>
+
+                        {/* Search for another pro link */}
+                        {!bookingLoading && (
+                          <button
+                            onClick={() => {
+                              // Stop countdown
+                              if (countdownRef.current) {
+                                clearInterval(countdownRef.current)
+                              }
+                              // Reset to searching state
+                              setPhase('searching')
+                              setConnectedContractor(null)
+                              setSelectedContractor(null)
+                              setContractors([])
+                              setVisibleContractors([])
+                              setCountdown(60)
+                              // Re-trigger search
+                              setHasFetched(false)
+                            }}
+                            className="w-full mt-2 py-2 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
+                          >
+                            Search for another pro →
+                          </button>
+                        )}
                       </motion.div>
                     )}
 
