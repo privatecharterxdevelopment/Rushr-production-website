@@ -10,6 +10,7 @@ type Props = {
   searchCenter?: [number, number]
   onSearchHere?: (center:[number,number]) => void
   contractors?: any[] // Optional: use provided contractors instead of fetching
+  onSelectContractor?: (contractor: any) => void // Callback when contractor is selected for direct offer
 }
 
 const ProMapInner = dynamic(() => import('./ProMapInner'), { ssr: false })
@@ -121,7 +122,7 @@ export default function ProMap(props: Props){
   console.log('ProMap: Rendering ProMapInner with', contractors.length, 'contractors')
   return (
     <div className="h-full w-full min-h-[400px]" key={mapKey}>
-      <ProMapInner {...props} items={contractors} hideSidebar={true} />
+      <ProMapInner {...props} items={contractors} hideSidebar={true} onSelectContractor={props.onSelectContractor} />
     </div>
   )
 }

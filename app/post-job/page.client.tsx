@@ -239,8 +239,9 @@ function ErrorPopup({
 
 /** Emergency categories and services */
 const EMERGENCY_CATEGORIES = [
-  { key: 'home', label: '🏠 Home Emergency' }
-] as const
+  { key: 'home', label: 'Home Emergency' },
+  { key: 'auto', label: 'Auto Emergency' }
+]
 
 const EMERGENCY_TYPES_MAP: Record<string, Array<{ key: string, label: string, icon: string }>> = {
   'home': [
@@ -1001,6 +1002,105 @@ export default function PostJobInner({ userId }: Props) {
     }
   }
 
+  // Handle contractor selection from map for direct offer
+  async function handleSelectContractorFromMap(contractor: any) {
+    console.log('[POST-JOB] Contractor selected from map:', contractor)
+
+    // Check if user is logged in
+    if (!userId) {
+      // Save selection to localStorage and prompt login
+      localStorage.setItem('rushr_pending_direct_offer', JSON.stringify({
+        contractor,
+        category: emergencyType || category,
+        address,
+        userLocation,
+        timestamp: Date.now()
+      }))
+      openAuth('/post-job')
+      return
+    }
+
+    // Create direct offer
+    setSending(true)
+    try {
+      const emergencyTypeLabels: Record<string, string> = {
+        'plumbing': 'Plumbing Service',
+        'electrical': 'Electrical Service',
+        'hvac': 'HVAC Service',
+        'roofing': 'Roofing Service',
+        'water-damage': 'Water Damage Service',
+        'locksmith': 'Locksmith Service',
+        'appliance': 'Appliance Repair',
+        'battery': 'Battery Service',
+        'tire': 'Tire Service',
+        'lockout': 'Lockout Service',
+        'tow': 'Towing Service',
+        'fuel': 'Fuel Delivery',
+        'mechanic': 'Mechanic Service',
+        'other': 'Service Request',
+      }
+      const serviceTitle = emergencyTypeLabels[emergencyType] || emergencyTypeLabels[category] || 'Service Request'
+
+      const { data: directOffer, error } = await supabase
+        .from('direct_offers')
+        .insert({
+          homeowner_id: userId,
+          contractor_id: contractor.id,
+          title: serviceTitle,
+          description: details || `${serviceTitle} needed`,
+          category: emergencyType || category || 'other',
+          priority: 'normal',
+          offered_amount: (contractor.hourly_rate || 65) * 2, // 2-hour estimate
+          status: 'pending',
+          address: address || null,
+          latitude: userLocation ? userLocation[0] : null,
+          longitude: userLocation ? userLocation[1] : null,
+          homeowner_notes: details || null,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('[POST-JOB] Error creating direct offer:', error)
+        setErrorPopup('Failed to create direct offer. Please try again.')
+        setSending(false)
+        return
+      }
+
+      console.log('[POST-JOB] Direct offer created:', directOffer)
+
+      // Notify contractor via email
+      try {
+        await fetch('/api/notify-contractor-booking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contractorId: contractor.id,
+            contractorName: contractor.business_name || contractor.name,
+            category: emergencyType || category,
+            jobDescription: details || serviceTitle,
+            userLocation: userLocation ? { lat: userLocation[0], lng: userLocation[1] } : null,
+            locationName: address,
+            homeownerId: userId,
+            hourlyRate: contractor.hourly_rate || 65,
+            estimatedAmount: (contractor.hourly_rate || 65) * 2
+          })
+        })
+      } catch (emailErr) {
+        console.error('[POST-JOB] Email notification error:', emailErr)
+      }
+
+      // Redirect to homeowner dashboard direct offers
+      router.push('/dashboard/homeowner?tab=offers')
+
+    } catch (err) {
+      console.error('[POST-JOB] Error creating direct offer:', err)
+      setErrorPopup('Failed to create direct offer. Please try again.')
+      setSending(false)
+    }
+  }
+
   // For iOS native, wrap in fixed container with proper safe area handling
   if (isNative) {
     return (
@@ -1252,6 +1352,7 @@ export default function PostJobInner({ userId }: Props) {
               radiusMiles={15}
               searchCenter={userLocation || undefined}
               contractors={nearbyContractorsWithLocation}
+              onSelectContractor={handleSelectContractorFromMap}
             />
 
             {!userLocation && !address.match(/\d{5}/) && (
@@ -1468,6 +1569,7 @@ export default function PostJobInner({ userId }: Props) {
               radiusMiles={15}
               searchCenter={userLocation || undefined}
               contractors={nearbyContractorsWithLocation}
+              onSelectContractor={handleSelectContractorFromMap}
             />
 
             {!userLocation && !address.match(/\d{5}/) && (

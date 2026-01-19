@@ -36,6 +36,7 @@ type Props = {
   onMinRatingChange?: (r: number) => void
   filteredCount?: number
   hideSidebar?: boolean // NEW: Hide the sidebar for simple map view
+  onSelectContractor?: (contractor: any) => void // Callback when contractor is selected for direct offer
 }
 
 const CAT_EMOJI: Record<string, string> = {
@@ -89,6 +90,7 @@ export default function ProMapInner({
   onMinRatingChange,
   filteredCount = 0,
   hideSidebar = false, // NEW: Default to showing sidebar
+  onSelectContractor,
 }: Props) {
   const addToast = useApp()?.addToast
 
@@ -408,34 +410,51 @@ export default function ProMapInner({
       const lng = Number(c?.loc?.lng)
       if (!isFinite(lat) || !isFinite(lng)) return
 
-      const svcs: string[] = Array.isArray(c?.services) ? c.services : []
-      const svc = selectedCategory && svcs.includes(selectedCategory) ? selectedCategory : svcs[0]
-      const emoji = CAT_EMOJI[svc as keyof typeof CAT_EMOJI] ?? '🔧'
+      // Get hourly rate for Airbnb-style price tag
+      const hourlyRate = c?.hourly_rate || c?.rate || 65
+      const contractorName = c?.business_name || c?.name || 'Contractor'
 
-      // Create marker element matching FindProMapbox style
+      // Create Airbnb-style price tag marker
       const el = document.createElement('div')
-      el.className = 'custom-marker'
+      el.className = 'price-tag-marker'
+      el.style.cursor = 'pointer'
       el.innerHTML = `
         <div style="
-          background: #d1fae5;
-          border: 2px solid #10b981;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 16px;
-          cursor: pointer;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        ">
-          ${emoji}
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 20px;
+          padding: 6px 12px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #0f172a;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+          white-space: nowrap;
+          transition: all 0.2s ease;
+        " class="price-bubble">
+          $${hourlyRate}/hr
         </div>
       `
 
+      // Hover effect
+      el.addEventListener('mouseenter', () => {
+        const bubble = el.querySelector('.price-bubble') as HTMLElement
+        if (bubble) {
+          bubble.style.background = '#10b981'
+          bubble.style.color = 'white'
+          bubble.style.transform = 'scale(1.1)'
+        }
+      })
+      el.addEventListener('mouseleave', () => {
+        const bubble = el.querySelector('.price-bubble') as HTMLElement
+        if (bubble) {
+          bubble.style.background = 'white'
+          bubble.style.color = '#0f172a'
+          bubble.style.transform = 'scale(1)'
+        }
+      })
+
       // Import mapboxgl dynamically for Marker class
       ;(async () => {
-        // Check if map still exists before adding marker
         if (!map) {
           console.warn('Map undefined when trying to add marker')
           return
@@ -443,18 +462,58 @@ export default function ProMapInner({
 
         const mapboxgl = (await import('mapbox-gl')).default
 
-        // Create popup matching FindProMapbox style
-        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-          <div style="padding: 8px;">
-            <h3 style="font-weight: 600; margin: 0 0 4px 0;">${c?.name || 'Contractor'}</h3>
-            <p style="margin: 0; font-size: 12px; color: #666;">${c?.city || ''}</p>
-            ${c?.rating ? `<p style="margin: 4px 0 0 0; font-size: 12px;">⭐ ${Number(c.rating).toFixed(1)}</p>` : ''}
+        // Create improved popup with contractor details and select button
+        const popupContent = document.createElement('div')
+        popupContent.style.cssText = 'padding: 12px; min-width: 200px;'
+        popupContent.innerHTML = `
+          <div style="margin-bottom: 8px;">
+            <h3 style="font-weight: 700; font-size: 15px; margin: 0 0 4px 0; color: #0f172a;">${contractorName}</h3>
+            <p style="margin: 0; font-size: 12px; color: #64748b;">${c?.city || ''}</p>
           </div>
-        `)
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            ${c?.rating ? `<span style="font-size: 13px; color: #0f172a;">⭐ ${Number(c.rating).toFixed(1)}</span>` : ''}
+            <span style="font-size: 14px; font-weight: 600; color: #10b981;">$${hourlyRate}/hr</span>
+          </div>
+          <button id="select-contractor-${c?.id}" style="
+            width: 100%;
+            padding: 10px 16px;
+            background: #10b981;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+          ">
+            Select for Direct Offer
+          </button>
+        `
+
+        const popup = new mapboxgl.Popup({ offset: 25, closeButton: true })
+          .setDOMContent(popupContent)
+
+        // Add click handler after popup opens
+        popup.on('open', () => {
+          const selectBtn = document.getElementById(`select-contractor-${c?.id}`)
+          if (selectBtn) {
+            selectBtn.addEventListener('click', () => {
+              onSelectContractor?.(c)
+              popup.remove()
+            })
+            // Hover effect for button
+            selectBtn.addEventListener('mouseenter', () => {
+              selectBtn.style.background = '#059669'
+            })
+            selectBtn.addEventListener('mouseleave', () => {
+              selectBtn.style.background = '#10b981'
+            })
+          }
+        })
 
         const marker = new mapboxgl.Marker({
           element: el,
-          anchor: 'center' // Center the marker exactly on coordinates
+          anchor: 'bottom'
         })
           .setLngLat([lng, lat])
           .setPopup(popup)

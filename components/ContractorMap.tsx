@@ -388,6 +388,11 @@ export default function ContractorMap({
               dot.style.background = isSelected ? '#059669' : '#10B981'
               dot.style.boxShadow = isSelected ? '0 0 0 4px rgba(16, 185, 129, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)'
             }
+            // Update ETA text to sync with sidebar
+            const etaLabel = el.querySelector('.eta-label') as HTMLElement
+            if (etaLabel) {
+              etaLabel.textContent = `${contractor.eta_minutes} min`
+            }
           }
         }
         return
@@ -420,7 +425,7 @@ export default function ContractorMap({
             font-size: 14px;
             transition: all 0.2s ease;
           ">${contractor.business_name?.charAt(0) || 'P'}</div>
-          <div style="
+          <div class="eta-label" style="
             margin-top: 4px;
             background: white;
             padding: 2px 6px;

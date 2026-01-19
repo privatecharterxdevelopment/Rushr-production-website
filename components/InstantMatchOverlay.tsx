@@ -102,6 +102,13 @@ export default function InstantMatchOverlay({
   // Saved payment method
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null>(null)
 
+  // Add card modal state
+  const [showAddCardModal, setShowAddCardModal] = useState(false)
+
+  // Booking confirmation state
+  const [bookingConfirmed, setBookingConfirmed] = useState(false)
+  const [bookingLoading, setBookingLoading] = useState(false)
+
   // Job description from homeowner
   const [jobDescription, setJobDescription] = useState('')
 
@@ -381,9 +388,28 @@ export default function InstantMatchOverlay({
       return
     }
 
-    // Send email notification to contractor with job details
+    // Check if user has a saved payment method
+    if (!savedCard) {
+      setShowAddCardModal(true)
+      // Stop the countdown while modal is open
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current)
+      }
+      return
+    }
+
+    // User has a saved card - proceed with booking
+    await createBookingRequest()
+  }
+
+  const createBookingRequest = async () => {
+    if (!connectedContractor || !user) return
+
+    setBookingLoading(true)
+
+    // Send booking request to contractor
     try {
-      await fetch('/api/notify-contractor-booking', {
+      const response = await fetch('/api/notify-contractor-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -394,14 +420,30 @@ export default function InstantMatchOverlay({
           userLocation: currentLocation,
           locationName: locationName || searchZip,
           homeownerId: user.id,
-          homeownerEmail: user.email
+          homeownerEmail: user.email,
+          hourlyRate: connectedContractor.hourly_rate,
+          estimatedAmount: connectedContractor.hourly_rate * 2 // 2 hour estimate
         })
       })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setBookingConfirmed(true)
+        // Stop countdown
+        if (countdownRef.current) {
+          clearInterval(countdownRef.current)
+        }
+      } else {
+        console.error('Booking request failed:', data.error)
+        alert('Failed to send booking request. Please try again.')
+      }
     } catch (err) {
       console.error('Error sending contractor notification:', err)
+      alert('Failed to send booking request. Please try again.')
+    } finally {
+      setBookingLoading(false)
     }
-
-    router.push(`/book/${connectedContractor.id}?category=${encodeURIComponent(category)}&rate=${connectedContractor.hourly_rate}&description=${encodeURIComponent(jobDescription)}`)
   }
 
   const handleCancel = () => {
@@ -470,6 +512,9 @@ export default function InstantMatchOverlay({
       setSidebarCollapsed(false)
       setSavedCard(null)
       setJobDescription('')
+      setShowAddCardModal(false)
+      setBookingConfirmed(false)
+      setBookingLoading(false)
       notificationsSentRef.current = false
       if (countdownRef.current) clearInterval(countdownRef.current)
       if (postJobTimerRef.current) clearTimeout(postJobTimerRef.current)
@@ -665,6 +710,140 @@ export default function InstantMatchOverlay({
               )}
             </AnimatePresence>
 
+            {/* Add Card Modal */}
+            <AnimatePresence>
+              {showAddCardModal && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+                  onClick={() => {
+                    setShowAddCardModal(false)
+                    startCountdown() // Resume countdown
+                  }}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-slate-900">Payment Method Required</h3>
+                      <button
+                        onClick={() => {
+                          setShowAddCardModal(false)
+                          startCountdown()
+                        }}
+                        className="p-1 hover:bg-slate-100 rounded-lg"
+                      >
+                        <X className="w-5 h-5 text-slate-500" />
+                      </button>
+                    </div>
+
+                    <div className="text-center mb-6">
+                      <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <CreditCard className="w-8 h-8 text-amber-600" />
+                      </div>
+                      <p className="text-slate-600">
+                        To book <strong>{connectedContractor?.business_name}</strong>, please add a payment method first.
+                      </p>
+                      <p className="text-sm text-slate-500 mt-2">
+                        Your card will only be charged when the contractor accepts your request.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => {
+                          setShowAddCardModal(false)
+                          router.push('/dashboard/homeowner/billing?return=' + encodeURIComponent(window.location.pathname))
+                        }}
+                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <CreditCard className="w-5 h-5" />
+                        Add Payment Method
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAddCardModal(false)
+                          startCountdown()
+                        }}
+                        className="w-full py-3 border border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Booking Confirmed Modal */}
+            <AnimatePresence>
+              {bookingConfirmed && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+                >
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 text-center"
+                  >
+                    <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle className="w-10 h-10 text-emerald-600" />
+                    </div>
+
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">Booking Request Sent!</h3>
+
+                    <p className="text-slate-600 mb-4">
+                      We've notified <strong>{connectedContractor?.business_name}</strong> about your request.
+                    </p>
+
+                    <div className="bg-slate-50 rounded-lg p-4 mb-6 text-left">
+                      <div className="flex items-center gap-3 text-sm text-slate-600 mb-2">
+                        <MapPin className="w-4 h-4 text-slate-400" />
+                        <span>{locationName || searchZip || 'Your location'}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-slate-600 mb-2">
+                        <DollarSign className="w-4 h-4 text-slate-400" />
+                        <span>~${((connectedContractor?.hourly_rate || 65) * 2).toFixed(0)} estimated</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-slate-600">
+                        <CreditCard className="w-4 h-4 text-slate-400" />
+                        <span className="capitalize">{savedCard?.brand} •••• {savedCard?.last4}</span>
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-slate-500 mb-6">
+                      When they accept, your card will be charged and held in escrow until the job is complete.
+                    </p>
+
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => router.push('/dashboard/homeowner')}
+                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors"
+                      >
+                        View in Dashboard
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="w-full py-3 border border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Main Content: Left Sidebar + Map */}
             <div className="flex-1 flex overflow-hidden relative min-h-0">
               {/* Sidebar Toggle Button - Always visible */}
@@ -836,14 +1015,32 @@ export default function InstantMatchOverlay({
                         {/* Book Now Button */}
                         <button
                           onClick={handleConfirmConnection}
-                          className="w-full py-3.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25"
+                          disabled={bookingLoading}
+                          className={`w-full py-3.5 rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 shadow-lg ${
+                            bookingLoading
+                              ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-slate-300/25'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/25'
+                          }`}
                         >
-                          <CheckCircle className="w-5 h-5" />
-                          Book {selectedContractor.business_name?.split(' ')[0]}
+                          {bookingLoading ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              Sending Request...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-5 h-5" />
+                              Book {selectedContractor.business_name?.split(' ')[0]}
+                            </>
+                          )}
                         </button>
 
                         <p className="text-center text-xs text-slate-500">
-                          Auto-booking in <span className="font-semibold text-emerald-600">{countdown}s</span> • Click another pro to switch
+                          {bookingLoading ? (
+                            'Please wait...'
+                          ) : (
+                            <>Auto-booking in <span className="font-semibold text-emerald-600">{countdown}s</span> • Click another pro to switch</>
+                          )}
                         </p>
                       </motion.div>
                     )}
