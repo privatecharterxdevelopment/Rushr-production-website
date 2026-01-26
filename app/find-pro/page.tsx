@@ -109,7 +109,7 @@ export default function FindProPage() {
   const [services, setServices] = useState<string[]>([])
 
   // Top bar — line 2 (filters)
-  const [radius, setRadius] = useState(15) // miles
+  const [radius, setRadius] = useState(1) // miles
   const [minRating, setMinRating] = useState(0)
   const [minYears, setMinYears] = useState(0) // 0,3,5,10
   const [hoursTags, setHoursTags] = useState<HoursTag[]>([]) // multi-select
@@ -366,7 +366,7 @@ export default function FindProPage() {
   function resetAll() {
     setQuery('')
     setServices([])
-    setRadius(15)
+    setRadius(1)
     setMinRating(0)
     setMinYears(0)
     setHoursTags([])

@@ -89,7 +89,7 @@ export default function InstantMatchOverlay({
   const [minPrice, setMinPrice] = useState(0)
   const [maxPrice, setMaxPrice] = useState(200)
   const [searchZip, setSearchZip] = useState(userLocation?.zip || '')
-  const [searchRadius, setSearchRadius] = useState(25)
+  const [searchRadius, setSearchRadius] = useState(1)
 
   // Post job button delay state
   const [showPostJobButton, setShowPostJobButton] = useState(false)
