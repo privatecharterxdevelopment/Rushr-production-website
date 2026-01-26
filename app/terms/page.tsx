@@ -44,7 +44,7 @@ export default function Terms(){
         <p className="mt-2 text-sm">We may update these Terms. Continued use constitutes acceptance.</p>
 
         <h2 className="mt-4 font-semibold text-ink">11. Contact</h2>
-        <p className="mt-2 text-sm">Questions? Email <a className="underline" href="mailto:hello@usehousecall.com">hello@usehousecall.com</a>.</p>
+        <p className="mt-2 text-sm">Questions? Email <a className="underline" href="mailto:hello@userushr.com">hello@userushr.com</a>.</p>
       </div>
     </div>
   )
