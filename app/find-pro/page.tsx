@@ -583,13 +583,6 @@ export default function FindProPage() {
             🕐 24/7
           </button>
 
-          {/* Reset button */}
-          <button
-            onClick={resetAll}
-            className="ml-auto rounded-full border border-slate-200 px-3 py-1.5 text-[12px] text-slate-600 hover:bg-slate-50"
-          >
-            Reset
-          </button>
         </div>
       </div>
 
@@ -601,6 +594,7 @@ export default function FindProPage() {
         searchCenter={activeCenter}
         onSearchHere={(c) => setCenter(c)}
         userLocation={userLocation}
+        hideSearchButton
       />
 
       {/* Results header + sort */}

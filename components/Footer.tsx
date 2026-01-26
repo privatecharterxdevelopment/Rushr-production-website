@@ -145,7 +145,6 @@ export default function Footer() {
             <li><FLink href="/about">About</FLink></li>
             <li><FLink href="/pricing">Pricing</FLink></li>
             <li><DashboardItem /></li>
-            <li><FLink href="/">Rushr for Homeowners</FLink></li>
             <li><FLink href="/pro">Rushr For Pros</FLink></li>
           </ul>
         </div>
