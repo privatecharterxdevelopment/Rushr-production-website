@@ -50,13 +50,13 @@ export default function HowItWorksSlider() {
           </div>
         </div>
 
-        {/* Steps */}
+        {/* Steps - fixed height cards to prevent size changes */}
         <div className="grid sm:grid-cols-3 gap-4 mt-6">
           {slides.map((s, i) => (
-            <div key={i} className="card p-5">
-              <s.Icon className="h-6 w-6 text-emerald-700" />
+            <div key={i} className="card p-5 min-h-[140px] flex flex-col">
+              <IconLightning className="h-6 w-6 text-emerald-700 flex-shrink-0" />
               <div className="font-semibold mt-2">{s.title}</div>
-              <p className="text-sm mt-1 text-slate-600">{s.desc}</p>
+              <p className="text-sm mt-1 text-slate-600 flex-1">{s.desc}</p>
             </div>
           ))}
         </div>

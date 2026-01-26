@@ -461,8 +461,8 @@ function PopularEmergencies({ onInstantMatch }: PopularEmergenciesProps) {
         animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
         transition={{ duration: 0.5 }}
       >
-        {/* Compact segmented control - left aligned */}
-        <div className="flex justify-start">
+        {/* Compact segmented control - centered */}
+        <div className="flex justify-center">
           <div className="relative inline-flex rounded-lg bg-gradient-to-b from-slate-50 to-slate-100 p-1 shadow-md shadow-slate-200/50 border border-slate-200/60">
             {/* Single sliding pill background */}
             <motion.div

@@ -367,6 +367,7 @@ export default function Header() {
             items={findProItems}
             active={findProActive}
           />
+          <NavA href="/how-it-works">How it Works</NavA>
           <HoverDrop
             label="Rushr Pro"
             keyName="work"
