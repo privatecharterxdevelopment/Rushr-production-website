@@ -22,28 +22,9 @@ export default function PostJobPage() {
     }
   }, [user, userProfile, loading, router])
 
-  // Show loading state while checking auth
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center">
-          <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
-            <div className="absolute inset-0 rounded-full border-emerald-200 border-t-emerald-600 animate-spin" style={{ borderWidth: 3 }} />
-            <img
-              src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/Rushr%20Logo%20Vector.svg"
-              alt="Rushr"
-              style={{ width: 44, height: 44 }}
-              className="object-contain"
-            />
-          </div>
-          <p className="text-slate-600 text-sm mt-3">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
   // Don't render the form if user is a contractor (redirect handled in useEffect)
-  if (userProfile && userProfile.role === 'contractor') {
+  // Only check this AFTER loading is complete to avoid flash
+  if (!loading && userProfile && userProfile.role === 'contractor') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center">
@@ -62,6 +43,7 @@ export default function PostJobPage() {
     )
   }
 
-  // Render the form - pass userId only if user is logged in
+  // Render the form immediately - auth state handled in submit flow
+  // Pass userId if logged in, null if not (form works either way)
   return <PostJobInner userId={user?.id || null} />
 }

@@ -139,7 +139,7 @@ export default function UserDropdown() {
       badge: 0, // TODO: Implement unread count
     },
     {
-      icon: SettingsIcon,
+      icon: UserIcon,
       label: isContractor ? 'Account Settings' : 'Profile Settings',
       href: isContractor ? '/dashboard/contractor/settings' : '/profile/settings',
     },

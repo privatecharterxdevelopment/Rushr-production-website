@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { supabase } from '../../lib/supabaseClient'
 import { openAuth } from '../../components/AuthModal'
+import { showGlobalToast } from '../../components/Toast'
 import { Capacitor } from '@capacitor/core'
 import { getCurrentLocation, reverseGeocode, isNativePlatform } from '../../lib/nativeLocation'
 import { safeBack } from '../../lib/safeBack'
@@ -349,6 +350,9 @@ export default function PostJobInner({ userId }: Props) {
   const [showLocationModal, setShowLocationModal] = useState(false)
   const [showPhoneModal, setShowPhoneModal] = useState(false)
 
+  // Track if we should auto-submit after restoring data
+  const [pendingAutoSubmit, setPendingAutoSubmit] = useState(false)
+
   // Restore saved form data if user just logged in
   useEffect(() => {
     const savedData = localStorage.getItem('rushr_pending_job')
@@ -367,6 +371,13 @@ export default function PostJobInner({ userId }: Props) {
           setPicked(formData.picked || null)
           setUserLocation(formData.userLocation || null)
           console.log('[RESTORE] Restored saved job form data')
+
+          // If user is now logged in, auto-submit the job
+          if (userId) {
+            console.log('[RESTORE] User is logged in, will auto-submit job')
+            showGlobalToast('Your job request has been restored. Review and submit!', 'success')
+            setPendingAutoSubmit(true)
+          }
         }
         // Clear the saved data
         localStorage.removeItem('rushr_pending_job')
@@ -374,7 +385,33 @@ export default function PostJobInner({ userId }: Props) {
         console.error('[RESTORE] Failed to parse saved form data:', e)
       }
     }
-  }, [])
+  }, [userId])
+
+  // Auto-submit job after user logs in (if they had pending data)
+  useEffect(() => {
+    if (pendingAutoSubmit && userId && category && emergencyType) {
+      console.log('[AUTO-SUBMIT] Triggering auto-submit after login')
+      setPendingAutoSubmit(false)
+
+      // Small delay to ensure all state is properly set
+      setTimeout(() => {
+        // Check if address and phone were restored
+        if (!address || address.trim() === '') {
+          console.log('[AUTO-SUBMIT] Address missing, opening location modal')
+          setShowLocationModal(true)
+          return
+        }
+        if (!phone || phone.trim() === '') {
+          console.log('[AUTO-SUBMIT] Phone missing, opening phone modal')
+          setShowPhoneModal(true)
+          return
+        }
+        // All validation passed, show confirmation modal
+        console.log('[AUTO-SUBMIT] Opening confirmation modal')
+        setConfirmOpen(true)
+      }, 500)
+    }
+  }, [pendingAutoSubmit, userId, category, emergencyType, address, phone])
 
   // Fetch user profile data (phone number)
   useEffect(() => {
@@ -839,7 +876,43 @@ export default function PostJobInner({ userId }: Props) {
     console.log('[SUBMIT] Button clicked!')
     console.log('[SUBMIT] Form values:', { address, phone, category, emergencyType, sendAll, picked })
 
-    // Check address and phone first (they're in modals now)
+    // Validate category and emergency type first (required to proceed)
+    if (!category || category.trim() === '') {
+      console.error('[SUBMIT] Category is missing')
+      setErrorPopup('Please select an emergency category.')
+      return
+    }
+
+    if (!emergencyType || emergencyType.trim() === '') {
+      console.error('[SUBMIT] Emergency type is missing')
+      setErrorPopup('Please select a specific emergency type.')
+      return
+    }
+
+    // AUTH CHECK FIRST - require login before any other validation
+    if (!userId) {
+      console.log('[SUBMIT] User not logged in, saving form data and opening auth modal')
+
+      // Save form data to localStorage so it persists after login
+      const formData = {
+        address,
+        phone,
+        category,
+        emergencyType,
+        details,
+        sendAll,
+        picked,
+        userLocation,
+        timestamp: Date.now()
+      }
+      localStorage.setItem('rushr_pending_job', JSON.stringify(formData))
+
+      // Open login modal - user will be returned to this page after login
+      openAuth('/post-job')
+      return
+    }
+
+    // User is logged in - now validate address and phone
     if (!address || address.trim() === '') {
       console.error('[SUBMIT] Address is missing')
       setErrorPopup('Please set your emergency location by clicking the "Set location" link at the top.')
@@ -862,19 +935,6 @@ export default function PostJobInner({ userId }: Props) {
       emergencyType: true,
     })
 
-    // Validate category and emergency type
-    if (!category || category.trim() === '') {
-      console.error('[SUBMIT] Category is missing')
-      setErrorPopup('Please select an emergency category.')
-      return
-    }
-
-    if (!emergencyType || emergencyType.trim() === '') {
-      console.error('[SUBMIT] Emergency type is missing')
-      setErrorPopup('Please select a specific emergency type.')
-      return
-    }
-
     // If selecting specific contractor but none picked, auto-switch to "Alert All"
     if (!sendAll && !picked) {
       console.log('[SUBMIT] No contractor selected, auto-switching to "Alert All Nearby"')
@@ -888,29 +948,6 @@ export default function PostJobInner({ userId }: Props) {
 
   async function actuallySend() {
     setConfirmOpen(false)
-
-    // Auth check - require login before actual submission
-    if (!userId) {
-      console.log('[SUBMIT] User not logged in, saving form data and opening auth modal')
-
-      // Save form data to localStorage so it persists after login
-      const formData = {
-        address,
-        phone,
-        category,
-        emergencyType,
-        details,
-        sendAll,
-        picked,
-        userLocation,
-        timestamp: Date.now()
-      }
-      localStorage.setItem('rushr_pending_job', JSON.stringify(formData))
-
-      // Open login modal - user will be returned to this page after login
-      openAuth('/post-job')
-      return
-    }
 
     // Set sending state FIRST to show loading indicator
     setSending(true)

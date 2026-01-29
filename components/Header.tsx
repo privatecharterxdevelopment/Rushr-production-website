@@ -305,7 +305,6 @@ export default function Header() {
   // Route menus to their owning site (absolute URLs)
   const findProItems = [
     { label: 'Post a Job',            href: '/post-job' },
-    { label: 'How it Works',          href: '/how-it-works' },
   ]
   const findWorkItems = isSignedInAsContractor ? [
     // Contractor is logged in - go to dashboard pages
@@ -321,7 +320,7 @@ export default function Header() {
   ]
 
   // "Active" underline only applies to local sections
-  const findProActive = ['/post-job', '/find-pro', '/how-it-works'].some(isActive)
+  const findProActive = ['/post-job', '/find-pro'].some(isActive)
   const findWorkActive = ['/jobs', '/find-work', '/pro'].some(isActive)
   const moreActive = ['/about', '/contact', '/pricing'].some(isActive)
   const messagesActive = pathname.includes('/messages')
