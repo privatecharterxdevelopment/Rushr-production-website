@@ -463,13 +463,13 @@ function PopularEmergencies({ onInstantMatch }: PopularEmergenciesProps) {
       >
         {/* Compact segmented control - centered */}
         <div className="flex justify-center">
-          <div className="relative inline-flex rounded-lg bg-gradient-to-b from-slate-50 to-slate-100 p-1 shadow-md shadow-slate-200/50 border border-slate-200/60">
+          <div className="relative inline-flex rounded-full bg-gradient-to-b from-slate-50 to-slate-100 p-1.5 shadow-md shadow-slate-200/50 border border-slate-200/60">
             {/* Single sliding pill background */}
             <motion.div
-              className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-md bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-md shadow-emerald-600/40"
+              className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-full bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-md shadow-emerald-600/40"
               initial={false}
               animate={{
-                x: group === 'Home' ? 4 : 'calc(100% + 4px)'
+                x: group === 'Home' ? 6 : 'calc(100% + 6px)'
               }}
               transition={{
                 type: 'spring',
@@ -486,7 +486,7 @@ function PopularEmergencies({ onInstantMatch }: PopularEmergenciesProps) {
                   key={g}
                   onClick={() => setGroup(g)}
                   className={`
-                    relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors duration-200 flex items-center gap-1.5 justify-center
+                    relative z-10 px-5 py-2 text-xs font-semibold rounded-full transition-colors duration-200 flex items-center gap-1.5 justify-center
                     ${active ? 'text-white' : 'text-slate-600 hover:text-slate-900'}
                   `}
                 >

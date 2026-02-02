@@ -205,59 +205,8 @@ export default function Hero({ onInstantMatch }: HeroProps = {}){
       return
     }
 
-    // If onInstantMatch callback is provided, use the new Uber-style flow
-    if (onInstantMatch) {
-      // Get user's location first
-      let coords = userCoords
-
-      if (!coords) {
-        // Try to get location from GPS
-        coords = await getUserLocation()
-      }
-
-      // If still no coords, try to geocode the ZIP
-      if (!coords && location.trim()) {
-        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-        if (MAPBOX_TOKEN) {
-          try {
-            const response = await fetch(
-              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location.trim())}.json?access_token=${MAPBOX_TOKEN}&limit=1`
-            )
-            const data = await response.json()
-            if (data.features && data.features.length > 0) {
-              const [lng, lat] = data.features[0].center
-              coords = { lat, lng, zip: location.trim() }
-            }
-          } catch (err) {
-            console.error('Geocoding error:', err)
-          }
-        }
-      }
-
-      if (coords) {
-        // Trigger the instant match overlay
-        onInstantMatch(detectedCategory || searchQuery || 'General', searchQuery, coords)
-        return
-      } else {
-        alert('Please enable location access or enter a ZIP code to find pros near you.')
-        return
-      }
-    }
-
-    // Fallback: Original navigation behavior
-    const finalLocation = location.trim() || (typeof window !== 'undefined' ? localStorage.getItem('housecall.defaultZip') : '') || ''
-    const zipMatch = (finalLocation + ' ' + searchQuery).match(/\b\d{5}\b/)
-    const zip = zipMatch ? zipMatch[0] : finalLocation
-
-    if (zip && typeof window !== 'undefined') {
-      try { localStorage.setItem('housecall.defaultZip', zip) } catch {}
-    }
-
-    const q = new URLSearchParams()
-    if (zip) q.set('near', zip)
-    if (detectedCategory) q.set('category', detectedCategory)
-
-    router.push(`/find-pro${q.toString() ? `?${q.toString()}` : ''}`)
+    // Navigate to post-job with detected category
+    router.push('/post-job?category=' + encodeURIComponent(detectedCategory || searchQuery))
   }
 
   return (

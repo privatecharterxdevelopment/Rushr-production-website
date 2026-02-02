@@ -19,6 +19,27 @@ const ContractorMap = dynamic(() => import('./ContractorMap'), {
   )
 })
 
+const tradePluralMap: Record<string, string> = {
+  'Plumbing': 'Plumbers',
+  'Electrical': 'Electricians',
+  'HVAC': 'HVAC Technicians',
+  'Roof leak': 'Roofers',
+  'Water damage': 'Restoration Pros',
+  'Locksmith': 'Locksmiths',
+  'Appliance repair': 'Appliance Technicians',
+  'Jump start': 'Auto Technicians',
+  'Tire change': 'Tire Technicians',
+  'Lockout': 'Locksmiths',
+  'Tow request': 'Tow Services',
+  'Fuel delivery': 'Fuel Delivery Services',
+  'Mobile mechanic': 'Mobile Mechanics',
+}
+
+function getTradePlural(category: string | undefined): string {
+  if (!category) return 'Pros'
+  return tradePluralMap[category] || 'Pros'
+}
+
 interface Contractor {
   id: string
   name: string
@@ -1073,7 +1094,7 @@ export default function InstantMatchOverlay({
                     {phase === 'searching' && (
                       <div className="flex flex-col items-center justify-center h-full">
                         <div className="w-14 h-14 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
-                        <p className="text-slate-900 font-semibold">Finding {category || 'pros'}...</p>
+                        <p className="text-slate-900 font-semibold">Finding {getTradePlural(category)}...</p>
                         <p className="text-slate-500 text-sm mt-1">Searching nearby professionals</p>
                       </div>
                     )}
@@ -1088,7 +1109,7 @@ export default function InstantMatchOverlay({
                           <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                             <Clock className="w-8 h-8 text-slate-400" />
                           </div>
-                          <h3 className="text-lg font-semibold text-slate-900">No {category || 'pros'} available</h3>
+                          <h3 className="text-lg font-semibold text-slate-900">No {getTradePlural(category)} Available Now</h3>
                           <p className="text-sm text-slate-600 mt-2">
                             All professionals are currently busy. Post a job and we'll notify you when one becomes available.
                           </p>
