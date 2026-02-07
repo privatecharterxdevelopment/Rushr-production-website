@@ -1751,7 +1751,7 @@ export default function PostJobInner({ userId }: Props) {
             <ProMap
               centerZip={address.match(/\d{5}/)?.[0] || '10001'}
               category={category}
-              radiusMiles={15}
+              radiusMiles={1}
               searchCenter={userLocation || undefined}
               contractors={nearbyContractorsWithLocation}
               onSelectContractor={handleSelectContractorFromMap}
@@ -2001,7 +2001,7 @@ export default function PostJobInner({ userId }: Props) {
             <ProMap
               centerZip={address.match(/\d{5}/)?.[0] || '10001'}
               category={category}
-              radiusMiles={15}
+              radiusMiles={1}
               searchCenter={userLocation || undefined}
               contractors={nearbyContractorsWithLocation}
               onSelectContractor={handleSelectContractorFromMap}
