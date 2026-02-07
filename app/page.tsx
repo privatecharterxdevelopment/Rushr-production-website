@@ -409,39 +409,21 @@ interface PopularEmergenciesProps {
 }
 
 function PopularEmergencies({ onInstantMatch }: PopularEmergenciesProps) {
-  type Group = 'Home' | 'Auto'
-  const [group, setGroup] = useState<Group>('Home')
   const [gettingLocation, setGettingLocation] = useState(false)
 
   // Detect intended column count by breakpoint (tailwind defaults)
   const cols = useGridCols() // 2 (base), 3 (sm+), 4 (lg+)
 
-  const groups: Record<
-    Group,
-    Array<{ name: string; href: string; icon: React.ReactNode; hint?: string }>
-  > = {
-    Home: [
-      { name: 'Plumbing', href: '/post-job?category=Plumber&urgent=1', icon: <ShowerHead className="h-6 w-6" />, hint: 'Leaks, clogs, burst pipes' },
-      { name: 'Electrical', href: '/post-job?category=Electrician&urgent=1', icon: <Lightbulb className="h-6 w-6" />, hint: 'No power, breakers, outlets' },
-      { name: 'HVAC', href: '/post-job?category=HVAC&urgent=1', icon: <Wind className="h-6 w-6" />, hint: 'No-cool, no-heat' },
-      { name: 'Roof leak', href: '/post-job?category=Roofer&urgent=1', icon: <HomeIcon className="h-6 w-6" />, hint: 'Active leak, tarp' },
-      { name: 'Water damage', href: '/post-job?category=Water%20Damage%20Restoration&urgent=1', icon: <Droplets className="h-6 w-6" />, hint: 'Dry-out, mitigation' },
-      { name: 'Locksmith', href: '/post-job?category=Locksmith&urgent=1', icon: <Lock className="h-6 w-6" />, hint: 'House lockout, rekey' },
-      { name: 'Appliance repair', href: '/post-job?category=Appliance%20Repair&urgent=1', icon: <Wrench className="h-6 w-6" />, hint: 'Fridge, washer, oven' },
-      { name: 'Other', href: '/post-job?category=Other&urgent=1', icon: <Hammer className="h-6 w-6" />, hint: 'Tell us what you need' },
-    ],
-    Auto: [
-      { name: 'Jump start', href: '/post-job?category=Auto%20Battery&urgent=1', icon: <Battery className="h-6 w-6" />, hint: 'Dead battery' },
-      { name: 'Tire change', href: '/post-job?category=Auto%20Tire&urgent=1', icon: <Wrench className="h-6 w-6" />, hint: 'Flat, spare install' },
-      { name: 'Lockout', href: '/post-job?category=Auto%20Lockout&urgent=1', icon: <KeyRound className="h-6 w-6" />, hint: 'Keys inside' },
-      { name: 'Tow request', href: '/post-job?category=Tow&urgent=1', icon: <Car className="h-6 w-6" />, hint: 'Local tow' },
-      { name: 'Fuel delivery', href: '/post-job?category=Fuel%20Delivery&urgent=1', icon: <Siren className="h-6 w-6" />, hint: 'Out of gas' },
-      { name: 'Mobile mechanic', href: '/post-job?category=Mobile%20Mechanic&urgent=1', icon: <Settings className="h-6 w-6" />, hint: 'On-site diagnosis' },
-      { name: 'Other', href: '/post-job?category=Auto%20Other&urgent=1', icon: <Sparkles className="h-6 w-6" />, hint: 'Tell us what you need' },
-    ],
-  }
-
-  const cats = groups[group]
+  const cats = [
+    { name: 'Plumbing', href: '/post-job?category=Plumber&urgent=1', icon: <ShowerHead className="h-6 w-6" />, hint: 'Leaks, clogs, burst pipes' },
+    { name: 'Electrical', href: '/post-job?category=Electrician&urgent=1', icon: <Lightbulb className="h-6 w-6" />, hint: 'No power, breakers, outlets' },
+    { name: 'HVAC', href: '/post-job?category=HVAC&urgent=1', icon: <Wind className="h-6 w-6" />, hint: 'No-cool, no-heat' },
+    { name: 'Roof leak', href: '/post-job?category=Roofer&urgent=1', icon: <HomeIcon className="h-6 w-6" />, hint: 'Active leak, tarp' },
+    { name: 'Water damage', href: '/post-job?category=Water%20Damage%20Restoration&urgent=1', icon: <Droplets className="h-6 w-6" />, hint: 'Dry-out, mitigation' },
+    { name: 'Locksmith', href: '/post-job?category=Locksmith&urgent=1', icon: <Lock className="h-6 w-6" />, hint: 'House lockout, rekey' },
+    { name: 'Appliance repair', href: '/post-job?category=Appliance%20Repair&urgent=1', icon: <Wrench className="h-6 w-6" />, hint: 'Fridge, washer, oven' },
+    { name: 'Other', href: '/post-job?category=Other&urgent=1', icon: <Hammer className="h-6 w-6" />, hint: 'Tell us what you need' },
+  ]
   const padCount = ((cols - (cats.length % cols)) % cols) // 0..(cols-1)
 
   const ref = useRef(null)
@@ -456,54 +438,11 @@ function PopularEmergencies({ onInstantMatch }: PopularEmergenciesProps) {
 
   return (
     <section ref={ref} className="mx-auto max-w-7xl px-6 py-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
-        transition={{ duration: 0.5 }}
-      >
-        {/* Compact segmented control - centered */}
-        <div className="flex justify-center">
-          <div className="relative inline-flex rounded-full bg-gradient-to-b from-slate-50 to-slate-100 p-1.5 shadow-md shadow-slate-200/50 border border-slate-200/60">
-            {/* Single sliding pill background */}
-            <motion.div
-              className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-full bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-md shadow-emerald-600/40"
-              initial={false}
-              animate={{
-                x: group === 'Home' ? 6 : 'calc(100% + 6px)'
-              }}
-              transition={{
-                type: 'spring',
-                stiffness: 300,
-                damping: 30,
-                mass: 0.8
-              }}
-            />
-            {(['Home', 'Auto'] as Group[]).map((g) => {
-              const active = group === g
-              const icon = g === 'Home' ? '🏠' : '🚗'
-              return (
-                <button
-                  key={g}
-                  onClick={() => setGroup(g)}
-                  className={`
-                    relative z-10 px-5 py-2 text-xs font-semibold rounded-full transition-colors duration-200 flex items-center gap-1.5 justify-center
-                    ${active ? 'text-white' : 'text-slate-600 hover:text-slate-900'}
-                  `}
-                >
-                  <span className="text-sm">{icon}</span>
-                  <span>{g}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Strict grid: 2 / 3 / 4 columns — no awkward last row thanks to ghost pads */}
-      <div className="mt-4 grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+      {/* Grid: 2 / 3 / 4 columns — no awkward last row thanks to ghost pads */}
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
         {cats.map((c, i) => (
           <motion.div
-            key={`${group}-${i}`}
+            key={i}
             initial={hasAnimated ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: hasAnimated ? 0 : 0.4, delay: hasAnimated ? 0 : 0.3, ease: [0.22, 1, 0.36, 1] }}
