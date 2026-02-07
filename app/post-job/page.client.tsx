@@ -30,7 +30,12 @@ import {
   ChevronLeft,
   DollarSign,
   CreditCard,
+  Lock,
 } from 'lucide-react'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 const ProMap = dynamic(() => import('../../components/ProMap'), { ssr: false })
 const PostJobMultiStep = dynamic(() => import('../../components/PostJobMultiStep'), { ssr: false })
@@ -235,6 +240,199 @@ function ErrorPopup({
           >
             Got it
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Stripe Card Input Form - used inside AddCardModal */
+function CardInputForm({
+  userId,
+  onSuccess,
+  onCancel
+}: {
+  userId: string
+  onSuccess: () => void
+  onCancel: () => void
+}) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!stripe || !elements) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // First ensure customer exists
+      const createResponse = await fetch('/api/stripe/customer/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      })
+      const { customerId } = await createResponse.json()
+
+      if (!customerId) {
+        throw new Error('Failed to create customer')
+      }
+
+      // Create setup intent
+      const intentResponse = await fetch('/api/stripe/customer/setup-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId })
+      })
+      const { clientSecret } = await intentResponse.json()
+
+      if (!clientSecret) {
+        throw new Error('Failed to create setup intent')
+      }
+
+      const cardElement = elements.getElement(CardElement)
+      if (!cardElement) {
+        throw new Error('Card element not found')
+      }
+
+      // Confirm card setup
+      const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(clientSecret, {
+        payment_method: { card: cardElement }
+      })
+
+      if (stripeError) {
+        setError(stripeError.message || 'Failed to save card')
+        setLoading(false)
+        return
+      }
+
+      // Save as default payment method
+      if (setupIntent?.payment_method) {
+        await supabase
+          .from('stripe_customers')
+          .update({
+            default_payment_method_id: setupIntent.payment_method,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId)
+      }
+
+      showGlobalToast('Card saved successfully!', 'success')
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to save card')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="p-4 border border-slate-300 rounded-lg bg-slate-50">
+        <CardElement
+          options={{
+            style: {
+              base: {
+                fontSize: '16px',
+                color: '#0f172a',
+                '::placeholder': { color: '#94a3b8' },
+              },
+              invalid: { color: '#dc2626' },
+            },
+          }}
+        />
+      </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 py-3 border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          disabled={loading}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!stripe || loading}
+          className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Saving...
+            </>
+          ) : (
+            'Save Card'
+          )}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/** Add Card Modal - Shows Stripe card input inline */
+function AddCardModal({
+  open,
+  userId,
+  onSuccess,
+  onClose
+}: {
+  open: boolean
+  userId: string
+  onSuccess: () => void
+  onClose: () => void
+}) {
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <CreditCard className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Add Payment Card</h3>
+              <p className="text-sm text-white/80">Required for Direct Payment jobs</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          {/* Security Badge */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 rounded-lg mb-4">
+            <Lock className="h-4 w-4 text-slate-600" />
+            <span className="text-xs text-slate-600">
+              Secure payment by Stripe. Your card details are encrypted.
+            </span>
+          </div>
+
+          {/* Stripe Elements Form */}
+          <Elements stripe={stripePromise}>
+            <CardInputForm
+              userId={userId}
+              onSuccess={onSuccess}
+              onCancel={onClose}
+            />
+          </Elements>
+
+          {/* Info */}
+          <p className="text-xs text-center text-slate-500 mt-4">
+            Your card will be charged only when a contractor accepts your job.
+          </p>
         </div>
       </div>
     </div>
@@ -453,6 +651,26 @@ export default function PostJobInner({ userId }: Props) {
     checkSavedCard()
   }, [userId])
 
+  // Handler for when card is successfully added
+  const handleCardAdded = async () => {
+    setShowAddCardModal(false)
+    // Refresh the hasSavedCard state
+    try {
+      const { data, error } = await supabase
+        .from('stripe_customers')
+        .select('default_payment_method_id')
+        .eq('user_id', userId)
+        .single()
+
+      if (!error && data?.default_payment_method_id) {
+        setHasSavedCard(true)
+        showGlobalToast('Card saved! You can now post your job.', 'success')
+      }
+    } catch (err) {
+      console.error('Error verifying card:', err)
+    }
+  }
+
   // Multi-step form state
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = 5
@@ -477,6 +695,7 @@ export default function PostJobInner({ userId }: Props) {
   const [hasSavedCard, setHasSavedCard] = useState(false)
   const [checkingCard, setCheckingCard] = useState(false)
   const [showInstantMatch, setShowInstantMatch] = useState(false)
+  const [showAddCardModal, setShowAddCardModal] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
   const [paymentHoldId, setPaymentHoldId] = useState<string | null>(null)
 
@@ -1007,7 +1226,8 @@ export default function PostJobInner({ userId }: Props) {
         }
 
         if (!hasSavedCard) {
-          setErrorPopup('Please add a payment card first. Go to Settings > Billing to add a card.')
+          // Show inline add card modal instead of redirecting
+          setShowAddCardModal(true)
           setSending(false)
           return
         }
@@ -1355,6 +1575,15 @@ export default function PostJobInner({ userId }: Props) {
           onClose={() => setErrorPopup('')}
         />
 
+        {/* Add Card Modal */}
+        {userId && (
+          <AddCardModal
+            open={showAddCardModal}
+            userId={userId}
+            onSuccess={handleCardAdded}
+            onClose={() => setShowAddCardModal(false)}
+          />
+        )}
 
         {/* Contact Details Banner */}
         <div className="card p-4 mb-6">
@@ -1596,6 +1825,15 @@ export default function PostJobInner({ userId }: Props) {
           onClose={() => setErrorPopup('')}
         />
 
+        {/* Add Card Modal */}
+        {userId && (
+          <AddCardModal
+            open={showAddCardModal}
+            userId={userId}
+            onSuccess={handleCardAdded}
+            onClose={() => setShowAddCardModal(false)}
+          />
+        )}
 
         {/* Contact Details Banner */}
         <div className="card p-4 mb-6">
