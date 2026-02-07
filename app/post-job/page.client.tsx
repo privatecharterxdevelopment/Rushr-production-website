@@ -28,10 +28,13 @@ import {
   Leaf,
   User,
   ChevronLeft,
+  DollarSign,
+  CreditCard,
 } from 'lucide-react'
 
 const ProMap = dynamic(() => import('../../components/ProMap'), { ssr: false })
 const PostJobMultiStep = dynamic(() => import('../../components/PostJobMultiStep'), { ssr: false })
+const InstantMatchOverlay = dynamic(() => import('../../components/InstantMatchOverlay'), { ssr: false })
 
 type Props = { userId: string | null }
 
@@ -238,10 +241,9 @@ function ErrorPopup({
   )
 }
 
-/** Emergency categories and services */
+/** Emergency categories and services - Home emergencies only */
 const EMERGENCY_CATEGORIES = [
-  { key: 'home', label: 'Home Emergency' },
-  { key: 'auto', label: 'Auto Emergency' }
+  { key: 'home', label: 'Home Emergency' }
 ]
 
 const EMERGENCY_TYPES_MAP: Record<string, Array<{ key: string, label: string, icon: string }>> = {
@@ -254,15 +256,6 @@ const EMERGENCY_TYPES_MAP: Record<string, Array<{ key: string, label: string, ic
     { key: 'locksmith', label: 'Lockout Emergency', icon: '🔐' },
     { key: 'appliance', label: 'Appliance Emergency', icon: '🔧' },
     { key: 'other', label: 'Other Home Emergency', icon: '🔨' }
-  ],
-  'auto': [
-    { key: 'battery', label: 'Dead Battery', icon: '🔋' },
-    { key: 'tire', label: 'Flat Tire', icon: '🚗' },
-    { key: 'lockout', label: 'Car Lockout', icon: '🔑' },
-    { key: 'tow', label: 'Need Towing', icon: '🚚' },
-    { key: 'fuel', label: 'Out of Fuel', icon: '⛽' },
-    { key: 'mechanic', label: 'Breakdown/Repair', icon: '⚙️' },
-    { key: 'other', label: 'Other Auto Emergency', icon: '🆘' }
   ]
 }
 
@@ -432,6 +425,34 @@ export default function PostJobInner({ userId }: Props) {
     fetchUserProfile()
   }, [userId])
 
+  // Check if user has saved card (for direct payment)
+  useEffect(() => {
+    if (!userId) {
+      setHasSavedCard(false)
+      return
+    }
+
+    async function checkSavedCard() {
+      setCheckingCard(true)
+      try {
+        const { data, error } = await supabase
+          .from('stripe_customers')
+          .select('default_payment_method_id')
+          .eq('user_id', userId)
+          .single()
+
+        setHasSavedCard(!error && !!data?.default_payment_method_id)
+      } catch (err) {
+        console.error('Error checking saved card:', err)
+        setHasSavedCard(false)
+      } finally {
+        setCheckingCard(false)
+      }
+    }
+
+    checkSavedCard()
+  }, [userId])
+
   // Multi-step form state
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = 5
@@ -449,6 +470,15 @@ export default function PostJobInner({ userId }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [errorPopup, setErrorPopup] = useState<string>('')
+
+  // Direct Payment state
+  const [paymentType, setPaymentType] = useState<'direct' | 'bids'>('direct')
+  const [directAmount, setDirectAmount] = useState('')
+  const [hasSavedCard, setHasSavedCard] = useState(false)
+  const [checkingCard, setCheckingCard] = useState(false)
+  const [showInstantMatch, setShowInstantMatch] = useState(false)
+  const [createdJobId, setCreatedJobId] = useState<string | null>(null)
+  const [paymentHoldId, setPaymentHoldId] = useState<string | null>(null)
 
   // Get user's current location - uses native Capacitor Geolocation on iOS
   const fetchCurrentLocation = async () => {
@@ -587,23 +617,20 @@ export default function PostJobInner({ userId }: Props) {
   useEffect(() => {
     const categoryParam = searchParams.get('category')
     if (categoryParam) {
-      // Map category names from URL to internal category keys
+      // Map category names from URL to internal category keys (home emergencies only)
       const categoryMap: Record<string, { category: string, type: string }> = {
         'Plumber': { category: 'home', type: 'plumbing' },
+        'Plumbing': { category: 'home', type: 'plumbing' },
         'Electrician': { category: 'home', type: 'electrical' },
+        'Electrical': { category: 'home', type: 'electrical' },
         'HVAC': { category: 'home', type: 'hvac' },
         'Roofer': { category: 'home', type: 'roofing' },
+        'Roofing': { category: 'home', type: 'roofing' },
         'Water Damage Restoration': { category: 'home', type: 'water-damage' },
+        'Water Damage': { category: 'home', type: 'water-damage' },
         'Locksmith': { category: 'home', type: 'locksmith' },
         'Appliance Repair': { category: 'home', type: 'appliance' },
         'Other': { category: 'home', type: 'other' },
-        'Auto Battery': { category: 'auto', type: 'battery' },
-        'Auto Tire': { category: 'auto', type: 'tire' },
-        'Auto Lockout': { category: 'auto', type: 'lockout' },
-        'Tow': { category: 'auto', type: 'tow' },
-        'Fuel Delivery': { category: 'auto', type: 'fuel' },
-        'Mobile Mechanic': { category: 'auto', type: 'mechanic' },
-        'Auto Other': { category: 'auto', type: 'other' },
       }
 
       const mapped = categoryMap[categoryParam]
@@ -681,19 +708,19 @@ export default function PostJobInner({ userId }: Props) {
         const filterKey = emergencyType || category
 
         if (filterKey && contractors.length > 0) {
-          // Map emergency type/category keys to actual contractor category values
+          // Map emergency type/category keys to actual contractor category values (home emergencies only)
           const emergencyTypeToCategory: Record<string, string[]> = {
             // Specific emergency types
             'plumbing': ['Plumbing'],
             'electrical': ['Electrical'],
             'hvac': ['HVAC'],
             'roofing': ['Roofing'],
-            'water-damage': ['Plumbing', 'Water Damage'],
+            'water-damage': ['Plumbing', 'Water Damage', 'Water Damage Restoration'],
             'locksmith': ['Locksmith'],
             'appliance': ['Appliance Repair'],
-            // Broader categories - include multiple contractor types
-            'home': ['Plumbing', 'Electrical', 'HVAC', 'Roofing', 'Locksmith', 'Appliance Repair', 'Water Damage', 'General Contractor'],
-            'auto': ['Auto Repair', 'Towing', 'Locksmith'],
+            'other': ['Handyman', 'General Contractor'],
+            // Broader home category - include multiple contractor types
+            'home': ['Plumbing', 'Electrical', 'HVAC', 'Roofing', 'Locksmith', 'Appliance Repair', 'Water Damage', 'Water Damage Restoration', 'General Contractor', 'Handyman'],
           }
 
           const targetCategories = emergencyTypeToCategory[filterKey]
@@ -956,7 +983,7 @@ export default function PostJobInner({ userId }: Props) {
     try {
       console.log('Submitting emergency job to database...')
 
-      // Auto-generate title from emergency type
+      // Auto-generate title from emergency type (home emergencies only)
       const emergencyTypeLabels: Record<string, string> = {
         'plumbing': 'Plumbing Emergency',
         'electrical': 'Electrical Emergency',
@@ -965,18 +992,52 @@ export default function PostJobInner({ userId }: Props) {
         'water-damage': 'Water Damage Emergency',
         'locksmith': 'Lockout Emergency',
         'appliance': 'Appliance Emergency',
-        'battery': 'Dead Battery Emergency',
-        'tire': 'Flat Tire Emergency',
-        'lockout': 'Car Lockout Emergency',
-        'tow': 'Towing Emergency',
-        'fuel': 'Out of Fuel Emergency',
-        'mechanic': 'Breakdown Emergency',
-        'other': 'Other Emergency',
+        'other': 'Home Emergency',
       }
-      const autoTitle = emergencyTypeLabels[emergencyType] || `${category || 'Home'} Emergency`
+      const autoTitle = emergencyTypeLabels[emergencyType] || 'Home Emergency'
+
+      // For Direct Payment: Create payment hold FIRST
+      let holdId: string | null = null
+      if (paymentType === 'direct') {
+        const amount = parseFloat(directAmount)
+        if (!amount || amount <= 0) {
+          setErrorPopup('Please enter a valid amount for direct payment.')
+          setSending(false)
+          return
+        }
+
+        if (!hasSavedCard) {
+          setErrorPopup('Please add a payment card first. Go to Settings > Billing to add a card.')
+          setSending(false)
+          return
+        }
+
+        console.log('[SUBMIT] Creating payment hold for direct payment...')
+        const holdResponse = await fetch('/api/payments/create-direct-hold', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            homeownerId: userId,
+            amount: amount,
+            category: emergencyType || category,
+            description: details || autoTitle
+          })
+        })
+
+        const holdData = await holdResponse.json()
+        if (!holdData.success) {
+          setErrorPopup(holdData.error || 'Failed to create payment hold. Please try again.')
+          setSending(false)
+          return
+        }
+
+        holdId = holdData.paymentHoldId
+        setPaymentHoldId(holdId)
+        console.log('[SUBMIT] Payment hold created:', holdId)
+      }
 
       // Prepare job data
-      const jobData = {
+      const jobData: any = {
         title: autoTitle,
         description: details || autoTitle,
         category: emergencyType || category || 'other',
@@ -992,6 +1053,10 @@ export default function PostJobInner({ userId }: Props) {
         // Include contractor info if specific contractor was selected
         requested_contractor_id: !sendAll && picked ? picked : null,
         requested_contractor_name: !sendAll && selectedContractor ? selectedContractor.name : null,
+        // Direct payment fields
+        payment_type: paymentType,
+        direct_amount: paymentType === 'direct' ? parseFloat(directAmount) : null,
+        payment_hold_id: holdId,
       }
 
       console.log('[SUBMIT] Job data prepared:', jobData)
@@ -1012,6 +1077,49 @@ export default function PostJobInner({ userId }: Props) {
 
       console.log('[SUBMIT] Job created successfully:', insertedJob)
 
+      // Upload photos to Supabase Storage (non-blocking — failures don't prevent submission)
+      if (photos.length > 0 && userId) {
+        (async () => {
+          try {
+            const uploadedUrls: string[] = []
+
+            for (const photo of photos) {
+              const ext = photo.name.split('.').pop() || 'jpg'
+              const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+              const filePath = `${userId}/${insertedJob.id}/${fileName}`
+
+              const { error: uploadError } = await supabase.storage
+                .from('job-photos')
+                .upload(filePath, photo)
+
+              if (uploadError) {
+                console.error('[SUBMIT] Photo upload error:', uploadError)
+                continue
+              }
+
+              const { data: publicUrlData } = supabase.storage
+                .from('job-photos')
+                .getPublicUrl(filePath)
+
+              if (publicUrlData?.publicUrl) {
+                uploadedUrls.push(publicUrlData.publicUrl)
+              }
+            }
+
+            if (uploadedUrls.length > 0) {
+              await supabase
+                .from('homeowner_jobs')
+                .update({ photo_urls: uploadedUrls })
+                .eq('id', insertedJob.id)
+
+              console.log('[SUBMIT] Photo URLs saved:', uploadedUrls.length)
+            }
+          } catch (photoErr) {
+            console.error('[SUBMIT] Photo upload failed (non-blocking):', photoErr)
+          }
+        })()
+      }
+
       // Notify contractors in the area via email (fire and forget - don't block redirect)
       // NOTE: Phone number is NOT sent - only shared after bid is accepted
       fetch('/api/notify-contractors-new-job', {
@@ -1022,11 +1130,22 @@ export default function PostJobInner({ userId }: Props) {
           jobTitle: insertedJob.title,
           jobCategory: insertedJob.category,
           jobAddress: insertedJob.address || insertedJob.zip_code,
-          jobZip: insertedJob.zip_code
+          jobZip: insertedJob.zip_code,
+          paymentType: paymentType,
+          directAmount: paymentType === 'direct' ? parseFloat(directAmount) : null
         })
       }).catch(err => console.error('[SUBMIT] Email notification error:', err))
 
-      // Redirect to job success page with real-time bid notifications
+      // For Direct Payment: Open InstantMatchOverlay to find contractors
+      if (paymentType === 'direct') {
+        console.log('[SUBMIT] Direct payment job - opening InstantMatchOverlay')
+        setCreatedJobId(insertedJob.id)
+        setSending(false)
+        setShowInstantMatch(true)
+        return
+      }
+
+      // For Bids: Redirect to job success page with real-time bid notifications
       // Don't set sending to false before redirect - keep the loading state
       const jobId = insertedJob.job_number || insertedJob.id
       console.log('[SUBMIT] Redirecting to:', `/jobs/${jobId}/success`)
@@ -1068,15 +1187,9 @@ export default function PostJobInner({ userId }: Props) {
         'water-damage': 'Water Damage Service',
         'locksmith': 'Locksmith Service',
         'appliance': 'Appliance Repair',
-        'battery': 'Battery Service',
-        'tire': 'Tire Service',
-        'lockout': 'Lockout Service',
-        'tow': 'Towing Service',
-        'fuel': 'Fuel Delivery',
-        'mechanic': 'Mechanic Service',
-        'other': 'Service Request',
+        'other': 'Home Service Request',
       }
-      const serviceTitle = emergencyTypeLabels[emergencyType] || emergencyTypeLabels[category] || 'Service Request'
+      const serviceTitle = emergencyTypeLabels[emergencyType] || emergencyTypeLabels[category] || 'Home Service Request'
 
       const { data: directOffer, error } = await supabase
         .from('direct_offers')
@@ -1143,6 +1256,23 @@ export default function PostJobInner({ userId }: Props) {
     return (
       <div className="fixed inset-0 flex flex-col bg-white">
         <TopProgress active={sending} />
+
+        {/* InstantMatchOverlay for Direct Payment Jobs */}
+        <InstantMatchOverlay
+          isOpen={showInstantMatch}
+          onClose={() => {
+            setShowInstantMatch(false)
+            if (createdJobId) {
+              router.push(`/jobs/${createdJobId}`)
+            }
+          }}
+          category={emergencyType || category || 'Service'}
+          searchQuery={details || emergencyType || ''}
+          userLocation={userLocation ? { lat: userLocation[0], lng: userLocation[1], zip: address.match(/\d{5}/)?.[0] } : undefined}
+          jobId={createdJobId || undefined}
+          directAmount={paymentType === 'direct' ? parseFloat(directAmount) : undefined}
+          paymentHoldId={paymentHoldId || undefined}
+        />
 
         {/* Full-screen sending overlay - Same style as splash */}
         {sending && (
@@ -1363,6 +1493,12 @@ export default function PostJobInner({ userId }: Props) {
             setSendAll={setSendAll}
             picked={picked}
             setPicked={setPicked}
+            paymentType={paymentType}
+            setPaymentType={setPaymentType}
+            directAmount={directAmount}
+            setDirectAmount={setDirectAmount}
+            hasSavedCard={hasSavedCard}
+            checkingCard={checkingCard}
             errors={errors}
             touched={touched}
             validateField={validateField}
@@ -1421,6 +1557,24 @@ export default function PostJobInner({ userId }: Props) {
   return (
     <>
       <TopProgress active={sending} />
+
+      {/* InstantMatchOverlay for Direct Payment Jobs */}
+      <InstantMatchOverlay
+        isOpen={showInstantMatch}
+        onClose={() => {
+          setShowInstantMatch(false)
+          // Redirect to job page when overlay closes
+          if (createdJobId) {
+            router.push(`/jobs/${createdJobId}`)
+          }
+        }}
+        category={emergencyType || category || 'Service'}
+        searchQuery={details || emergencyType || ''}
+        userLocation={userLocation ? { lat: userLocation[0], lng: userLocation[1], zip: address.match(/\d{5}/)?.[0] } : undefined}
+        jobId={createdJobId || undefined}
+        directAmount={paymentType === 'direct' ? parseFloat(directAmount) : undefined}
+        paymentHoldId={paymentHoldId || undefined}
+      />
 
       <div className="container-max section">
         <ConfirmModal
@@ -1580,6 +1734,12 @@ export default function PostJobInner({ userId }: Props) {
             setSendAll={setSendAll}
             picked={picked}
             setPicked={setPicked}
+            paymentType={paymentType}
+            setPaymentType={setPaymentType}
+            directAmount={directAmount}
+            setDirectAmount={setDirectAmount}
+            hasSavedCard={hasSavedCard}
+            checkingCard={checkingCard}
             errors={errors}
             touched={touched}
             validateField={validateField}

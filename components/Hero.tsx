@@ -205,33 +205,76 @@ export default function Hero({ onInstantMatch }: HeroProps = {}){
       return
     }
 
-    // Navigate to post-job with detected category
+    // If onInstantMatch callback is provided, open the map overlay
+    if (onInstantMatch) {
+      let coords = userCoords
+
+      if (!coords) {
+        coords = await getUserLocation()
+      }
+
+      // If still no coords, try to geocode the ZIP
+      if (!coords && location.trim()) {
+        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+        if (MAPBOX_TOKEN) {
+          try {
+            const response = await fetch(
+              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location.trim())}.json?access_token=${MAPBOX_TOKEN}&limit=1`
+            )
+            const data = await response.json()
+            if (data.features && data.features.length > 0) {
+              const [lng, lat] = data.features[0].center
+              coords = { lat, lng, zip: location.trim() }
+            }
+          } catch (err) {
+            console.error('Geocoding error:', err)
+          }
+        }
+      }
+
+      if (coords) {
+        onInstantMatch(detectedCategory || searchQuery || 'General', searchQuery, coords)
+        return
+      } else {
+        alert('Please enable location access or enter a ZIP code to find pros near you.')
+        return
+      }
+    }
+
+    // Fallback: navigate to post-job
     router.push('/post-job?category=' + encodeURIComponent(detectedCategory || searchQuery))
   }
 
   return (
-    <section className={`relative ${styles.gradientContainer}`}>
+    <section
+      className={`relative ${styles.gradientContainer}`}
+      style={{
+        background: 'linear-gradient(135deg, #064e3b 0%, #065f46 30%, #047857 50%, #065f46 70%, #064e3b 100%)',
+        backgroundSize: '200% 200%',
+        overflow: 'hidden'
+      }}
+    >
       <Toaster />
       {/* Animated gradient layers */}
       <div className={styles.waveLayer1}></div>
       <div className={styles.waveLayer2}></div>
 
-      <div className={`relative mx-auto max-w-7xl px-6 py-6 lg:py-6 ${styles.contentWrapper}`}>
+      <div className={`relative mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8 md:py-10 lg:py-8 ${styles.contentWrapper}`}>
         {/* Two-column layout: content left, phone mockup right */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 items-center">
           {/* Left side - content */}
-          <div className="text-white text-center lg:text-left space-y-2">
-            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold leading-tight">
+          <div className="text-white text-center lg:text-left space-y-3 sm:space-y-4">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight">
               Emergency help,<br />
               <span className="text-emerald-200">on the way in minutes</span>
             </h1>
 
-            <p className="text-sm md:text-base text-emerald-50">
+            <p className="text-sm sm:text-base md:text-lg text-emerald-50 max-w-md mx-auto lg:mx-0">
               Tap once. Get matched with a vetted pro. Track their live ETA.
             </p>
 
             {/* Search Form */}
-            <form onSubmit={onFindPro} className="max-w-xl lg:mx-0 mx-auto">
+            <form onSubmit={onFindPro} className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:mx-0 mx-auto">
             {/* Mobile: stacked layout */}
             <div className="sm:hidden bg-white rounded-xl shadow-lg overflow-hidden">
               <input
@@ -322,26 +365,26 @@ export default function Hero({ onInstantMatch }: HeroProps = {}){
           </form>
 
             {/* Trust indicators - compact single row */}
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 text-emerald-100 text-xs md:text-sm">
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2 sm:gap-3 text-emerald-100 text-xs sm:text-sm">
               <span className="flex items-center gap-1">
                 <span>★★★★★</span>
                 <span>4.5 avg</span>
               </span>
-              <span>•</span>
-              <span>{jobCount !== null ? jobCount.toLocaleString() : '10k+'} jobs</span>
-              <span>•</span>
-              <span>Background-checked</span>
-              <span>•</span>
-              <span>Upfront pricing</span>
+              <span className="hidden xs:inline">•</span>
+              <span>{jobCount !== null && jobCount >= 500 ? jobCount.toLocaleString() : '500+'} jobs</span>
+              <span className="hidden sm:inline">•</span>
+              <span className="hidden sm:inline">Background-checked</span>
+              <span className="hidden md:inline">•</span>
+              <span className="hidden md:inline">Upfront pricing</span>
             </div>
           </div>
 
           {/* Right side - phone mockup */}
-          <div className="hidden lg:flex justify-center items-end -mb-40">
+          <div className="hidden lg:flex justify-center items-end -mb-32 lg:-mb-36 xl:-mb-40">
             <img
               src="/PHOTO-2025-10-24-16-31-22-removebg-preview.png"
               alt="Rushr app on phone"
-              className="h-[520px] w-auto object-contain drop-shadow-2xl"
+              className="h-[400px] lg:h-[460px] xl:h-[520px] w-auto object-contain drop-shadow-2xl"
             />
           </div>
         </div>

@@ -320,23 +320,47 @@ export default function ProMapInner({
     console.log('User location marker added at:', location)
   }
 
-  // Function to update radius circle - works with 3D pitch
+  // Helper to create a geographic circle polygon (in miles)
+  function createGeoJSONCircle(center: [number, number], radiusMiles: number, points: number = 64) {
+    const coords = []
+    const radiusKm = radiusMiles * 1.60934 // Convert miles to km
+    const lat = center[0]
+    const lng = center[1]
+
+    for (let i = 0; i <= points; i++) {
+      const angle = (i / points) * 2 * Math.PI
+      // Calculate point on circle using haversine formula inverse
+      const dLat = (radiusKm / 111.32) * Math.cos(angle) // 111.32 km per degree latitude
+      const dLng = (radiusKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle)
+      coords.push([lng + dLng, lat + dLat])
+    }
+
+    return {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [coords]
+      }
+    }
+  }
+
+  // Function to update radius circle - accurate geographic circle
   function updateRadiusCircle(map: any, center: [number, number], radiusMiles: number) {
     if (!map) return
 
     // Check if map style is loaded
     if (!map.isStyleLoaded()) {
-      // Wait for style to load, then try again
       map.once('style.load', () => {
         updateRadiusCircle(map, center, radiusMiles)
       })
       return
     }
 
-    // Remove existing circle
+    // Remove existing circle layers and source
     if (radiusCircleRef.current) {
       try {
-        if (map.getLayer('radius-circle-layer')) map.removeLayer('radius-circle-layer')
+        if (map.getLayer('radius-circle-fill')) map.removeLayer('radius-circle-fill')
+        if (map.getLayer('radius-circle-stroke')) map.removeLayer('radius-circle-stroke')
         if (map.getSource('radius-circle')) map.removeSource('radius-circle')
       } catch (e) {}
       radiusCircleRef.current = null
@@ -344,16 +368,10 @@ export default function ProMapInner({
 
     if (!center || !radiusMiles) return
 
-    // Create circle point
+    // Create accurate geographic circle polygon
     const circleGeoJSON = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [center[1], center[0]] // lng, lat
-        }
-      }]
+      features: [createGeoJSONCircle(center, radiusMiles)]
     }
 
     try {
@@ -362,28 +380,27 @@ export default function ProMapInner({
         data: circleGeoJSON
       })
 
-      // Use circle layer with pitch alignment for 3D perspective
+      // Fill layer
       map.addLayer({
-        id: 'radius-circle-layer',
-        type: 'circle',
+        id: 'radius-circle-fill',
+        type: 'fill',
         source: 'radius-circle',
         paint: {
-          'circle-radius': {
-            stops: [
-              [0, 0],
-              [10, radiusMiles * 10],
-              [15, radiusMiles * 50],
-              [18, radiusMiles * 150]
-            ],
-            base: 2
-          },
-          'circle-color': '#10b981',
-          'circle-opacity': 0.06, // Much lighter
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#10b981',
-          'circle-stroke-opacity': 0.25, // Lighter stroke
-          'circle-pitch-alignment': 'map', // Adjusts with map pitch/tilt
-          'circle-pitch-scale': 'map' // Scales with map perspective
+          'fill-color': '#10b981',
+          'fill-opacity': 0.08
+        }
+      })
+
+      // Stroke layer
+      map.addLayer({
+        id: 'radius-circle-stroke',
+        type: 'line',
+        source: 'radius-circle',
+        paint: {
+          'line-color': '#10b981',
+          'line-width': 2,
+          'line-opacity': 0.4,
+          'line-dasharray': [2, 2]
         }
       })
 
@@ -462,35 +479,70 @@ export default function ProMapInner({
 
         const mapboxgl = (await import('mapbox-gl')).default
 
-        // Create improved popup with contractor details and select button
+        // Get contractor details
+        const bio = c?.description || c?.bio || ''
+        const shortBio = bio.length > 80 ? bio.substring(0, 80) + '...' : bio
+        const yearsInBusiness = c?.years_in_business || c?.experience_years || null
+        const services = Array.isArray(c?.services) ? c.services.slice(0, 2) : []
+        const rating = c?.rating ? Number(c.rating).toFixed(1) : null
+
+        // Create improved popup with contractor details
         const popupContent = document.createElement('div')
-        popupContent.style.cssText = 'padding: 12px; min-width: 200px;'
+        popupContent.style.cssText = 'padding: 0; min-width: 240px; max-width: 280px;'
         popupContent.innerHTML = `
-          <div style="margin-bottom: 8px;">
-            <h3 style="font-weight: 700; font-size: 15px; margin: 0 0 4px 0; color: #0f172a;">${contractorName}</h3>
-            <p style="margin: 0; font-size: 12px; color: #64748b;">${c?.city || ''}</p>
+          <div style="padding: 16px;">
+            <div style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+              <div style="width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #10b981, #059669); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <span style="color: white; font-size: 20px; font-weight: 700;">${contractorName.charAt(0).toUpperCase()}</span>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <h3 style="font-weight: 700; font-size: 15px; margin: 0 0 2px 0; color: #0f172a; line-height: 1.3;">${contractorName}</h3>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  ${rating ? `<span style="font-size: 12px; color: #0f172a; font-weight: 500;">⭐ ${rating}</span>` : ''}
+                  ${yearsInBusiness ? `<span style="font-size: 11px; color: #64748b;">${yearsInBusiness}+ yrs</span>` : ''}
+                </div>
+              </div>
+            </div>
+
+            ${shortBio ? `
+              <p style="margin: 0 0 12px 0; font-size: 13px; color: #475569; line-height: 1.4;">${shortBio}</p>
+            ` : ''}
+
+            ${services.length > 0 ? `
+              <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;">
+                ${services.map(s => `<span style="font-size: 11px; background: #f1f5f9; color: #475569; padding: 4px 8px; border-radius: 6px;">${s}</span>`).join('')}
+              </div>
+            ` : ''}
+
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #f8fafc; border-radius: 8px; margin-bottom: 12px;">
+              <span style="font-size: 12px; color: #64748b;">Rate</span>
+              <span style="font-size: 18px; font-weight: 700; color: #10b981;">$${hourlyRate}/hr</span>
+            </div>
+
+            <button id="select-contractor-${c?.id}" style="
+              width: 100%;
+              padding: 12px 16px;
+              background: #10b981;
+              color: white;
+              border: none;
+              border-radius: 10px;
+              font-size: 14px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s;
+              box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+            ">
+              Select for Direct Offer
+            </button>
           </div>
-          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-            ${c?.rating ? `<span style="font-size: 13px; color: #0f172a;">⭐ ${Number(c.rating).toFixed(1)}</span>` : ''}
-            <span style="font-size: 14px; font-weight: 600; color: #10b981;">$${hourlyRate}/hr</span>
-          </div>
-          <button id="select-contractor-${c?.id}" style="
-            width: 100%;
-            padding: 10px 16px;
-            background: #10b981;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-          ">
-            Select for Direct Offer
-          </button>
         `
 
-        const popup = new mapboxgl.Popup({ offset: 25, closeButton: true })
+        const popup = new mapboxgl.Popup({
+          offset: 25,
+          closeButton: false, // Cleaner without X button
+          closeOnClick: true,
+          maxWidth: '300px'
+        })
           .setDOMContent(popupContent)
 
         // Add click handler after popup opens
@@ -504,9 +556,11 @@ export default function ProMapInner({
             // Hover effect for button
             selectBtn.addEventListener('mouseenter', () => {
               selectBtn.style.background = '#059669'
+              selectBtn.style.transform = 'translateY(-1px)'
             })
             selectBtn.addEventListener('mouseleave', () => {
               selectBtn.style.background = '#10b981'
+              selectBtn.style.transform = 'translateY(0)'
             })
           }
         })

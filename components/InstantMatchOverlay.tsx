@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard } from 'lucide-react'
+import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard, Navigation, AlertTriangle, Phone, MessageCircle, Shield } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { openAuth } from './AuthModal'
 import { useAuth } from '../contexts/AuthContext'
@@ -20,6 +20,7 @@ const ContractorMap = dynamic(() => import('./ContractorMap'), {
 })
 
 const tradePluralMap: Record<string, string> = {
+  // Card names (from page.tsx trade cards)
   'Plumbing': 'Plumbers',
   'Electrical': 'Electricians',
   'HVAC': 'HVAC Technicians',
@@ -33,6 +34,14 @@ const tradePluralMap: Record<string, string> = {
   'Tow request': 'Tow Services',
   'Fuel delivery': 'Fuel Delivery Services',
   'Mobile mechanic': 'Mobile Mechanics',
+  // Hero search detection names (from Hero.tsx detectCategory)
+  'Plumber': 'Plumbers',
+  'Electrician': 'Electricians',
+  'Roofer': 'Roofers',
+  'Appliance Repair': 'Appliance Technicians',
+  'Pest Control': 'Pest Control Pros',
+  'Cleaner': 'Cleaners',
+  'Handyman': 'Handymen',
 }
 
 function getTradePlural(category: string | undefined): string {
@@ -47,6 +56,12 @@ interface Contractor {
   rating: number
   total_jobs: number
   hourly_rate: number
+  peak_rate?: number
+  off_peak_rate?: number
+  surge_rate?: number
+  visit_fee?: number
+  diagnostic_fee?: number
+  rate_type?: 'Hourly' | 'Flat' | 'Visit fee'
   categories: string[]
   latitude: number
   longitude: number
@@ -65,6 +80,10 @@ interface InstantMatchOverlayProps {
   category: string
   searchQuery?: string
   userLocation?: { lat: number; lng: number; zip?: string }
+  // Direct Payment Job props
+  jobId?: string           // Existing job ID for direct payment
+  directAmount?: number    // Fixed price to display
+  paymentHoldId?: string   // Already created payment hold
 }
 
 // Haversine distance calculation
@@ -90,13 +109,16 @@ export default function InstantMatchOverlay({
   onClose,
   category,
   searchQuery,
-  userLocation
+  userLocation,
+  jobId,
+  directAmount,
+  paymentHoldId
 }: InstantMatchOverlayProps) {
   const router = useRouter()
   const { user } = useAuth()
 
   // State
-  const [phase, setPhase] = useState<'searching' | 'found' | 'connected' | 'no_pros'>('searching')
+  const [phase, setPhase] = useState<'searching' | 'found' | 'connected' | 'tracking' | 'no_pros'>('searching')
   const [contractors, setContractors] = useState<Contractor[]>([])
   const [visibleContractors, setVisibleContractors] = useState<Contractor[]>([])
   const [selectedContractor, setSelectedContractor] = useState<Contractor | null>(null)
@@ -112,10 +134,6 @@ export default function InstantMatchOverlay({
   const [searchZip, setSearchZip] = useState(userLocation?.zip || '')
   const [searchRadius, setSearchRadius] = useState(1)
 
-  // Post job button delay state
-  const [showPostJobButton, setShowPostJobButton] = useState(false)
-  const postJobTimerRef = useRef<NodeJS.Timeout | null>(null)
-
   // Real ETA from route calculation
   const [realEta, setRealEta] = useState<number | null>(null)
   const [realDistance, setRealDistance] = useState<number | null>(null)
@@ -130,8 +148,35 @@ export default function InstantMatchOverlay({
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
   const [bookingLoading, setBookingLoading] = useState(false)
 
+  // Tracking state (Uber-style live tracking)
+  const [trackingData, setTrackingData] = useState<{
+    paymentHoldId: string
+    bookingId: string
+    amount: number
+    etaMinutes: number
+    contractorLocation: { lat: number; lng: number } | null
+    conversationId: string | null
+  } | null>(null)
+  const [trackingEtaCountdown, setTrackingEtaCountdown] = useState(0)
+  const trackingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Payment error state
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+
+  // Cancellation modal state
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelLoading, setCancelLoading] = useState(false)
+
   // Job description from homeowner
   const [jobDescription, setJobDescription] = useState('')
+
+  // Direct Payment Job state
+  const [isDirectPaymentJob, setIsDirectPaymentJob] = useState(!!jobId)
+  const [directJobStatus, setDirectJobStatus] = useState<'pending' | 'accepted' | 'expired'>('pending')
+  const [acceptedContractorId, setAcceptedContractorId] = useState<string | null>(null)
+  const [directJobExpiry, setDirectJobExpiry] = useState<Date | null>(null)
+  const [expiryCountdown, setExpiryCountdown] = useState<number>(30 * 60) // 30 minutes
 
   // Current search location (can be overridden by settings ZIP)
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number; zip?: string } | null>(userLocation || null)
@@ -144,6 +189,11 @@ export default function InstantMatchOverlay({
       setSearchZip(userLocation.zip || '')
     }
   }, [userLocation])
+
+  // Sync isDirectPaymentJob with jobId prop
+  useEffect(() => {
+    setIsDirectPaymentJob(!!jobId)
+  }, [jobId])
 
   // Fetch saved payment method when user is logged in
   useEffect(() => {
@@ -167,6 +217,121 @@ export default function InstantMatchOverlay({
   const revealRef = useRef<NodeJS.Timeout | null>(null)
   const notificationsSentRef = useRef(false)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Real-time subscription for direct payment jobs
+  useEffect(() => {
+    if (!jobId || !isOpen) return
+
+    setIsDirectPaymentJob(true)
+
+    // Subscribe to job updates
+    const channel = supabase
+      .channel(`direct-job-${jobId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'homeowner_jobs',
+          filter: `id=eq.${jobId}`
+        },
+        async (payload) => {
+          console.log('[DirectJob] Job updated:', payload.new)
+
+          if (payload.new.status === 'accepted' && payload.new.contractor_id) {
+            setDirectJobStatus('accepted')
+            setAcceptedContractorId(payload.new.contractor_id)
+
+            // Fetch contractor info
+            const { data: contractor } = await supabase
+              .from('pro_contractors')
+              .select('*')
+              .eq('id', payload.new.contractor_id)
+              .single()
+
+            if (contractor) {
+              const distance = currentLocation
+                ? calculateDistance(currentLocation.lat, currentLocation.lng, contractor.latitude, contractor.longitude)
+                : 5
+              const eta = calculateETA(distance)
+
+              const contractorData: Contractor = {
+                id: contractor.id,
+                name: contractor.name || '',
+                business_name: contractor.business_name || contractor.name || 'Contractor',
+                rating: contractor.rating || 4.5,
+                total_jobs: contractor.total_jobs || 0,
+                hourly_rate: contractor.hourly_rate || directAmount || 0,
+                categories: contractor.categories || [],
+                latitude: contractor.latitude,
+                longitude: contractor.longitude,
+                distance_miles: distance,
+                eta_minutes: eta,
+                availability: 'online',
+                profile_image: contractor.profile_image
+              }
+
+              setConnectedContractor(contractorData)
+              setSelectedContractor(contractorData)
+              setPhase('connected')
+
+              // Set up tracking data
+              setTrackingData({
+                paymentHoldId: paymentHoldId || '',
+                bookingId: jobId,
+                amount: directAmount || payload.new.direct_amount || 0,
+                etaMinutes: eta,
+                contractorLocation: contractor.latitude && contractor.longitude
+                  ? { lat: contractor.latitude, lng: contractor.longitude }
+                  : null,
+                conversationId: null
+              })
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    // Fetch job details to get expiry time
+    supabase
+      .from('homeowner_jobs')
+      .select('direct_expires_at, status, contractor_id')
+      .eq('id', jobId)
+      .single()
+      .then(({ data, error }) => {
+        if (!error && data) {
+          if (data.direct_expires_at) {
+            setDirectJobExpiry(new Date(data.direct_expires_at))
+          }
+          if (data.status === 'accepted' && data.contractor_id) {
+            setDirectJobStatus('accepted')
+            setAcceptedContractorId(data.contractor_id)
+          }
+        }
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [jobId, isOpen, paymentHoldId, directAmount, currentLocation])
+
+  // Expiry countdown for direct payment jobs
+  useEffect(() => {
+    if (!directJobExpiry || directJobStatus !== 'pending') return
+
+    const interval = setInterval(() => {
+      const now = new Date()
+      const remaining = Math.max(0, Math.floor((directJobExpiry.getTime() - now.getTime()) / 1000))
+      setExpiryCountdown(remaining)
+
+      if (remaining <= 0) {
+        setDirectJobStatus('expired')
+        clearInterval(interval)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [directJobExpiry, directJobStatus])
 
   // Category to filter mapping
   const categoryMapping: Record<string, string[]> = {
@@ -264,6 +429,12 @@ export default function InstantMatchOverlay({
             rating: c.rating || 4.5 + Math.random() * 0.5,
             total_jobs: c.total_jobs || Math.floor(Math.random() * 200) + 50,
             hourly_rate: c.hourly_rate || 65,
+            peak_rate: c.peak_rate || null,
+            off_peak_rate: c.off_peak_rate || null,
+            surge_rate: c.surge_rate || null,
+            visit_fee: c.visit_fee || null,
+            diagnostic_fee: c.diagnostic_fee || null,
+            rate_type: c.rate_type || 'Hourly',
             categories: c.categories || [],
             latitude: Number(c.latitude),
             longitude: Number(c.longitude),
@@ -427,10 +598,22 @@ export default function InstantMatchOverlay({
     if (!connectedContractor || !user) return
 
     setBookingLoading(true)
+    setPaymentError(null)
 
-    // Send booking request to contractor
+    // Stop the countdown while processing
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current)
+    }
+
     try {
-      const response = await fetch('/api/notify-contractor-booking', {
+      // Calculate estimated amount (visit fee + 1 hour base, or 2 hour estimate)
+      const visitFee = connectedContractor.visit_fee || 0
+      const diagnosticFee = connectedContractor.diagnostic_fee || 0
+      const baseAmount = (visitFee + diagnosticFee) || (connectedContractor.hourly_rate * 2)
+      const estimatedAmount = Math.max(baseAmount, connectedContractor.hourly_rate)
+
+      // Step 1: Create the booking first to get booking ID
+      const bookingResponse = await fetch('/api/notify-contractor-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -443,25 +626,63 @@ export default function InstantMatchOverlay({
           homeownerId: user.id,
           homeownerEmail: user.email,
           hourlyRate: connectedContractor.hourly_rate,
-          estimatedAmount: connectedContractor.hourly_rate * 2 // 2 hour estimate
+          estimatedAmount
         })
       })
 
-      const data = await response.json()
+      const bookingData = await bookingResponse.json()
 
-      if (response.ok && data.success) {
-        setBookingConfirmed(true)
-        // Stop countdown
-        if (countdownRef.current) {
-          clearInterval(countdownRef.current)
-        }
-      } else {
-        console.error('Booking request failed:', data.error)
-        alert('Failed to send booking request. Please try again.')
+      if (!bookingResponse.ok || !bookingData.success) {
+        throw new Error(bookingData.error || 'Failed to create booking')
       }
-    } catch (err) {
-      console.error('Error sending contractor notification:', err)
-      alert('Failed to send booking request. Please try again.')
+
+      // Step 2: Create the Stripe escrow payment hold
+      const escrowResponse = await fetch('/api/stripe/escrow/create-hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          homeownerId: user.id,
+          contractorId: connectedContractor.id,
+          amount: estimatedAmount,
+          jobDescription: jobDescription || `${category} service needed`,
+          category,
+          bookingId: bookingData.bookingId
+        })
+      })
+
+      const escrowData = await escrowResponse.json()
+
+      if (!escrowResponse.ok || !escrowData.success) {
+        // Payment failed - show error but don't fail completely
+        setPaymentError(escrowData.error || 'Payment authorization failed')
+        setBookingLoading(false)
+        startCountdown() // Resume countdown
+        return
+      }
+
+      // Step 3: Success! Transition to live tracking phase
+      setTrackingData({
+        paymentHoldId: escrowData.paymentHoldId,
+        bookingId: bookingData.bookingId,
+        amount: estimatedAmount,
+        etaMinutes: realEta ?? connectedContractor.eta_minutes,
+        contractorLocation: {
+          lat: connectedContractor.latitude,
+          lng: connectedContractor.longitude
+        },
+        conversationId: escrowData.conversationId || null
+      })
+
+      // Start ETA countdown
+      setTrackingEtaCountdown((realEta ?? connectedContractor.eta_minutes) * 60)
+
+      // Transition to tracking phase
+      setPhase('tracking')
+
+    } catch (err: any) {
+      console.error('Error in booking flow:', err)
+      setPaymentError(err.message || 'Failed to process booking. Please try again.')
+      startCountdown() // Resume countdown
     } finally {
       setBookingLoading(false)
     }
@@ -474,34 +695,90 @@ export default function InstantMatchOverlay({
     onClose()
   }
 
+  // Handle job cancellation during tracking phase
+  const handleJobCancellation = async () => {
+    if (!cancelReason.trim()) {
+      alert('Please provide a reason for cancellation')
+      return
+    }
+
+    if (!trackingData || !connectedContractor || !user) return
+
+    setCancelLoading(true)
+
+    try {
+      const response = await fetch('/api/booking/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingId: trackingData.bookingId,
+          paymentHoldId: trackingData.paymentHoldId,
+          cancelledBy: 'homeowner',
+          cancelledById: user.id,
+          cancelledByName: user.email,
+          contractorId: connectedContractor.id,
+          contractorName: connectedContractor.business_name,
+          reason: cancelReason.trim(),
+          amount: trackingData.amount
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        // Show success and close
+        alert('Job cancelled successfully. The contractor has been notified.')
+        setShowCancelModal(false)
+        setCancelReason('')
+        onClose()
+      } else {
+        alert(data.error || 'Failed to cancel job. Please try again.')
+      }
+    } catch (err) {
+      console.error('Error cancelling job:', err)
+      alert('Failed to cancel job. Please try again.')
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
+  // ETA countdown for tracking phase
+  useEffect(() => {
+    if (phase === 'tracking' && trackingEtaCountdown > 0) {
+      trackingIntervalRef.current = setInterval(() => {
+        setTrackingEtaCountdown(prev => {
+          if (prev <= 1) {
+            if (trackingIntervalRef.current) {
+              clearInterval(trackingIntervalRef.current)
+            }
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+
+    return () => {
+      if (trackingIntervalRef.current) {
+        clearInterval(trackingIntervalRef.current)
+      }
+    }
+  }, [phase, trackingEtaCountdown])
+
   useEffect(() => {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current)
       if (revealRef.current) clearTimeout(revealRef.current)
-      if (postJobTimerRef.current) clearTimeout(postJobTimerRef.current)
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current)
     }
   }, [])
 
   useEffect(() => {
     if (phase === 'no_pros') {
-      setShowPostJobButton(false)
-      postJobTimerRef.current = setTimeout(() => {
-        setShowPostJobButton(true)
-      }, 5000)
-    } else {
-      setShowPostJobButton(false)
-      if (postJobTimerRef.current) {
-        clearTimeout(postJobTimerRef.current)
-      }
+      router.push('/post-job?category=' + encodeURIComponent(category))
     }
-
-    return () => {
-      if (postJobTimerRef.current) {
-        clearTimeout(postJobTimerRef.current)
-      }
-    }
-  }, [phase])
+  }, [phase, category, router])
 
   useEffect(() => {
     if (isOpen && userLocation && !currentLocation) {
@@ -511,10 +788,11 @@ export default function InstantMatchOverlay({
   }, [isOpen, userLocation])
 
   useEffect(() => {
-    if (isOpen && currentLocation && !hasFetched) {
+    // Skip contractor search for direct payment jobs - we're just waiting for acceptance
+    if (isOpen && currentLocation && !hasFetched && !jobId) {
       fetchContractors()
     }
-  }, [isOpen, currentLocation, hasFetched, fetchContractors])
+  }, [isOpen, currentLocation, hasFetched, fetchContractors, jobId])
 
   useEffect(() => {
     if (!isOpen) {
@@ -527,7 +805,6 @@ export default function InstantMatchOverlay({
       setHasFetched(false)
       setCurrentLocation(null)
       setLocationName('')
-      setShowPostJobButton(false)
       setRealEta(null)
       setRealDistance(null)
       setSidebarCollapsed(false)
@@ -536,10 +813,22 @@ export default function InstantMatchOverlay({
       setShowAddCardModal(false)
       setBookingConfirmed(false)
       setBookingLoading(false)
+      setTrackingData(null)
+      setTrackingEtaCountdown(0)
+      setPaymentError(null)
+      setShowCancelModal(false)
+      setCancelReason('')
+      setCancelLoading(false)
+      // Reset direct payment state
+      setIsDirectPaymentJob(false)
+      setDirectJobStatus('pending')
+      setAcceptedContractorId(null)
+      setDirectJobExpiry(null)
+      setExpiryCountdown(30 * 60)
       notificationsSentRef.current = false
       if (countdownRef.current) clearInterval(countdownRef.current)
-      if (postJobTimerRef.current) clearTimeout(postJobTimerRef.current)
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current)
     }
   }, [isOpen])
 
@@ -564,20 +853,57 @@ export default function InstantMatchOverlay({
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white">
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-sm font-semibold flex-shrink-0">
-                  {category || 'Finding Pros'}
-                </span>
-                {(locationName || searchZip) && (
-                  <span className="text-xs text-slate-500 truncate flex items-center gap-1">
-                    <MapPin className="w-3 h-3" />
-                    {locationName || searchZip}
-                  </span>
-                )}
-                {phase === 'connected' && (
-                  <span className="text-xs text-slate-500 flex items-center gap-1 ml-2">
-                    <Clock className="w-3 h-3" />
-                    Auto-confirm in {countdown}s
-                  </span>
+                {phase === 'tracking' ? (
+                  <>
+                    <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-full text-sm font-semibold flex-shrink-0 flex items-center gap-1.5">
+                      <Navigation className="w-3.5 h-3.5 animate-pulse" />
+                      En Route
+                    </span>
+                    <span className="text-xs text-slate-500 truncate flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      ETA: {Math.floor(trackingEtaCountdown / 60)} min
+                    </span>
+                  </>
+                ) : isDirectPaymentJob ? (
+                  <>
+                    <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-full text-sm font-semibold flex-shrink-0 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5" />
+                      Direct Payment
+                    </span>
+                    <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">
+                      ${directAmount?.toFixed(0)}
+                    </span>
+                    {directJobStatus === 'pending' && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1 ml-2">
+                        <Clock className="w-3 h-3" />
+                        {Math.floor(expiryCountdown / 60)}:{(expiryCountdown % 60).toString().padStart(2, '0')} left
+                      </span>
+                    )}
+                    {directJobStatus === 'accepted' && (
+                      <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        Accepted
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-sm font-semibold flex-shrink-0">
+                      {category || 'Finding Pros'}
+                    </span>
+                    {(locationName || searchZip) && (
+                      <span className="text-xs text-slate-500 truncate flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {locationName || searchZip}
+                      </span>
+                    )}
+                    {phase === 'connected' && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1 ml-2">
+                        <Clock className="w-3 h-3" />
+                        Auto-confirm in {countdown}s
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -980,19 +1306,70 @@ export default function InstantMatchOverlay({
                           </div>
                         </div>
 
-                        {/* Quick Stats Row - Compact */}
-                        <div className="flex gap-1.5">
-                          <div className="flex-1 bg-white rounded-lg px-2 py-1.5 border border-slate-200 text-center">
-                            <div className="text-sm font-bold text-slate-900">${selectedContractor.hourly_rate}</div>
-                            <div className="text-[10px] text-slate-500">per hour</div>
+                        {/* Pricing & Stats */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
+                          {/* Main Rate */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500">Base rate</span>
+                            <span className="text-lg font-bold text-emerald-600">${selectedContractor.hourly_rate}/hr</span>
                           </div>
-                          <div className="flex-1 bg-white rounded-lg px-2 py-1.5 border border-slate-200 text-center">
-                            <div className="text-sm font-bold text-slate-900">{selectedContractor.years_in_business}+</div>
-                            <div className="text-[10px] text-slate-500">years</div>
-                          </div>
-                          <div className="flex-1 bg-white rounded-lg px-2 py-1.5 border border-slate-200 text-center">
-                            <div className="text-sm font-bold text-slate-900">{selectedContractor.response_time_minutes}m</div>
-                            <div className="text-[10px] text-slate-500">response</div>
+
+                          {/* Rate Grid - Only show if rates exist */}
+                          {(selectedContractor.peak_rate || selectedContractor.off_peak_rate || selectedContractor.surge_rate) && (
+                            <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-100">
+                              {selectedContractor.off_peak_rate && (
+                                <div className="text-center p-1.5 bg-slate-50 rounded-lg">
+                                  <div className="text-xs font-semibold text-slate-700">${selectedContractor.off_peak_rate}</div>
+                                  <div className="text-[9px] text-slate-400">Off-peak</div>
+                                </div>
+                              )}
+                              {selectedContractor.peak_rate && (
+                                <div className="text-center p-1.5 bg-amber-50 rounded-lg">
+                                  <div className="text-xs font-semibold text-amber-700">${selectedContractor.peak_rate}</div>
+                                  <div className="text-[9px] text-amber-500">Peak</div>
+                                </div>
+                              )}
+                              {selectedContractor.surge_rate && (
+                                <div className="text-center p-1.5 bg-red-50 rounded-lg">
+                                  <div className="text-xs font-semibold text-red-700">${selectedContractor.surge_rate}</div>
+                                  <div className="text-[9px] text-red-400">Surge</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Fees - Visit & Diagnostic */}
+                          {(selectedContractor.visit_fee || selectedContractor.diagnostic_fee) && (
+                            <div className="flex gap-2 pt-1 border-t border-slate-100">
+                              {selectedContractor.visit_fee && (
+                                <div className="flex-1 flex items-center justify-between px-2 py-1.5 bg-blue-50 rounded-lg">
+                                  <span className="text-[10px] text-blue-600">Visit fee</span>
+                                  <span className="text-xs font-semibold text-blue-700">${selectedContractor.visit_fee}</span>
+                                </div>
+                              )}
+                              {selectedContractor.diagnostic_fee && (
+                                <div className="flex-1 flex items-center justify-between px-2 py-1.5 bg-purple-50 rounded-lg">
+                                  <span className="text-[10px] text-purple-600">Diagnostic</span>
+                                  <span className="text-xs font-semibold text-purple-700">${selectedContractor.diagnostic_fee}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Quick Stats */}
+                          <div className="flex gap-2 pt-1 border-t border-slate-100">
+                            <div className="flex-1 text-center">
+                              <div className="text-sm font-bold text-slate-900">{selectedContractor.years_in_business}+</div>
+                              <div className="text-[9px] text-slate-400">years exp.</div>
+                            </div>
+                            <div className="flex-1 text-center">
+                              <div className="text-sm font-bold text-slate-900">{selectedContractor.response_time_minutes}m</div>
+                              <div className="text-[9px] text-slate-400">response</div>
+                            </div>
+                            <div className="flex-1 text-center">
+                              <div className="text-sm font-bold text-slate-900">{selectedContractor.total_jobs}</div>
+                              <div className="text-[9px] text-slate-400">jobs done</div>
+                            </div>
                           </div>
                         </div>
 
@@ -1032,6 +1409,23 @@ export default function InstantMatchOverlay({
                             </div>
                           )}
                         </div>
+
+                        {/* Payment Error Display */}
+                        {paymentError && (
+                          <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200">
+                            <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <div className="text-xs font-medium text-red-800">Payment failed</div>
+                              <div className="text-sm text-red-700">{paymentError}</div>
+                            </div>
+                            <button
+                              onClick={() => setPaymentError(null)}
+                              className="text-red-400 hover:text-red-600"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
 
                         {/* Book Now Button */}
                         <button
@@ -1090,42 +1484,414 @@ export default function InstantMatchOverlay({
                       </motion.div>
                     )}
 
-                    {/* Searching State */}
-                    {phase === 'searching' && (
-                      <div className="flex flex-col items-center justify-center h-full">
-                        <div className="w-14 h-14 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
-                        <p className="text-slate-900 font-semibold">Finding {getTradePlural(category)}...</p>
-                        <p className="text-slate-500 text-sm mt-1">Searching nearby professionals</p>
-                      </div>
-                    )}
-
-                    {/* No Pros State - shows immediately after 5sec search timeout */}
-                    {phase === 'no_pros' && (
-                      <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                        >
-                          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Clock className="w-8 h-8 text-slate-400" />
+                    {/* Live Tracking Phase (Uber-style) */}
+                    {phase === 'tracking' && connectedContractor && trackingData && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4"
+                      >
+                        {/* Success Header */}
+                        <div className="bg-emerald-600 rounded-xl p-4 text-white text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <CheckCircle className="w-6 h-6" />
+                            <span className="font-bold text-lg">Booking Confirmed!</span>
                           </div>
-                          <h3 className="text-lg font-semibold text-slate-900">No {getTradePlural(category)} Available Now</h3>
-                          <p className="text-sm text-slate-600 mt-2">
-                            All professionals are currently busy. Post a job and we'll notify you when one becomes available.
-                          </p>
+                          <p className="text-emerald-100 text-sm">Payment held securely in escrow</p>
+                        </div>
+
+                        {/* ETA Countdown - Uber Style */}
+                        <div className="bg-slate-900 rounded-xl p-6 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-3">
+                            <Navigation className="w-5 h-5 text-emerald-400 animate-pulse" />
+                            <span className="text-slate-400 text-sm font-medium">EN ROUTE</span>
+                          </div>
+                          <div className="text-5xl font-bold text-white mb-1">
+                            {Math.floor(trackingEtaCountdown / 60)}:{(trackingEtaCountdown % 60).toString().padStart(2, '0')}
+                          </div>
+                          <p className="text-slate-400 text-sm">Estimated arrival</p>
+
+                          {/* Progress Bar */}
+                          <div className="mt-4 h-2 bg-slate-700 rounded-full overflow-hidden">
+                            <motion.div
+                              className="h-full bg-emerald-500"
+                              initial={{ width: '0%' }}
+                              animate={{
+                                width: `${100 - ((trackingEtaCountdown / (trackingData.etaMinutes * 60)) * 100)}%`
+                              }}
+                              transition={{ duration: 1 }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Contractor Card - Compact */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4">
+                          <div className="flex items-center gap-3">
+                            {connectedContractor.profile_image ? (
+                              <img
+                                src={connectedContractor.profile_image}
+                                alt={connectedContractor.business_name}
+                                className="w-14 h-14 rounded-full object-cover border-2 border-emerald-500"
+                              />
+                            ) : (
+                              <div className="w-14 h-14 rounded-full bg-emerald-600 flex items-center justify-center border-2 border-emerald-500">
+                                <span className="text-white font-bold text-xl">
+                                  {connectedContractor.business_name?.charAt(0) || 'P'}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-slate-900 truncate">
+                                {connectedContractor.business_name}
+                              </h3>
+                              <div className="flex items-center gap-1.5">
+                                <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
+                                <span className="text-sm text-slate-600">{connectedContractor.rating.toFixed(1)}</span>
+                                <span className="text-slate-300">•</span>
+                                <span className="text-sm text-slate-500">{connectedContractor.total_jobs} jobs</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Contact Actions */}
+                          <div className="flex gap-2 mt-4">
+                            <button
+                              onClick={() => {
+                                // TODO: Get contractor phone number and initiate call
+                                alert('Calling contractor... (feature coming soon)')
+                              }}
+                              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                            >
+                              <Phone className="w-4 h-4" />
+                              <span className="text-sm font-medium">Call</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (trackingData?.conversationId) {
+                                  router.push(`/messages/real-time?conversation=${trackingData.conversationId}`)
+                                } else {
+                                  router.push('/messages/real-time')
+                                }
+                              }}
+                              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-colors"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              <span className="text-sm font-medium">Message</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Payment Summary */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-500">Amount held</span>
+                            <span className="font-semibold text-slate-900">${trackingData.amount.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-500">Payment method</span>
+                            <span className="text-sm text-slate-700 capitalize">{savedCard?.brand} •••• {savedCard?.last4}</span>
+                          </div>
+                          <div className="pt-2 border-t border-slate-100">
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Funds held in escrow until job completion</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* View in Dashboard Button */}
+                        <button
+                          onClick={() => router.push('/dashboard/homeowner')}
+                          className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors"
+                        >
+                          View in Dashboard
+                        </button>
+
+                        <div className="flex gap-2">
                           <button
-                            onClick={() => router.push('/post-job?category=' + encodeURIComponent(category))}
-                            className="mt-4 w-full py-2.5 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors"
+                            onClick={onClose}
+                            className="flex-1 py-2.5 text-slate-500 hover:text-slate-700 transition-colors text-sm"
                           >
-                            Post a Job
+                            Close & track later
                           </button>
                           <button
-                            onClick={handleCancel}
-                            className="mt-2 w-full py-2.5 border border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+                            onClick={() => setShowCancelModal(true)}
+                            className="flex-1 py-2.5 text-red-500 hover:text-red-700 transition-colors text-sm font-medium"
+                          >
+                            Cancel Job
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Cancellation Modal */}
+                    <AnimatePresence>
+                      {showCancelModal && (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+                          onClick={() => !cancelLoading && setShowCancelModal(false)}
+                        >
+                          <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-semibold text-slate-900">Cancel Job</h3>
+                              <button
+                                onClick={() => !cancelLoading && setShowCancelModal(false)}
+                                className="p-1 hover:bg-slate-100 rounded-lg"
+                                disabled={cancelLoading}
+                              >
+                                <X className="w-5 h-5 text-slate-500" />
+                              </button>
+                            </div>
+
+                            <div className="text-center mb-4">
+                              <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <AlertTriangle className="w-7 h-7 text-red-600" />
+                              </div>
+                              <p className="text-slate-600">
+                                Are you sure you want to cancel this job with <strong>{connectedContractor?.business_name}</strong>?
+                              </p>
+                              <p className="text-sm text-slate-500 mt-2">
+                                The payment hold will be released and the contractor will be notified.
+                              </p>
+                            </div>
+
+                            <div className="mb-4">
+                              <label className="block text-sm font-medium text-slate-700 mb-2">
+                                Reason for cancellation <span className="text-red-500">*</span>
+                              </label>
+                              <textarea
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
+                                placeholder="Please explain why you're cancelling..."
+                                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                                rows={3}
+                                disabled={cancelLoading}
+                              />
+                            </div>
+
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => setShowCancelModal(false)}
+                                disabled={cancelLoading}
+                                className="flex-1 py-3 border border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+                              >
+                                Keep Job
+                              </button>
+                              <button
+                                onClick={handleJobCancellation}
+                                disabled={cancelLoading || !cancelReason.trim()}
+                                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                              >
+                                {cancelLoading ? (
+                                  <>
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    Cancelling...
+                                  </>
+                                ) : (
+                                  'Confirm Cancel'
+                                )}
+                              </button>
+                            </div>
+                          </motion.div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Direct Payment Job - Waiting for Contractor */}
+                    {isDirectPaymentJob && directJobStatus === 'pending' && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4"
+                      >
+                        {/* Direct Payment Header */}
+                        <div className="bg-emerald-600 rounded-xl p-4 text-white text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <DollarSign className="w-6 h-6" />
+                            <span className="font-bold text-lg">Direct Payment Job</span>
+                          </div>
+                          <p className="text-emerald-100 text-sm">Waiting for a contractor to accept</p>
+                        </div>
+
+                        {/* Amount Display */}
+                        <div className="bg-white rounded-xl border-2 border-emerald-200 p-6 text-center">
+                          <div className="text-sm text-slate-500 mb-1">Your Offer</div>
+                          <div className="text-4xl font-bold text-emerald-600">${directAmount?.toFixed(2) || '0.00'}</div>
+                          <div className="text-xs text-slate-400 mt-1">Fixed price - no bidding</div>
+                        </div>
+
+                        {/* Countdown Timer */}
+                        <div className="bg-white rounded-xl p-5 text-center border-2 border-slate-200">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <Clock className="w-4 h-4 text-emerald-600" />
+                            <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Time Remaining</span>
+                          </div>
+                          <div className={`text-4xl font-bold font-mono ${expiryCountdown < 300 ? 'text-red-600' : expiryCountdown < 600 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {Math.floor(expiryCountdown / 60)}:{(expiryCountdown % 60).toString().padStart(2, '0')}
+                          </div>
+                          <p className="text-slate-500 text-xs mt-2">
+                            After timeout, job converts to bids mode
+                          </p>
+
+                          {/* Progress Bar */}
+                          <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <motion.div
+                              className={`h-full ${expiryCountdown < 300 ? 'bg-red-500' : expiryCountdown < 600 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                              initial={{ width: '100%' }}
+                              animate={{
+                                width: `${(expiryCountdown / (30 * 60)) * 100}%`
+                              }}
+                              transition={{ duration: 1 }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Status Indicator */}
+                        <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                          <div className="relative">
+                            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                              <Zap className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold text-blue-800">Broadcasting to nearby pros</div>
+                            <div className="text-xs text-blue-600">First to accept gets the job</div>
+                          </div>
+                        </div>
+
+                        {/* What Happens Next */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4">
+                          <h4 className="text-sm font-semibold text-slate-700 mb-3">What happens next?</h4>
+                          <div className="space-y-2.5">
+                            <div className="flex items-start gap-2.5">
+                              <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-emerald-600">1</span>
+                              </div>
+                              <p className="text-xs text-slate-600">Contractors in your area are notified</p>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                              <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-emerald-600">2</span>
+                              </div>
+                              <p className="text-xs text-slate-600">First contractor to accept is matched with you</p>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                              <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-emerald-600">3</span>
+                              </div>
+                              <p className="text-xs text-slate-600">Your payment is held securely until job completion</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Payment Info */}
+                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                          <Shield className="w-5 h-5 text-emerald-600" />
+                          <div className="flex-1">
+                            <div className="text-xs font-medium text-emerald-800">Payment secured</div>
+                            <div className="text-xs text-emerald-600">${directAmount?.toFixed(2)} held until job is done</div>
+                          </div>
+                        </div>
+
+                        {/* Cancel Button */}
+                        <button
+                          onClick={handleCancel}
+                          className="w-full py-2.5 text-slate-500 hover:text-red-600 transition-colors text-sm border border-slate-200 rounded-lg hover:border-red-300"
+                        >
+                          Cancel and get refund
+                        </button>
+                      </motion.div>
+                    )}
+
+                    {/* Direct Payment Job - Expired */}
+                    {isDirectPaymentJob && directJobStatus === 'expired' && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4"
+                      >
+                        <div className="bg-amber-500 rounded-xl p-4 text-white text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <Clock className="w-6 h-6" />
+                            <span className="font-bold text-lg">Time Expired</span>
+                          </div>
+                          <p className="text-amber-100 text-sm">No contractor accepted in time</p>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+                          <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <AlertTriangle className="w-7 h-7 text-amber-600" />
+                          </div>
+                          <h3 className="font-semibold text-slate-900 mb-1">Switching to Bids Mode</h3>
+                          <p className="text-sm text-slate-600">
+                            Your job is now open for bids. Contractors can submit their prices and you can choose the best offer.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <button
+                            onClick={() => router.push('/dashboard/homeowner')}
+                            className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors"
+                          >
+                            View Job in Dashboard
+                          </button>
+                          <button
+                            onClick={onClose}
+                            className="w-full py-2.5 text-slate-500 hover:text-slate-700 transition-colors text-sm"
                           >
                             Close
                           </button>
-                        </motion.div>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Searching State */}
+                    {phase === 'searching' && !isDirectPaymentJob && (
+                      <div className="flex flex-col items-center justify-center h-full">
+                        {currentLocation || userLocation ? (
+                          <>
+                            <div className="w-14 h-14 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
+                            <p className="text-slate-900 font-semibold">Finding {getTradePlural(category)}...</p>
+                            <p className="text-slate-500 text-sm mt-1">Searching nearby professionals</p>
+                          </>
+                        ) : (
+                          <>
+                            <MapPin className="w-14 h-14 text-slate-300 mb-4" />
+                            <p className="text-slate-900 font-semibold">Location Required</p>
+                            <p className="text-slate-500 text-sm mt-1 text-center px-4">
+                              We need your location to find nearby professionals
+                            </p>
+                          </>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            onClose()
+                            router.push('/post-job?category=' + encodeURIComponent(category))
+                          }}
+                          className="mt-6 px-4 py-2 text-sm text-slate-600 hover:text-emerald-600 border border-slate-200 hover:border-emerald-300 rounded-lg transition-colors"
+                        >
+                          Post a job instead →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* No Pros State - auto-redirecting to post-job */}
+                    {phase === 'no_pros' && (
+                      <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                        <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
+                        <p className="text-slate-900 font-semibold">Redirecting to Post a Job...</p>
+                        <p className="text-slate-500 text-sm mt-1">No {getTradePlural(category).toLowerCase()} available right now</p>
                       </div>
                     )}
                   </div>
@@ -1133,10 +1899,10 @@ export default function InstantMatchOverlay({
               </motion.div>
 
               {/* Map Area - takes all remaining space */}
-              <div className="flex-1 h-full min-w-0">
+              <div className="flex-1 h-full min-w-0 bg-slate-100">
                 <ContractorMap
                   contractors={visibleContractors}
-                  userLocation={currentLocation || userLocation}
+                  userLocation={currentLocation || userLocation || undefined}
                   selectedContractor={selectedContractor}
                   radiusMiles={searchRadius}
                   onSelectContractor={(c) => {

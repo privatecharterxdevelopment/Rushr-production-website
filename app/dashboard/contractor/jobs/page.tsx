@@ -21,7 +21,9 @@ import {
   ListChecks,
   Eye,
   Download,
-  Search
+  Search,
+  Zap,
+  Timer
 } from 'lucide-react'
 
 interface Job {
@@ -45,17 +47,35 @@ interface MyJob extends Job {
   bid_created_at?: string
 }
 
+interface DirectJob {
+  id: string
+  title: string
+  description: string
+  category: string
+  priority: string
+  status: string
+  address: string
+  zip_code: string
+  direct_amount: number
+  direct_expires_at: string
+  created_at: string
+  homeowner_id: string
+  remaining_minutes?: number
+}
+
 export default function ContractorJobsPage() {
   const router = useRouter()
   const { user, contractorProfile, loading: authLoading } = useProAuth()
   const searchParams = useSearchParams()
-  const tabParam = searchParams.get('tab') as 'available' | 'my-jobs' | null
-  const [activeTab, setActiveTab] = useState<'available' | 'my-jobs'>(tabParam || 'available')
+  const tabParam = searchParams.get('tab') as 'available' | 'my-jobs' | 'direct' | null
+  const [activeTab, setActiveTab] = useState<'available' | 'my-jobs' | 'direct'>(tabParam || 'available')
 
   // State for available jobs
   const [jobs, setJobs] = useState<Job[]>([])
   const [myJobs, setMyJobs] = useState<MyJob[]>([])
+  const [directJobs, setDirectJobs] = useState<DirectJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [acceptingJob, setAcceptingJob] = useState<string | null>(null)
 
   // Restrict access to contractors only
   useEffect(() => {
@@ -143,6 +163,63 @@ export default function ContractorJobsPage() {
     }
   }
 
+  const fetchDirectJobs = async () => {
+    if (!user || !contractorProfile) return
+    try {
+      const response = await fetch(`/api/jobs/available-direct?contractorId=${user.id}&zip=${contractorProfile.zip_code || ''}`)
+      const data = await response.json()
+
+      if (data.success && data.jobs) {
+        setDirectJobs(data.jobs)
+      } else {
+        setDirectJobs([])
+      }
+    } catch (err) {
+      console.error('Error fetching direct jobs:', err)
+      setDirectJobs([])
+    }
+  }
+
+  const handleAcceptDirectJob = async (job: DirectJob) => {
+    if (!user) return
+
+    setAcceptingJob(job.id)
+
+    try {
+      const response = await fetch('/api/jobs/accept-direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: job.id,
+          contractorId: user.id
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setSuccessMessage(`Job accepted! You'll earn $${job.direct_amount.toFixed(2)} for this job. Check your messages to coordinate with the homeowner.`)
+        setShowSuccessModal(true)
+        // Refresh lists
+        fetchDirectJobs()
+        fetchMyJobs()
+      } else if (data.alreadyTaken) {
+        setSuccessMessage('Sorry, another contractor already accepted this job.')
+        setShowSuccessModal(true)
+        fetchDirectJobs() // Refresh to remove the taken job
+      } else {
+        setSuccessMessage(data.error || 'Failed to accept job. Please try again.')
+        setShowSuccessModal(true)
+      }
+    } catch (err) {
+      console.error('Error accepting direct job:', err)
+      setSuccessMessage('Failed to accept job. Please try again.')
+      setShowSuccessModal(true)
+    } finally {
+      setAcceptingJob(null)
+    }
+  }
+
   const fetchMyJobs = async () => {
     if (!user) return
     try {
@@ -217,7 +294,19 @@ export default function ContractorJobsPage() {
     if (!user) return
     fetchJobs()
     fetchMyJobs()
-  }, [user])
+    fetchDirectJobs()
+  }, [user, contractorProfile])
+
+  // Auto-refresh direct jobs every 30 seconds
+  useEffect(() => {
+    if (!user || activeTab !== 'direct') return
+
+    const interval = setInterval(() => {
+      fetchDirectJobs()
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [user, activeTab])
 
   // Filter available jobs
   const filtered = useMemo(()=>{
@@ -407,6 +496,28 @@ export default function ContractorJobsPage() {
             </div>
             {activeTab === 'available' && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('direct')}
+            className={`pb-3 px-2 font-medium transition-colors relative ${
+              activeTab === 'direct'
+                ? 'text-emerald-600'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              <span>Direct Payment</span>
+              {directJobs.length > 0 && (
+                <span className="ml-1 px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded-full animate-pulse">
+                  {directJobs.length}
+                </span>
+              )}
+            </div>
+            {activeTab === 'direct' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600" />
             )}
           </button>
 
@@ -611,6 +722,147 @@ export default function ContractorJobsPage() {
                         Bid Now
                       </button>
                     </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Direct Payment Jobs Tab */}
+      {activeTab === 'direct' && (
+        <>
+          {/* Direct Payment Info Banner */}
+          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 mb-6">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Zap className="h-6 w-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-xl font-bold text-emerald-900 mb-1">Direct Payment Jobs</h2>
+                <p className="text-emerald-700 text-sm">
+                  These jobs have a fixed price set by the homeowner. Accept to instantly get the job - first contractor to accept wins!
+                </p>
+                <div className="flex items-center gap-4 mt-3 text-xs text-emerald-600">
+                  <div className="flex items-center gap-1">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    <span>No bidding required</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <DollarSign className="h-3.5 w-3.5" />
+                    <span>Fixed price guaranteed</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Timer className="h-3.5 w-3.5" />
+                    <span>Limited time offers</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={fetchDirectJobs}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* Direct Jobs List */}
+          {directJobs.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-lg">
+              <Zap className="h-12 w-12 text-slate-400 mx-auto mb-3" />
+              <p className="text-slate-600 font-medium">No direct payment jobs available right now</p>
+              <p className="text-sm text-slate-500 mt-1">Check back soon - new jobs appear frequently!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {directJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="bg-white border-2 border-emerald-200 rounded-xl shadow-sm hover:shadow-lg transition-all overflow-hidden"
+                >
+                  {/* Urgent Header */}
+                  <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-white" />
+                      <span className="text-white font-bold text-lg">${job.direct_amount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-white/20 px-2.5 py-1 rounded-full">
+                      <Timer className="h-3.5 w-3.5 text-white" />
+                      <span className="text-white text-xs font-medium">
+                        {job.remaining_minutes !== undefined
+                          ? job.remaining_minutes > 0
+                            ? `${job.remaining_minutes} min left`
+                            : 'Expiring soon'
+                          : 'Limited time'
+                        }
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Job Content */}
+                  <div className="p-5">
+                    {/* Title */}
+                    <h3 className="text-lg font-semibold text-slate-900 mb-2 line-clamp-2">{job.title}</h3>
+
+                    {/* Description */}
+                    <p className="text-slate-600 text-sm mb-4 line-clamp-2">{job.description}</p>
+
+                    {/* Details */}
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <MapPin className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                        <span className="truncate">{job.address || job.zip_code}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <AlertCircle className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                        <span className="capitalize">{job.category}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Clock className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                        <span>Posted {new Date(job.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </div>
+
+                    {/* Priority Badge */}
+                    {job.priority === 'emergency' && (
+                      <div className="mb-4">
+                        <span className="px-3 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full">
+                          🚨 EMERGENCY
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Accept Button */}
+                    <button
+                      onClick={() => handleAcceptDirectJob(job)}
+                      disabled={acceptingJob === job.id}
+                      className={`w-full py-3 rounded-xl font-semibold text-center transition-all flex items-center justify-center gap-2 ${
+                        acceptingJob === job.id
+                          ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg hover:shadow-xl shadow-emerald-600/25'
+                      }`}
+                    >
+                      {acceptingJob === job.id ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                          Accepting...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="h-5 w-5" />
+                          Accept for ${job.direct_amount.toFixed(2)}
+                        </>
+                      )}
+                    </button>
+
+                    <p className="text-center text-xs text-slate-500 mt-2">
+                      First to accept wins the job
+                    </p>
                   </div>
                 </div>
               ))}
