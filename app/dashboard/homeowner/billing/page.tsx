@@ -172,7 +172,7 @@ function AddPaymentMethodModal({ customerId, onSuccess, onCancel }: { customerId
             <button
               type="submit"
               disabled={!stripe || loading}
-              className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-xl hover:bg-slate-800 dark:hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
@@ -297,7 +297,7 @@ function BillingPageContent() {
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Add a payment method to hire contractors</p>
             <button
               onClick={() => setShowAddCard(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors"
             >
               <Plus className="h-4 w-4" />
               Add Card

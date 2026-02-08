@@ -426,14 +426,16 @@ function MessagesContent() {
     <div className="flex flex-col bg-gray-50" style={{ height: 'calc(100vh - 80px)' }}>
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Link href="/dashboard/homeowner" className="btn btn-outline">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
+        <div className="flex items-center gap-3">
+          <Link
+            href="/dashboard/homeowner"
+            className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5 text-slate-600 dark:text-slate-300" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-            <p className="text-gray-600">Chat with your contractors</p>
+            <h1 className="text-xl lg:text-2xl font-semibold text-ink dark:text-white">Messages</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Chat with your contractors</p>
           </div>
         </div>
       </div>
@@ -676,11 +678,8 @@ function MessagesContent() {
 export default function HomeownerMessagesPage() {
   return (
     <Suspense fallback={
-      <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
-        <div className="text-center">
-          <div className="h-10 w-10 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Loading messages...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner size="lg" />
       </div>
     }>
       <MessagesContent />
