@@ -343,24 +343,25 @@ function CardInputForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="p-4 border border-slate-300 rounded-lg bg-slate-50">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="p-4 border border-slate-200 rounded-xl bg-slate-50">
         <CardElement
           options={{
             style: {
               base: {
                 fontSize: '16px',
-                color: '#0f172a',
+                color: '#1e293b',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                 '::placeholder': { color: '#94a3b8' },
               },
-              invalid: { color: '#dc2626' },
+              invalid: { color: '#ef4444' },
             },
           }}
         />
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
           {error}
         </div>
       )}
@@ -369,7 +370,7 @@ function CardInputForm({
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 py-3 border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors"
           disabled={loading}
         >
           Cancel
@@ -377,7 +378,7 @@ function CardInputForm({
         <button
           type="submit"
           disabled={!stripe || loading}
-          className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
@@ -408,27 +409,33 @@ function AddCardModal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5">
+        <div className="flex items-center justify-between px-6 pt-6 pb-2">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-              <CreditCard className="h-5 w-5 text-white" />
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
+              <CreditCard className="h-5 w-5 text-slate-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Add Payment Method</h3>
-              <p className="text-sm text-white/80">Required for Direct Payment jobs</p>
+              <h3 className="text-lg font-semibold text-slate-900">Add Payment Method</h3>
+              <p className="text-xs text-slate-500">Required for Direct Payment jobs</p>
             </div>
           </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors"
+          >
+            <X className="h-4 w-4 text-slate-400" />
+          </button>
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="px-6 pb-6 pt-4">
           {/* Security Badge */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 rounded-lg mb-4">
-            <Lock className="h-4 w-4 text-slate-600" />
-            <span className="text-xs text-slate-600">
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl mb-4">
+            <Lock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+            <span className="text-xs text-slate-500">
               Secure payment by Stripe. Your card details are encrypted.
             </span>
           </div>
@@ -443,7 +450,7 @@ function AddCardModal({
           </Elements>
 
           {/* Info */}
-          <p className="text-xs text-center text-slate-500 mt-4">
+          <p className="text-xs text-center text-slate-400 mt-4">
             Your card will be charged only when a contractor accepts your job.
           </p>
         </div>

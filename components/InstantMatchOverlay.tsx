@@ -135,7 +135,7 @@ export default function InstantMatchOverlay({
   const [minPrice, setMinPrice] = useState(0)
   const [maxPrice, setMaxPrice] = useState(200)
   const [searchZip, setSearchZip] = useState(userLocation?.zip || '')
-  const [searchRadius, setSearchRadius] = useState(25)
+  const [searchRadius, setSearchRadius] = useState(5)
 
   // Real ETA from route calculation
   const [realEta, setRealEta] = useState<number | null>(null)
@@ -486,7 +486,7 @@ export default function InstantMatchOverlay({
         })
       }
 
-      const maxRadius = searchRadius || 25
+      const maxRadius = searchRadius || 5
       const contractorsWithDistance = filteredContractors
         .filter(c => c.latitude && c.longitude)
         .map(c => {
@@ -578,20 +578,9 @@ export default function InstantMatchOverlay({
               bio: c.bio || `Professional ${category || 'service'} provider with years of experience.`
             }
           })
-          .filter(c => {
-            // Apply category filter if set
-            if (categoryFilters.length > 0) {
-              const cats = c.categories || []
-              return cats.some((cat: string) =>
-                categoryFilters.some(filter =>
-                  cat.toLowerCase().includes(filter.toLowerCase()) ||
-                  filter.toLowerCase().includes(cat.toLowerCase())
-                )
-              )
-            }
-            return true
-          })
-          .filter(c => c.distance_miles <= maxRadius)
+          // No category filter — show ALL nearby approved contractors as fallback
+          // Use wider radius (up to 15mi) since no online pros matched
+          .filter(c => c.distance_miles <= Math.max(maxRadius, 15))
           .sort((a, b) => a.distance_miles - b.distance_miles)
 
         if (nearbyWithDistance.length > 0) {

@@ -60,7 +60,7 @@ export default function ContractorMap({
   selectedContractor,
   onSelectContractor,
   onRouteCalculated,
-  radiusMiles = 25
+  radiusMiles = 5
 }: ContractorMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)

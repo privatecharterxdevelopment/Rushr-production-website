@@ -259,7 +259,7 @@ export default function Hero({ onInstantMatch }: HeroProps = {}){
       <div className={styles.waveLayer1}></div>
       <div className={styles.waveLayer2}></div>
 
-      <div className={`relative mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8 md:py-10 lg:py-8 ${styles.contentWrapper}`}>
+      <div className={`relative mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6 md:py-8 lg:py-6 ${styles.contentWrapper}`}>
         {/* Two-column layout: content left, phone mockup right */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 items-center">
           {/* Left side - content */}
@@ -379,12 +379,13 @@ export default function Hero({ onInstantMatch }: HeroProps = {}){
             </div>
           </div>
 
-          {/* Right side - phone mockup */}
-          <div className="hidden lg:flex justify-center items-end -mb-32 lg:-mb-36 xl:-mb-40">
+          {/* Right side - phone mockup (overflows below hero, clipped) */}
+          <div className="hidden lg:flex justify-center items-end -mb-28 xl:-mb-36">
             <img
-              src="/PHOTO-2025-10-24-16-31-22-removebg-preview.png"
+              src="/frame_0884.png"
               alt="Rushr app on phone"
-              className="h-[400px] lg:h-[460px] xl:h-[520px] w-auto object-contain drop-shadow-2xl"
+              className="h-[420px] lg:h-[480px] xl:h-[540px] w-auto object-contain"
+              style={{ filter: 'drop-shadow(0 30px 60px rgba(0,0,0,0.4))' }}
             />
           </div>
         </div>

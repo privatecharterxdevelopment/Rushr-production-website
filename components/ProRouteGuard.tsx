@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../contexts/AuthContext'
 import { useProAuth } from '../contexts/ProAuthContext'
+import LoadingSpinner from './LoadingSpinner'
 
 export default function ProRouteGuard({ children }: { children: React.ReactNode }) {
   const { userProfile: homeownerProfile, loading: homeOwnerLoading } = useAuth()
@@ -21,27 +22,11 @@ export default function ProRouteGuard({ children }: { children: React.ReactNode 
     // This prevents annoying redirects when users are already on /pro pages
   }, [homeownerProfile?.role, contractorProfile, router])
 
-  // Show loading while checking auth - BLUE for contractor
-  if (contractorLoading) {
+  // Show loading while checking auth
+  if (contractorLoading || homeOwnerLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-blue-50">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <div className="text-lg font-medium text-slate-800 mb-1">Welcome to Rushr Pro</div>
-          <div className="text-sm text-slate-600">Loading your dashboard...</div>
-        </div>
-      </div>
-    )
-  }
-
-  if (homeOwnerLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-blue-50">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <div className="text-lg font-medium text-slate-800 mb-1">Welcome to Rushr Pro</div>
-          <div className="text-sm text-slate-600">Loading your dashboard...</div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" />
       </div>
     )
   }

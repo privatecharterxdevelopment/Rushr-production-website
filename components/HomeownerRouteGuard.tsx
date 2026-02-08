@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../contexts/AuthContext'
 import { useProAuth } from '../contexts/ProAuthContext'
+import LoadingSpinner from './LoadingSpinner'
 
 export default function HomeownerRouteGuard({ children }: { children: React.ReactNode }) {
   const { user: homeownerUser, loading: homeownerLoading } = useAuth()
@@ -23,18 +24,11 @@ export default function HomeownerRouteGuard({ children }: { children: React.Reac
     }
   }, [contractorProfile, homeownerUser, homeownerLoading, router])
 
-  // Show loading while checking auth - GREEN for homeowner
+  // Show loading while checking auth
   if (homeownerLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-emerald-50">
-        <div className="text-center">
-          <img
-            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/contractor-logos/RushrLogoAnimation.gif"
-            alt="Loading..."
-            className="w-12 h-12 object-contain mx-auto mb-4"
-          />
-          <div className="text-sm text-slate-600">Loading Dashboard...</div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" />
       </div>
     )
   }
