@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
         type: 'job_accepted',
         title: 'Contractor Accepted Your Job!',
         message: `${contractor?.business_name || contractor?.name || 'A contractor'} accepted your job "${job.title}" for $${job.direct_amount?.toFixed(2)}`,
-        link: `/jobs/${jobId}`
+        job_id: jobId
       })
 
       // Create conversation between homeowner and contractor

@@ -295,7 +295,7 @@ export default function ProfileSettingsPage() {
         </div>
       )}
 
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="page-container section-spacing max-w-5xl">
         {/* Header */}
         <div className="mb-8">
           {!isNative && (

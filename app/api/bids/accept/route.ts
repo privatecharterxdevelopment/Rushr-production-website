@@ -90,6 +90,16 @@ export async function POST(request: NextRequest) {
 
       const contractorName = contractor?.business_name || contractor?.name || 'Contractor'
 
+      // Persistent bell notification for contractor
+      await supabase.from('notifications').insert({
+        user_id: bid.contractor_id,
+        type: 'bid_accepted',
+        title: 'Your Bid Was Accepted!',
+        message: `${homeowner?.name || 'A homeowner'} accepted your bid of $${bid.bid_amount} for "${job?.title}"`,
+        job_id: jobId,
+        bid_id: bidId
+      })
+
       // Send email notification
       if (contractorAuth?.user?.email && job && homeowner && contractor) {
         await notifyBidAccepted({

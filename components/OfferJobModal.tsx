@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { X, DollarSign, Clock, Calendar, MapPin, Loader2, Home, Navigation, CheckCircle } from 'lucide-react'
+import { X, DollarSign, Clock, Calendar, MapPin, Loader2, Home, Navigation, CheckCircle, Camera } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 
@@ -75,6 +75,10 @@ export default function OfferJobModal({ contractor, onClose, onSuccess }: OfferJ
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([])
   const [showAddressDropdown, setShowAddressDropdown] = useState(false)
   const [loadingLocation, setLoadingLocation] = useState(false)
+
+  // Photo upload state
+  const [photos, setPhotos] = useState<File[]>([])
+  const [uploadingPhotos, setUploadingPhotos] = useState(false)
 
   // Load all saved addresses on mount
   useEffect(() => {
@@ -251,6 +255,43 @@ export default function OfferJobModal({ contractor, onClose, onSuccess }: OfferJ
     }
   }
 
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    setPhotos(prev => [...prev, ...files].slice(0, 3)) // Max 3 photos
+  }
+
+  const removePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const uploadPhotos = async (): Promise<string[]> => {
+    if (photos.length === 0 || !user) return []
+
+    setUploadingPhotos(true)
+    const urls: string[] = []
+
+    for (const photo of photos) {
+      const ext = photo.name.split('.').pop() || 'jpg'
+      const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('job-photos')
+        .upload(path, photo, { contentType: photo.type })
+
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage
+          .from('job-photos')
+          .getPublicUrl(path)
+        if (urlData?.publicUrl) {
+          urls.push(urlData.publicUrl)
+        }
+      }
+    }
+
+    setUploadingPhotos(false)
+    return urls
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -270,6 +311,19 @@ export default function OfferJobModal({ contractor, onClose, onSuccess }: OfferJ
     try {
       if (!session?.access_token) {
         throw new Error('No session token available. Please log in again.')
+      }
+
+      // Upload photos if any
+      let photoUrls: string[] = []
+      if (photos.length > 0) {
+        photoUrls = await uploadPhotos()
+      }
+
+      // Append photo URLs to notes if uploaded
+      let finalNotes = notes.trim() || ''
+      if (photoUrls.length > 0) {
+        const photoSection = photoUrls.map(url => url).join('\n')
+        finalNotes = finalNotes ? `${finalNotes}\n\nPhotos:\n${photoSection}` : `Photos:\n${photoSection}`
       }
 
       const response = await fetch('/api/direct-offers/create', {
@@ -292,7 +346,7 @@ export default function OfferJobModal({ contractor, onClose, onSuccess }: OfferJ
           city: city.trim() || null,
           state: state.trim() || null,
           zip: zip.trim() || null,
-          homeowner_notes: notes.trim() || null,
+          homeowner_notes: finalNotes || null,
         }),
       })
 
@@ -435,6 +489,40 @@ export default function OfferJobModal({ contractor, onClose, onSuccess }: OfferJ
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none resize-none"
               required
             />
+          </div>
+
+          {/* Photos */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              <Camera className="inline h-4 w-4 mr-1" />
+              Photos of the Job
+            </label>
+            <div className="flex items-center gap-3">
+              {photos.map((photo, i) => (
+                <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-200">
+                  <img src={URL.createObjectURL(photo)} alt="" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(i)}
+                    className="absolute top-0 right-0 w-5 h-5 bg-black/60 text-white flex items-center justify-center text-xs rounded-bl-lg"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {photos.length < 3 && (
+                <label className="w-16 h-16 rounded-lg border-2 border-dashed border-slate-300 hover:border-emerald-400 flex items-center justify-center cursor-pointer transition-colors">
+                  <Camera className="w-5 h-5 text-slate-400" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoSelect}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Up to 3 photos (optional)</p>
           </div>
 
           {/* Offered Amount & Duration */}
@@ -606,12 +694,12 @@ export default function OfferJobModal({ contractor, onClose, onSuccess }: OfferJ
             <button
               type="submit"
               className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              disabled={loading}
+              disabled={loading || uploadingPhotos}
             >
-              {loading ? (
+              {loading || uploadingPhotos ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Sending Offer...
+                  {uploadingPhotos ? 'Uploading Photos...' : 'Sending Offer...'}
                 </>
               ) : (
                 'Send Offer'

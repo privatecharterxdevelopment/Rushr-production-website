@@ -36,281 +36,182 @@ export default function BidNotificationSystem() {
   const [notifications, setNotifications] = useState<BidNotification[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
 
-  // Add welcome notification for new homeowners and create welcome conversation
-  useEffect(() => {
-    if (!user || !userProfile) return
+  const userId = user?.id
+  const userRole = userProfile?.role
 
-    // Check if this is a new homeowner user and show welcome notification
-    if (userProfile.role === 'homeowner') {
-      const hasSeenWelcome = localStorage.getItem(`welcome_seen_${user.id}`)
-      if (!hasSeenWelcome) {
-        const welcomeNotification: BidNotification = {
-          id: `welcome_${user.id}`,
-          type: 'welcome',
-          title: 'Welcome to Rushr! 🎉',
-          message: 'Welcome to Rushr! We\'re excited to help you get your projects done quickly and reliably. Check your messages for more info!',
-          created_at: new Date().toISOString(),
-          read: false,
-          link: '/messages'
-        }
-
-        setNotifications(prev => [welcomeNotification, ...prev])
-        localStorage.setItem(`welcome_seen_${user.id}`, 'true')
-
-        // Also create a welcome conversation in the messages
-        // createWelcomeConversation(user.id)
-      }
-    }
-  }, [user, userProfile])
-
-  // Create welcome conversation with Rushr support
-  const createWelcomeConversation = async (homeownerId: string) => {
-    try {
-      // First, check if we already have a welcome conversation
-      console.log('Creating welcome conversation for homeowner:', homeownerId)
-      const { data: existingConv } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('homeowner_id', homeownerId)
-        .eq('title', 'Welcome to Rushr!')
-        .single()
-
-      console.log('existingConv:', existingConv)
-
-      if (existingConv) return // Already exists
-
-      // Create conversation with Rushr as the "pro" (using a special system user ID)
-      const rushrSystemId = 'ece671fd-4e5a-44bc-aed1-d5a5aa3be66f' // Special system user ID
-
-      const { data: conversation, error: convError } = await supabase
-        .from('conversations')
-        .insert({
-          homeowner_id: homeownerId,
-          pro_id: rushrSystemId,
-          title: 'Welcome to Rushr!',
-          status: 'active'
-        })
-        .select()
-
-        console.log('existingConv', conversation)
-
-      if (convError) {
-        // Suppressed: Database connection disabled
-        return
-      }
-
-      // Send welcome message
-      const welcomeMessage = `Welcome to Rushr! 🎉
-
-We're excited to help you get your home projects done quickly and reliably. Here's how it works:
-
-1. **Post a job** - Describe what you need help with
-2. **Get matched** - We'll connect you with qualified professionals
-3. **Get quotes** - Receive competitive quotes from verified pros
-4. **Choose & hire** - Select the best pro and get your project started
-
-If you have any questions or need help, just reply to this message and our support team will assist you.
-
-Thanks for choosing Rushr!
-The Rushr Team`
-
-      await supabase
-        .from('messages')
-        .insert({
-          conversation_id: conversation.id,
-          sender_id: rushrSystemId,
-          message_type: 'system',
-          content: welcomeMessage
-        })
-
-    } catch (error) {
-      console.error('Error creating welcome conversation:', error)
-    }
-  }
+  // Welcome notifications are handled one-time on registration by WelcomeService (database-backed).
 
   // Subscribe to real-time messages for notifications
   useEffect(() => {
-    if (!user || !userProfile) return
+    if (!userId || !userRole) return
 
-    let messageSubscription: ReturnType<typeof supabase.channel> | null = null
+    const channelName = `user_messages_${userId}`
+    const messageSubscription = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=in.(select id from conversations where homeowner_id=eq.${userId} or pro_id=eq.${userId})`
+        },
+        async (payload) => {
+          // Only show notifications for messages from others (not self)
+          if (payload.new.sender_id !== userId) {
+            // Get conversation details to show sender name
+            const { data: conversation } = await supabase
+              .from('conversation_details')
+              .select('*')
+              .eq('id', payload.new.conversation_id)
+              .single()
 
-    try {
-      // Subscribe to new messages for this user
-      messageSubscription = supabase
-        .channel('user_messages')
+            if (conversation) {
+              const isHomeowner = conversation.homeowner_id === userId
+              const senderName = isHomeowner
+                ? (conversation.pro_id === '00000000-0000-0000-0000-000000000000' ? 'Rushr Support' : conversation.pro_name)
+                : conversation.homeowner_name
+
+              const messageNotification: BidNotification = {
+                id: `message_${payload.new.id}`,
+                type: 'new_message',
+                title: `New message from ${senderName || 'Unknown'}`,
+                message: payload.new.content || 'New message received',
+                created_at: payload.new.created_at,
+                read: false,
+                link: `/messages/${conversation.id}`,
+                conversation_id: conversation.id,
+                sender_name: senderName || 'Unknown'
+              }
+
+              setNotifications(prev => [messageNotification, ...prev])
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(messageSubscription)
+    }
+  }, [userId, userRole])
+
+  useEffect(() => {
+    if (!userId || !userRole) return
+
+    // Set up real-time subscriptions based on user role
+    let subscription: ReturnType<typeof supabase.channel> | null = null
+
+    if (userRole === 'homeowner') {
+      // Listen for new bids on homeowner's jobs
+      subscription = supabase
+        .channel(`homeowner_bid_notifications_${userId}`)
         .on(
           'postgres_changes',
           {
             event: 'INSERT',
             schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=in.(select id from conversations where homeowner_id=eq.${user.id} or pro_id=eq.${user.id})`
+            table: 'job_bids',
+            filter: `homeowner_id=eq.${userId}`
           },
           async (payload) => {
-            // Only show notifications for messages from others (not self)
-            if (payload.new.sender_id !== user.id) {
-              // Get conversation details to show sender name
-              const { data: conversation } = await supabase
-                .from('conversation_details')
-                .select('*')
-                .eq('id', payload.new.conversation_id)
-                .single()
+            // Fetch job and contractor details
+            const { data: jobData } = await supabase
+              .from('homeowner_jobs')
+              .select('title')
+              .eq('id', payload.new.job_id)
+              .single()
 
-              if (conversation) {
-                const isHomeowner = conversation.homeowner_id === user.id
-                const senderName = isHomeowner
-                  ? (conversation.pro_id === '00000000-0000-0000-0000-000000000000' ? 'Rushr Support' : conversation.pro_name)
-                  : conversation.homeowner_name
+            const { data: contractorData } = await supabase
+              .from('user_profiles')
+              .select('name')
+              .eq('id', payload.new.contractor_id)
+              .single()
 
-                const messageNotification: BidNotification = {
-                  id: `message_${payload.new.id}`,
-                  type: 'new_message',
-                  title: `New message from ${senderName || 'Unknown'}`,
-                  message: payload.new.content || 'New message received',
-                  created_at: payload.new.created_at,
-                  read: false,
-                  link: `/messages/${conversation.id}`,
-                  conversation_id: conversation.id,
-                  sender_name: senderName || 'Unknown'
-                }
-
-                setNotifications(prev => [messageNotification, ...prev])
-              }
+            const notification: BidNotification = {
+              id: `bid_${payload.new.id}`,
+              type: 'new_bid',
+              title: 'New Bid Received',
+              message: `${contractorData?.name || 'A contractor'} submitted a bid of $${payload.new.bid_amount} for "${jobData?.title || 'your job'}"`,
+              job_id: payload.new.job_id,
+              job_title: jobData?.title || 'Unknown Job',
+              bid_id: payload.new.id,
+              contractor_name: contractorData?.name,
+              amount: payload.new.bid_amount,
+              created_at: new Date().toISOString(),
+              read: false
             }
+
+            setNotifications(prev => [notification, ...prev])
           }
         )
         .subscribe()
-    } catch (err) {
-      console.error('Error setting up message subscription:', err)
-    }
-
-    return () => {
-      if (messageSubscription) {
-        supabase.removeChannel(messageSubscription)
-      }
-    }
-  }, [user, userProfile])
-
-  useEffect(() => {
-    if (!user || !userProfile) return
-
-    // Set up real-time subscriptions based on user role
-    let subscription: ReturnType<typeof supabase.channel> | null = null
-
-    try {
-      if (userProfile.role === 'homeowner') {
-        // Listen for new bids on homeowner's jobs
-        subscription = supabase
-          .channel('homeowner_bid_notifications')
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'job_bids',
-              filter: `homeowner_id=eq.${user.id}`
-            },
-            async (payload) => {
-              // Fetch job and contractor details
+    } else if (userRole === 'contractor') {
+      // Listen for bid status updates for contractor's bids
+      subscription = supabase
+        .channel(`contractor_bid_notifications_${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'job_bids',
+            filter: `contractor_id=eq.${userId}`
+          },
+          async (payload) => {
+            if (payload.old.status !== payload.new.status) {
+              // Fetch job and homeowner details
               const { data: jobData } = await supabase
                 .from('homeowner_jobs')
                 .select('title')
                 .eq('id', payload.new.job_id)
                 .single()
 
-              const { data: contractorData } = await supabase
+              const { data: homeownerData } = await supabase
                 .from('user_profiles')
                 .select('name')
-                .eq('id', payload.new.contractor_id)
+                .eq('id', payload.new.homeowner_id)
                 .single()
 
-              const notification: BidNotification = {
-                id: `bid_${payload.new.id}`,
-                type: 'new_bid',
-                title: 'New Bid Received',
-                message: `${contractorData?.name || 'A contractor'} submitted a bid of $${payload.new.bid_amount} for "${jobData?.title || 'your job'}"`,
-                job_id: payload.new.job_id,
-                job_title: jobData?.title || 'Unknown Job',
-                bid_id: payload.new.id,
-                contractor_name: contractorData?.name,
-                amount: payload.new.bid_amount,
-                created_at: new Date().toISOString(),
-                read: false
+              let notification: BidNotification
+
+              if (payload.new.status === 'accepted') {
+                notification = {
+                  id: `bid_accepted_${payload.new.id}`,
+                  type: 'bid_accepted',
+                  title: 'Bid Accepted!',
+                  message: `Your bid of $${payload.new.bid_amount} for "${jobData?.title || 'the job'}" has been accepted by ${homeownerData?.name || 'the homeowner'}`,
+                  job_id: payload.new.job_id,
+                  job_title: jobData?.title || 'Unknown Job',
+                  bid_id: payload.new.id,
+                  homeowner_name: homeownerData?.name,
+                  amount: payload.new.bid_amount,
+                  created_at: new Date().toISOString(),
+                  read: false
+                }
+              } else if (payload.new.status === 'rejected') {
+                notification = {
+                  id: `bid_rejected_${payload.new.id}`,
+                  type: 'bid_rejected',
+                  title: 'Bid Not Selected',
+                  message: `Your bid for "${jobData?.title || 'the job'}" was not selected. Keep bidding on other opportunities!`,
+                  job_id: payload.new.job_id,
+                  job_title: jobData?.title || 'Unknown Job',
+                  bid_id: payload.new.id,
+                  homeowner_name: homeownerData?.name,
+                  amount: payload.new.bid_amount,
+                  created_at: new Date().toISOString(),
+                  read: false
+                }
+              } else {
+                return // Don't create notification for other status changes
               }
 
               setNotifications(prev => [notification, ...prev])
             }
-          )
-          .subscribe()
-      } else if (userProfile.role === 'contractor') {
-        // Listen for bid status updates for contractor's bids
-        subscription = supabase
-          .channel('contractor_bid_notifications')
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'job_bids',
-              filter: `contractor_id=eq.${user.id}`
-            },
-            async (payload) => {
-              if (payload.old.status !== payload.new.status) {
-                // Fetch job and homeowner details
-                const { data: jobData } = await supabase
-                  .from('homeowner_jobs')
-                  .select('title')
-                  .eq('id', payload.new.job_id)
-                  .single()
-
-                const { data: homeownerData } = await supabase
-                  .from('user_profiles')
-                  .select('name')
-                  .eq('id', payload.new.homeowner_id)
-                  .single()
-
-                let notification: BidNotification
-
-                if (payload.new.status === 'accepted') {
-                  notification = {
-                    id: `bid_accepted_${payload.new.id}`,
-                    type: 'bid_accepted',
-                    title: 'Bid Accepted!',
-                    message: `Your bid of $${payload.new.bid_amount} for "${jobData?.title || 'the job'}" has been accepted by ${homeownerData?.name || 'the homeowner'}`,
-                    job_id: payload.new.job_id,
-                    job_title: jobData?.title || 'Unknown Job',
-                    bid_id: payload.new.id,
-                    homeowner_name: homeownerData?.name,
-                    amount: payload.new.bid_amount,
-                    created_at: new Date().toISOString(),
-                    read: false
-                  }
-                } else if (payload.new.status === 'rejected') {
-                  notification = {
-                    id: `bid_rejected_${payload.new.id}`,
-                    type: 'bid_rejected',
-                    title: 'Bid Not Selected',
-                    message: `Your bid for "${jobData?.title || 'the job'}" was not selected. Keep bidding on other opportunities!`,
-                    job_id: payload.new.job_id,
-                    job_title: jobData?.title || 'Unknown Job',
-                    bid_id: payload.new.id,
-                    homeowner_name: homeownerData?.name,
-                    amount: payload.new.bid_amount,
-                    created_at: new Date().toISOString(),
-                    read: false
-                  }
-                } else {
-                  return // Don't create notification for other status changes
-                }
-
-                setNotifications(prev => [notification, ...prev])
-              }
-            }
-          )
-          .subscribe()
-      }
-    } catch (err) {
-      console.error('Error setting up bid subscription:', err)
+          }
+        )
+        .subscribe()
     }
 
     return () => {
@@ -318,7 +219,7 @@ The Rushr Team`
         supabase.removeChannel(subscription)
       }
     }
-  }, [user, userProfile])
+  }, [userId, userRole])
 
   const markAsRead = (notificationId: string) => {
     setNotifications(prev =>
@@ -464,12 +365,7 @@ The Rushr Team`
               <button
                 onClick={() => {
                   setShowNotifications(false)
-                  // Navigate to appropriate page based on user role
-                  if (userProfile.role === 'homeowner') {
-                    window.location.href = '/dashboard/homeowner/bids'
-                  } else {
-                    window.location.href = '/jobs'
-                  }
+                  window.location.href = '/dashboard/notifications'
                 }}
                 className="w-full text-center text-sm text-blue-600 hover:text-blue-800"
               >

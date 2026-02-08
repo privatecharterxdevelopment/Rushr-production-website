@@ -35,6 +35,7 @@ export interface HomeownerJob {
 
 export function useHomeownerStats() {
   const { user } = useAuth()
+  const userId = user?.id
   const [stats, setStats] = useState<HomeownerStats | null>(null)
   const [jobs, setJobs] = useState<HomeownerJob[]>([])
   const [loading, setLoading] = useState(true)
@@ -85,8 +86,14 @@ export function useHomeownerStats() {
       }
 
     } catch (err: any) {
-      console.error('Error in fetchStats:', err?.message || JSON.stringify(err))
-      setError(err?.message || 'Failed to load data')
+      // Suppress transient network errors (Failed to fetch, AbortError, etc.)
+      const isNetworkError = err?.message?.includes('Failed to fetch') ||
+                             err?.message?.includes('Load failed') ||
+                             err?.name === 'AbortError'
+      if (!isNetworkError) {
+        console.error('Error in fetchStats:', err?.message || JSON.stringify(err))
+        setError(err?.message || 'Failed to load data')
+      }
     } finally {
       setLoading(false)
     }
@@ -136,7 +143,7 @@ export function useHomeownerStats() {
   useEffect(() => {
     let isMounted = true
 
-    if (!user) {
+    if (!userId) {
       // Reset state when no user
       setStats(null)
       setJobs([])
@@ -146,7 +153,7 @@ export function useHomeownerStats() {
 
     // Initial fetch
     const loadInitialData = async () => {
-      if (!user || !isMounted) return
+      if (!userId || !isMounted) return
 
       try {
         // Fetch stats and jobs in parallel
@@ -154,12 +161,12 @@ export function useHomeownerStats() {
           supabase
             .from('homeowner_dashboard_stats')
             .select('*')
-            .eq('homeowner_id', user.id)
+            .eq('homeowner_id', userId)
             .single(),
           supabase
             .from('homeowner_jobs')
             .select('*')
-            .eq('homeowner_id', user.id)
+            .eq('homeowner_id', userId)
             .order('created_at', { ascending: false })
             .limit(10)
         ])
@@ -237,14 +244,14 @@ export function useHomeownerStats() {
 
     // Subscribe to job changes
     const jobsSubscription = supabase
-      .channel('homeowner_jobs_changes')
+      .channel(`homeowner_jobs_changes_${userId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'homeowner_jobs',
-          filter: `homeowner_id=eq.${user.id}`
+          filter: `homeowner_id=eq.${userId}`
         },
         () => {
           debouncedRefresh()
@@ -255,9 +262,9 @@ export function useHomeownerStats() {
     return () => {
       isMounted = false
       if (debounceTimer) clearTimeout(debounceTimer)
-      jobsSubscription.unsubscribe()
+      supabase.removeChannel(jobsSubscription)
     }
-  }, [user])
+  }, [userId])
 
   return {
     stats,

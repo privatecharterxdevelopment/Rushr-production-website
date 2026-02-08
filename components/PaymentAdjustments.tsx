@@ -80,10 +80,20 @@ export default function PaymentAdjustments({ userId, userType, limit = 5 }: Prop
         .order('created_at', { ascending: false })
         .limit(limit)
 
-      if (error) throw error
+      if (error) {
+        // Table may not exist yet if migration hasn't been applied
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          setAdjustments([])
+          return
+        }
+        throw error
+      }
       setAdjustments(data || [])
-    } catch (error) {
-      console.error('Error fetching adjustments:', error)
+    } catch (error: any) {
+      // Suppress "relation does not exist" errors from missing migration
+      if (error?.code !== '42P01' && !error?.message?.includes('does not exist')) {
+        console.error('Error fetching adjustments:', error)
+      }
     } finally {
       setLoading(false)
     }

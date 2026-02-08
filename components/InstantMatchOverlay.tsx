@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabaseClient'
 import { openAuth } from './AuthModal'
 import { useAuth } from '../contexts/AuthContext'
 import dynamic from 'next/dynamic'
+import OfferJobModal from './OfferJobModal'
 
 // Dynamically import map to avoid SSR issues
 const ContractorMap = dynamic(() => import('./ContractorMap'), {
@@ -134,7 +135,7 @@ export default function InstantMatchOverlay({
   const [minPrice, setMinPrice] = useState(0)
   const [maxPrice, setMaxPrice] = useState(200)
   const [searchZip, setSearchZip] = useState(userLocation?.zip || '')
-  const [searchRadius, setSearchRadius] = useState(1)
+  const [searchRadius, setSearchRadius] = useState(25)
 
   // Real ETA from route calculation
   const [realEta, setRealEta] = useState<number | null>(null)
@@ -172,6 +173,10 @@ export default function InstantMatchOverlay({
 
   // Job description from homeowner
   const [jobDescription, setJobDescription] = useState('')
+
+  // Nearby contractors (offline/busy) shown when no online pros found
+  const [nearbyContractors, setNearbyContractors] = useState<Contractor[]>([])
+  const [showOfferModal, setShowOfferModal] = useState(false)
 
   // Direct Payment Job state
   const [isDirectPaymentJob, setIsDirectPaymentJob] = useState(!!jobId)
@@ -521,7 +526,7 @@ export default function InstantMatchOverlay({
         .sort((a, b) => a.distance_miles - b.distance_miles)
 
       if (contractorsWithDistance.length === 0) {
-        // No contractors found - timeout will handle showing no_pros
+        // No online contractors found - fetch ALL approved contractors nearby (including offline/busy)
         if (!notificationsSentRef.current) {
           notificationsSentRef.current = true
           const { data: emergencyContractors } = await supabase
@@ -532,7 +537,69 @@ export default function InstantMatchOverlay({
             sendEmergencyNotifications(emergencyContractors)
           }
         }
-        // Let the 5-second timeout handle showing no_pros
+
+        // Fetch ALL approved contractors regardless of availability
+        const { data: allApproved } = await supabase
+          .from('pro_contractors')
+          .select('*')
+          .eq('status', 'approved')
+
+        const nearbyWithDistance = (allApproved || [])
+          .filter(c => c.latitude && c.longitude)
+          .map(c => {
+            const distance = calculateDistance(
+              currentLocation.lat,
+              currentLocation.lng,
+              Number(c.latitude),
+              Number(c.longitude)
+            )
+            return {
+              id: c.id,
+              name: c.name || c.business_name,
+              business_name: c.business_name || c.name,
+              rating: c.rating || 4.5 + Math.random() * 0.5,
+              total_jobs: c.total_jobs || Math.floor(Math.random() * 200) + 50,
+              hourly_rate: c.hourly_rate || 65,
+              peak_rate: c.peak_rate || null,
+              off_peak_rate: c.off_peak_rate || null,
+              surge_rate: c.surge_rate || null,
+              visit_fee: c.visit_fee || null,
+              diagnostic_fee: c.diagnostic_fee || null,
+              rate_type: c.rate_type || 'Hourly',
+              categories: c.categories || [],
+              latitude: Number(c.latitude),
+              longitude: Number(c.longitude),
+              distance_miles: distance,
+              eta_minutes: calculateETA(distance),
+              availability: c.availability as 'online' | 'busy' | 'offline',
+              profile_image: c.profile_image,
+              years_in_business: c.years_in_business || Math.floor(Math.random() * 15) + 1,
+              response_time_minutes: c.response_time_minutes || Math.floor(Math.random() * 10) + 2,
+              bio: c.bio || `Professional ${category || 'service'} provider with years of experience.`
+            }
+          })
+          .filter(c => {
+            // Apply category filter if set
+            if (categoryFilters.length > 0) {
+              const cats = c.categories || []
+              return cats.some((cat: string) =>
+                categoryFilters.some(filter =>
+                  cat.toLowerCase().includes(filter.toLowerCase()) ||
+                  filter.toLowerCase().includes(cat.toLowerCase())
+                )
+              )
+            }
+            return true
+          })
+          .filter(c => c.distance_miles <= maxRadius)
+          .sort((a, b) => a.distance_miles - b.distance_miles)
+
+        if (nearbyWithDistance.length > 0) {
+          setNearbyContractors(nearbyWithDistance)
+          setVisibleContractors(nearbyWithDistance) // Show them on the map
+        }
+
+        // Let the timeout handle showing no_pros phase
         return
       }
 
@@ -963,6 +1030,7 @@ export default function InstantMatchOverlay({
   if (!isOpen) return null
 
   return (
+    <>
     <AnimatePresence>
       <motion.div
         initial={{ opacity: 0 }}
@@ -2018,22 +2086,224 @@ export default function InstantMatchOverlay({
                       </div>
                     )}
 
-                    {/* No Pros State - switched to bids mode */}
+                    {/* No Pros State */}
                     {phase === 'no_pros' && (
-                      <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                        <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
-                          <CheckCircle className="w-8 h-8 text-emerald-600" />
-                        </div>
-                        <p className="text-slate-900 font-semibold text-lg">Switched to Bids Mode</p>
-                        <p className="text-slate-500 text-sm mt-2 max-w-xs">
-                          No {getTradePlural(category).toLowerCase()} are instantly available right now. Your job has been posted — you'll receive bids from contractors shortly.
-                        </p>
-                        <button
-                          onClick={onClose}
-                          className="mt-6 px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
-                        >
-                          Got it
-                        </button>
+                      <div className="flex flex-col h-full">
+                        {nearbyContractors.length > 0 && !selectedContractor ? (
+                          /* Nearby contractors list */
+                          <>
+                            <div className="px-4 pt-4 pb-2">
+                              <p className="text-slate-900 font-semibold text-lg">
+                                {nearbyContractors.length} {getTradePlural(category)} in Your Area
+                              </p>
+                              <p className="text-slate-500 text-sm mt-1">
+                                Not instantly available — send a direct offer
+                              </p>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto px-4 pb-2 space-y-2">
+                              {nearbyContractors.map((c) => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => setSelectedContractor(c)}
+                                  className="w-full bg-white rounded-xl p-3 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors text-left"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    {c.profile_image ? (
+                                      <img src={c.profile_image} alt={c.business_name} className="w-11 h-11 rounded-xl object-cover flex-shrink-0" />
+                                    ) : (
+                                      <div className="w-11 h-11 rounded-xl bg-slate-500 flex items-center justify-center flex-shrink-0">
+                                        <span className="text-white font-bold text-lg">{c.business_name?.charAt(0) || 'P'}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <h4 className="font-semibold text-slate-900 text-sm truncate">{c.business_name}</h4>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                          <Star className="w-3 h-3 text-amber-500 fill-current" />
+                                          <span className="text-xs font-medium text-slate-700">{c.rating.toFixed(1)}</span>
+                                        </div>
+                                        <span className="text-slate-300">·</span>
+                                        <span className="text-xs text-slate-500">{c.distance_miles.toFixed(1)} mi</span>
+                                        <span className="text-slate-300">·</span>
+                                        <span className="text-xs font-medium text-slate-600">${c.hourly_rate}/hr</span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 mt-1">
+                                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${c.availability === 'online' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                        <span className="text-[10px] text-slate-400 capitalize">{c.availability}</span>
+                                        {c.categories?.[0] && (
+                                          <>
+                                            <span className="text-slate-300">·</span>
+                                            <span className="text-[10px] text-slate-400">{c.categories[0]}</span>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="px-4 py-3 space-y-2 border-t border-slate-100">
+                              <button
+                                onClick={() => {
+                                  onClose()
+                                  router.push(`/post-job${category ? `?category=${encodeURIComponent(category)}` : ''}`)
+                                }}
+                                className="w-full px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm"
+                              >
+                                Post a Job Instead
+                              </button>
+                              <button
+                                onClick={onClose}
+                                className="w-full px-4 py-2 text-slate-500 hover:text-slate-700 transition-colors text-xs"
+                              >
+                                Close
+                              </button>
+                            </div>
+                          </>
+                        ) : nearbyContractors.length > 0 && selectedContractor ? (
+                          /* Selected contractor profile */
+                          <div className="flex flex-col h-full">
+                            <div className="px-4 pt-3 pb-2">
+                              <button
+                                onClick={() => setSelectedContractor(null)}
+                                className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                                Back to list
+                              </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto px-4 space-y-3">
+                              {/* Profile Card */}
+                              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                                <div className="flex items-start gap-3">
+                                  {selectedContractor.profile_image ? (
+                                    <img src={selectedContractor.profile_image} alt={selectedContractor.business_name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
+                                  ) : (
+                                    <div className="w-14 h-14 rounded-xl bg-slate-500 flex items-center justify-center flex-shrink-0">
+                                      <span className="text-white font-bold text-xl">{selectedContractor.business_name?.charAt(0) || 'P'}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="font-semibold text-slate-900 truncate">{selectedContractor.business_name}</h3>
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
+                                      <span className="font-medium text-sm text-slate-900">{selectedContractor.rating.toFixed(1)}</span>
+                                      <span className="text-slate-300 ml-1">·</span>
+                                      <span className="text-xs text-slate-500 ml-1">{selectedContractor.total_jobs} jobs</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Verified
+                                      </span>
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                        selectedContractor.availability === 'online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                      }`}>
+                                        {selectedContractor.availability === 'online' ? 'Online' : 'Offline'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Distance & Rate */}
+                              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="text-lg font-bold text-slate-700">{selectedContractor.distance_miles.toFixed(1)} mi</div>
+                                    <div className="text-xs text-slate-500">away</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-lg font-bold text-emerald-600">${selectedContractor.hourly_rate}/hr</div>
+                                    <div className="text-xs text-slate-500">Base rate</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Categories */}
+                              {selectedContractor.categories?.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {selectedContractor.categories.map((cat, i) => (
+                                    <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs">{cat}</span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Bio */}
+                              {selectedContractor.bio && (
+                                <p className="text-sm text-slate-600">{selectedContractor.bio}</p>
+                              )}
+
+                              {/* Stats */}
+                              <div className="grid grid-cols-2 gap-2">
+                                {selectedContractor.years_in_business && (
+                                  <div className="bg-white rounded-lg p-2 border border-slate-100 text-center">
+                                    <div className="text-sm font-semibold text-slate-900">{selectedContractor.years_in_business} yrs</div>
+                                    <div className="text-[10px] text-slate-400">Experience</div>
+                                  </div>
+                                )}
+                                {selectedContractor.response_time_minutes && (
+                                  <div className="bg-white rounded-lg p-2 border border-slate-100 text-center">
+                                    <div className="text-sm font-semibold text-slate-900">{selectedContractor.response_time_minutes} min</div>
+                                    <div className="text-[10px] text-slate-400">Avg. response</div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="px-4 py-3 space-y-2 border-t border-slate-100">
+                              <button
+                                onClick={() => setShowOfferModal(true)}
+                                className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <DollarSign className="w-5 h-5" />
+                                Send Direct Offer
+                              </button>
+                              <button
+                                onClick={() => {
+                                  onClose()
+                                  router.push(`/post-job${category ? `?category=${encodeURIComponent(category)}` : ''}`)
+                                }}
+                                className="w-full py-2.5 text-slate-500 hover:text-slate-700 border border-slate-200 rounded-xl transition-colors text-sm"
+                              >
+                                Post a Job Instead
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* No contractors at all */
+                          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                            <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+                              <Users className="w-8 h-8 text-amber-600" />
+                            </div>
+                            <p className="text-slate-900 font-semibold text-lg">No {getTradePlural(category)} Available Right Now</p>
+                            <p className="text-slate-500 text-sm mt-2 max-w-xs">
+                              No {getTradePlural(category).toLowerCase()} are in your area yet. Post a job and receive bids from contractors shortly.
+                            </p>
+                            <div className="mt-6 space-y-3 w-full max-w-xs">
+                              <button
+                                onClick={() => {
+                                  onClose()
+                                  router.push(`/post-job${category ? `?category=${encodeURIComponent(category)}` : ''}`)
+                                }}
+                                className="w-full px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors"
+                              >
+                                Post a Job
+                              </button>
+                              <button
+                                onClick={onClose}
+                                className="w-full px-6 py-2.5 text-slate-500 hover:text-slate-700 transition-colors text-sm"
+                              >
+                                Close
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2080,5 +2350,24 @@ export default function InstantMatchOverlay({
         </div>
       </motion.div>
     </AnimatePresence>
+
+    {/* Direct Offer Modal */}
+    {showOfferModal && selectedContractor && (
+      <OfferJobModal
+        contractor={{
+          id: selectedContractor.id,
+          name: selectedContractor.business_name,
+          services: selectedContractor.categories,
+          rating: selectedContractor.rating
+        }}
+        onClose={() => setShowOfferModal(false)}
+        onSuccess={() => {
+          setShowOfferModal(false)
+          onClose()
+          router.push('/dashboard/homeowner/offers')
+        }}
+      />
+    )}
+    </>
   )
 }

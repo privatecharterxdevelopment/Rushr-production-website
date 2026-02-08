@@ -216,6 +216,17 @@ export default function ContractorJobsPage() {
         setShowSuccessModal(true)
         fetchDirectJobs()
         fetchMyJobs()
+
+        // Notify homeowner (bell + email) — fire and forget
+        fetch('/api/jobs/notify-direct-acceptance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: job.id,
+            contractorId: user.id,
+            bidAmount: job.direct_amount
+          })
+        }).catch(err => console.error('Notify direct acceptance error:', err))
       }
     } catch (err) {
       console.error('Error accepting direct job:', err)

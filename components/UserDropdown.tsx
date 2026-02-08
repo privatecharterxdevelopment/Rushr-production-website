@@ -216,7 +216,7 @@ export default function UserDropdown() {
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{user.email}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-500 capitalize">
-                  {profile?.subscription_type || 'free'} • {roleLabel}
+                  {roleLabel}
                 </p>
               </div>
             </div>

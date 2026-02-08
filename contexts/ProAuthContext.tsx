@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/navigation'
@@ -59,6 +59,9 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+
+  // Track whether signIn() just loaded the profile — skip redundant fetch in onAuthStateChange
+  const profileLoadedBySignIn = useRef(false)
 
   const fetchContractorProfile = async (userId: string) => {
     try {
@@ -252,25 +255,28 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
+          // If signIn() already loaded the profile, skip the redundant DB query
+          if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
+            profileLoadedBySignIn.current = false
+            setLoading(false)
+            return
+          }
+
           setSession(session)
           setUser(session?.user ?? null)
 
           if (session?.user) {
-            // Check if this user is actually a contractor by checking pro_contractors table
             const { data: profile, error: profileError } = await supabase
               .from('pro_contractors')
               .select('*')
               .eq('id', session.user.id)
               .single()
 
-            // Only update state if component is still mounted
             if (mounted) {
               if (!profileError && profile) {
-                // This is a contractor
                 setContractorProfile(profile)
                 console.log('[PRO-AUTH] Contractor profile loaded')
               } else {
-                // Not a contractor, don't set profile
                 setContractorProfile(null)
                 console.log('[PRO-AUTH] Not a contractor, skipping profile')
               }
@@ -294,7 +300,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false
-      supabase.removeChannel(subscription)
+      subscription.unsubscribe()
     }
   }, [])
 
@@ -351,17 +357,33 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id])
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
+    try {
+      setLoading(true)
 
-    if (error) {
-      return { error: error.message }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+
+      if (error) {
+        setLoading(false)
+        return { error: error.message }
+      }
+
+      if (data.user && data.session) {
+        // Set auth state and load profile BEFORE returning — dashboard will have everything
+        profileLoadedBySignIn.current = true
+        setUser(data.user)
+        setSession(data.session)
+        await fetchContractorProfile(data.user.id)
+      }
+
+      setLoading(false)
+      return { success: true }
+    } catch (err: any) {
+      setLoading(false)
+      return { error: err?.message || 'Sign in failed' }
     }
-
-    // Profile fetching and routing will be handled by auth state change listener
-    return { success: true }
   }
 
   const signUp = async (email: string, password: string, contractorData: ContractorSignupData) => {

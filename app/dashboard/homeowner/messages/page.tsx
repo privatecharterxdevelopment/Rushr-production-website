@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useAuth } from '../../../../contexts/AuthContext'
 import { supabase } from '../../../../lib/supabaseClient'
 import { ArrowLeft, Send, MessageSquare, Briefcase } from 'lucide-react'
+import LoadingSpinner from '../../../../components/LoadingSpinner'
 
 interface Conversation {
   id: string
@@ -394,11 +395,8 @@ function MessagesContent() {
   // Early return if auth is still loading
   if (authLoading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
-        <div className="text-center">
-          <div className="h-10 w-10 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Loading...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner size="lg" />
       </div>
     )
   }
@@ -418,11 +416,8 @@ function MessagesContent() {
   // Show loading while fetching data
   if (loading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
-        <div className="text-center">
-          <div className="h-10 w-10 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Loading messages...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner size="lg" />
       </div>
     )
   }

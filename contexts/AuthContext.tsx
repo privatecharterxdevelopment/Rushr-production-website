@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/navigation'
@@ -55,6 +55,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
+  // Track whether signIn() just loaded the profile — skip redundant fetch in onAuthStateChange
+  const profileLoadedBySignIn = useRef(false)
+
   const fetchUserProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -64,7 +67,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (error) {
-        // Only log actual errors, not "no rows" scenarios
         if (error.code !== 'PGRST116') {
           console.error('[AuthContext] Error fetching user profile:', error)
         }
@@ -73,7 +75,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data) {
-        // Set profile for homeowners OR admins (admins might not have role set)
         setUserProfile(data)
         console.log('[AuthContext] Profile loaded successfully, role:', data.role)
       }
@@ -89,40 +90,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-
   useEffect(() => {
     let mounted = true
 
-    // VERCEL FIX: Timeout to prevent infinite loading
+    // Safety timeout to prevent infinite loading
     const loadingTimeout = setTimeout(() => {
       if (mounted) {
         console.warn('[AuthContext] Loading timeout - forcing loading to false')
         setLoading(false)
       }
-    }, 5000) // 5 second timeout
+    }, 3000)
 
     const initializeAuth = async () => {
       try {
-        // Get current session
         const { data: { session }, error } = await supabase.auth.getSession()
 
         if (!mounted) return
 
         if (error) {
-          console.error('Error getting session:', {
-            message: error.message,
-            status: error.status
-          })
+          console.error('Error getting session:', error.message)
           clearTimeout(loadingTimeout)
           setLoading(false)
           return
         }
 
-        // Set initial auth state
         setSession(session)
         setUser(session?.user ?? null)
 
-        // Fetch profile if user exists
         if (session?.user) {
           await fetchUserProfile(session.user.id)
         }
@@ -138,7 +132,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Initialize auth state
     initializeAuth()
 
     // Listen for auth changes
@@ -146,7 +139,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         console.log('[HOMEOWNER-AUTH] Event:', event, 'User:', session?.user?.id?.substring(0, 8))
 
-        // Handle SIGNED_OUT event immediately
         if (event === 'SIGNED_OUT') {
           setSession(null)
           setUser(null)
@@ -155,28 +147,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
+        // If signIn() already loaded the profile, skip the redundant DB query
+        if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
+          profileLoadedBySignIn.current = false
+          // State already set by signIn() — just ensure loading is false
+          setLoading(false)
+          return
+        }
+
         setSession(session)
         setUser(session?.user ?? null)
 
         if (session?.user) {
-          // Fetch profile and check if it's a homeowner
           const { data: profile, error: profileError } = await supabase
             .from('user_profiles')
             .select('*')
             .eq('id', session.user.id)
             .single()
 
-          // Only update state if component is still mounted
           if (mounted) {
             if (!profileError && profile) {
-              // Only set profile if user is a homeowner
               if (profile.role === 'homeowner') {
                 setUserProfile(profile)
-                console.log('[AuthContext] Homeowner profile loaded')
               } else {
-                // This is a contractor, don't set homeowner profile
                 setUserProfile(null)
-                console.log('[AuthContext] Contractor detected, skipping homeowner profile')
               }
             } else {
               setUserProfile(null)
@@ -188,7 +182,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // CRITICAL: Always clear loading, even if unmounted - prevents stuck loading state
         setLoading(false)
       }
     )
@@ -196,41 +189,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false
       clearTimeout(loadingTimeout)
-      supabase.removeChannel(subscription)
+      subscription.unsubscribe()
     }
-  }, [router])
+  }, [])
 
   const signIn = async (email: string, password: string) => {
     try {
+      setLoading(true)
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
       if (error) {
+        setLoading(false)
         return { error: error.message }
       }
 
-      // Check if this user is a contractor - homeowner login should reject contractors
       if (data.user) {
+        // Fetch FULL profile in one query — combines role check + profile load
         const { data: profile, error: profileError } = await supabase
           .from('user_profiles')
-          .select('role')
+          .select('*')
           .eq('id', data.user.id)
           .single()
 
         if (!profileError && profile && profile.role === 'contractor') {
-          // Sign out the contractor immediately
           await supabase.auth.signOut()
+          setLoading(false)
           return {
             error: 'This is a contractor account. Please use the contractor login at /pro/sign-in instead.'
           }
         }
+
+        // Set ALL state before returning — dashboard will have everything it needs
+        profileLoadedBySignIn.current = true
+        setUser(data.user)
+        setSession(data.session)
+        if (!profileError && profile) {
+          setUserProfile(profile)
+        }
       }
 
+      setLoading(false)
       showGlobalToast('Signed in successfully!', 'success')
       return { success: true }
     } catch (err: any) {
+      setLoading(false)
       return { error: err?.message || 'Sign in failed' }
     }
   }
@@ -269,7 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Error creating homeowner profile:', profileError)
         }
 
-        // Send welcome email via API (non-blocking - don't fail signup if email fails)
+        // Send welcome email via API (non-blocking)
         fetch('/api/send-welcome-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -280,15 +286,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           })
         }).catch(emailError => {
           console.error('Failed to send welcome email:', emailError)
-          // Don't fail signup if email fails
         })
       }
 
-      // Check if running on iOS native app
       const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform()
 
-      // On iOS: Skip email confirmation - user is logged in immediately
-      // On Web: Still require email confirmation for security
       if (data.user && !data.user.email_confirmed_at && !isNative) {
         return {
           success: true,
@@ -299,15 +301,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // iOS native: User is already logged in after signUp, set state immediately
       if (isNative && data.user && data.session) {
+        profileLoadedBySignIn.current = true
         setUser(data.user)
         setSession(data.session)
         if (role === 'homeowner') {
-          // Wait a moment for the profile to be created in the database
           await new Promise(resolve => setTimeout(resolve, 500))
           await fetchUserProfile(data.user.id)
 
-          // If profile still doesn't have name, set it directly
-          // This handles race condition where profile was fetched before insert completed
           if (!userProfile?.name) {
             setUserProfile({
               id: data.user.id,
@@ -332,12 +332,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('[HOMEOWNER-AUTH] Signing out user')
 
     try {
-      // 1. Reset in-memory state FIRST (prevent UI flicker)
       setUser(null)
       setUserProfile(null)
       setSession(null)
 
-      // 2. Sign out from Supabase (clears auth tokens only)
       const { error } = await supabase.auth.signOut()
       if (error) {
         console.error('[HOMEOWNER-AUTH] Supabase signOut error:', error.message)
@@ -345,13 +343,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // 3. Supabase.auth.signOut() already clears session from localStorage
-      // No need to manually clear - it handles it automatically
-
-      // 4. Toast feedback
       showGlobalToast('You have been logged out successfully.', 'success')
-
-      // 5. Redirect cleanly using Next.js router
       router.push('/')
     } catch (err) {
       console.error('[HOMEOWNER-AUTH] Fatal logout error:', err)

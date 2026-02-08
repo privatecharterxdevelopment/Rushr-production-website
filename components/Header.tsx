@@ -15,7 +15,7 @@ import { openAuth } from './AuthModal'
 import { openProAuth } from './ProAuthModal'
 import ProAuthModal from './ProAuthModal'
 import UserDropdown from './UserDropdown'
-import BidNotificationSystem from './BidNotification'
+import NotificationBell from './NotificationBell'
 
 function BellIcon(props: any) {
   return (
@@ -108,7 +108,8 @@ export default function Header() {
   }
 
   // Simple logic: determine if we're on a pro route
-  const isProRoute = pathname.startsWith('/pro') || pathname.startsWith('/dashboard/contractor')
+  // Note: /profile is NOT a pro route — must exclude it from /pro prefix match
+  const isProRoute = (pathname.startsWith('/pro') && !pathname.startsWith('/profile')) || pathname.startsWith('/dashboard/contractor')
 
   // Determine user type and signed in status
   const isSignedInAsHomeowner = !!homeownerUser && !!userProfile
@@ -431,7 +432,7 @@ export default function Header() {
           ) : (
             <>
               {/* Bid notifications */}
-              <BidNotificationSystem />
+              <NotificationBell />
               {/* Get Help Now button for logged in homeowners only (not contractors) */}
               {isSignedInAsHomeowner && !isProRoute && !isSignedInAsContractor && (
                 <button

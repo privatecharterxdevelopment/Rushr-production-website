@@ -186,7 +186,8 @@ export async function POST(request: NextRequest) {
       type: 'job_filled',
       title: 'You\'ve been selected for a job!',
       message: `A homeowner selected you for a ${job.category || 'service'} job at $${amount}. Navigate to the job location.`,
-      job_id: jobId
+      job_id: jobId,
+      bid_id: bidId || null
     })
 
     // Send email notification (fire and forget)

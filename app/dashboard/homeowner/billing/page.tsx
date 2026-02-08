@@ -7,14 +7,13 @@ import { useAuth } from '../../../../contexts/AuthContext'
 import { supabase } from '../../../../lib/supabaseClient'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { ArrowLeft, CreditCard, CheckCircle2, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, CreditCard, CheckCircle2, Plus, X, Lock, Loader2, Shield } from 'lucide-react'
 import LoadingSpinner, { FullScreenLoading } from '../../../../components/LoadingSpinner'
 import { Capacitor } from '@capacitor/core'
 import { safeBack } from '../../../../lib/safeBack'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
-// Hook to safely check if running in native app (avoids hydration mismatch)
 function useIsNative() {
   const [isNative, setIsNative] = useState(false)
   useEffect(() => {
@@ -33,7 +32,17 @@ interface PaymentMethod {
   }
 }
 
-function AddPaymentMethodForm({ customerId, onSuccess }: { customerId: string; onSuccess: () => void }) {
+function getBrandLabel(brand: string) {
+  const b = brand.toLowerCase()
+  if (b === 'visa') return 'Visa'
+  if (b === 'mastercard') return 'Mastercard'
+  if (b === 'amex') return 'Amex'
+  if (b === 'discover') return 'Discover'
+  return brand.charAt(0).toUpperCase() + brand.slice(1)
+}
+
+/* ─────────────── Add Card Modal ─────────────── */
+function AddPaymentMethodModal({ customerId, onSuccess, onCancel }: { customerId: string; onSuccess: () => void; onCancel: () => void }) {
   const stripe = useStripe()
   const elements = useElements()
   const [loading, setLoading] = useState(false)
@@ -41,32 +50,28 @@ function AddPaymentMethodForm({ customerId, onSuccess }: { customerId: string; o
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!stripe || !elements) {
-      return
-    }
+    if (!stripe || !elements) return
 
     setLoading(true)
     setError(null)
 
     try {
-      // Create setup intent
-      const { clientSecret } = await fetch('/api/stripe/customer/setup-intent', {
+      const setupResponse = await fetch('/api/stripe/customer/setup-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId })
-      }).then(r => r.json())
+      })
+      const setupData = await setupResponse.json()
 
-      const cardElement = elements.getElement(CardElement)
-      if (!cardElement) {
-        throw new Error('Card element not found')
+      if (!setupResponse.ok || !setupData.clientSecret) {
+        throw new Error(setupData.error || 'Failed to create setup intent')
       }
 
-      // Confirm setup
-      const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(clientSecret, {
-        payment_method: {
-          card: cardElement
-        }
+      const cardElement = elements.getElement(CardElement)
+      if (!cardElement) throw new Error('Card element not found')
+
+      const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(setupData.clientSecret, {
+        payment_method: { card: cardElement }
       })
 
       if (stripeError) {
@@ -75,23 +80,16 @@ function AddPaymentMethodForm({ customerId, onSuccess }: { customerId: string; o
         return
       }
 
-      // Update default payment method in database
-      console.log('💳 Saving payment method to database...', setupIntent.payment_method)
       const { data: customer, error: customerError } = await supabase
         .from('stripe_customers')
         .select('user_id')
         .eq('stripe_customer_id', customerId)
         .single()
 
-      if (customerError) {
-        console.error('❌ Error fetching customer:', customerError)
-        throw customerError
-      }
-
-      console.log('✅ Found customer:', customer)
+      if (customerError) throw customerError
 
       if (customer && setupIntent.payment_method) {
-        const { data: updateResult, error: updateError } = await supabase
+        const { error: updateError } = await supabase
           .from('stripe_customers')
           .update({
             default_payment_method_id: setupIntent.payment_method,
@@ -100,12 +98,7 @@ function AddPaymentMethodForm({ customerId, onSuccess }: { customerId: string; o
           .eq('user_id', customer.user_id)
           .select()
 
-        if (updateError) {
-          console.error('❌ Error updating payment method:', updateError)
-          throw updateError
-        }
-
-        console.log('✅ Payment method saved successfully:', updateResult)
+        if (updateError) throw updateError
       }
 
       onSuccess()
@@ -117,43 +110,87 @@ function AddPaymentMethodForm({ customerId, onSuccess }: { customerId: string; o
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="p-4 border border-gray-300 rounded-lg bg-gray-50">
-        <CardElement
-          options={{
-            style: {
-              base: {
-                fontSize: '16px',
-                color: '#424770',
-                '::placeholder': {
-                  color: '#aab7c4',
-                },
-              },
-              invalid: {
-                color: '#9e2146',
-              },
-            },
-          }}
-        />
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+              <CreditCard className="h-5 w-5 text-slate-600 dark:text-slate-300" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Add Card</h3>
+              <p className="text-xs text-slate-500">Securely processed by Stripe</p>
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+          >
+            <X className="h-4 w-4 text-slate-400" />
+          </button>
         </div>
-      )}
 
-      <button
-        type="submit"
-        disabled={!stripe || loading}
-        className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? 'Adding...' : 'Add Payment Method'}
-      </button>
-    </form>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="px-6 pb-6 pt-4 space-y-5">
+          <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <CardElement
+              options={{
+                style: {
+                  base: {
+                    fontSize: '16px',
+                    color: '#1e293b',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                    '::placeholder': { color: '#94a3b8' },
+                  },
+                  invalid: { color: '#ef4444' },
+                },
+              }}
+            />
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-600 dark:text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>Your card details are encrypted and never stored on our servers</span>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!stripe || loading}
+              className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-xl hover:bg-slate-800 dark:hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Add Card'
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 
+/* ─────────────── Page ─────────────── */
 function BillingPageContent() {
   const { user, userProfile, loading: authLoading } = useAuth()
   const router = useRouter()
@@ -161,7 +198,7 @@ function BillingPageContent() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [defaultPaymentMethodId, setDefaultPaymentMethodId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [fetching, setFetching] = useState(false)
   const [showAddCard, setShowAddCard] = useState(false)
 
   useEffect(() => {
@@ -173,9 +210,8 @@ function BillingPageContent() {
   const fetchPaymentMethods = async () => {
     if (!user) return
 
-    setLoading(true)
+    setFetching(true)
     try {
-      // First, ensure customer exists
       const createResponse = await fetch('/api/stripe/customer/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -189,7 +225,6 @@ function BillingPageContent() {
       const createData = await createResponse.json()
       const custId = createData.customerId
 
-      // Fetch payment methods
       const response = await fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
       const data = await response.json()
 
@@ -201,7 +236,7 @@ function BillingPageContent() {
     } catch (error) {
       console.error('Failed to fetch payment methods:', error)
     } finally {
-      setLoading(false)
+      setFetching(false)
     }
   }
 
@@ -210,8 +245,7 @@ function BillingPageContent() {
     fetchPaymentMethods()
   }
 
-  // Show full-screen loading while auth or payment methods are loading
-  if (authLoading || loading) {
+  if (authLoading) {
     return <FullScreenLoading />
   }
 
@@ -228,149 +262,112 @@ function BillingPageContent() {
 
   return (
     <div
-      className="min-h-screen bg-gray-50"
+      className="page-container section-spacing space-y-6"
       style={{
         paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
         paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
       }}
     >
-      {/* iOS Native Header */}
-      {isNative && (
-        <div
-          className="sticky top-0 z-50"
-          style={{
-            background: 'linear-gradient(135deg, #10b981, #059669)',
-            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
-          }}
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <Link
+          href="/dashboard/homeowner"
+          className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
         >
-          <div className="flex items-center px-4 py-3">
-            <button
-              onClick={() => safeBack(router, '/dashboard')}
-              className="flex items-center text-white active:opacity-60"
-            >
-              <ArrowLeft className="w-6 h-6" />
-              <span className="ml-1 font-medium">Back</span>
-            </button>
-            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
-              Billing & Payments
-            </h1>
-          </div>
+          <ArrowLeft className="h-5 w-5 text-slate-600 dark:text-slate-300" />
+        </Link>
+        <div>
+          <h1 className="text-xl lg:text-2xl font-semibold text-ink dark:text-white">Payment Methods</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Manage your saved cards</p>
         </div>
-      )}
-
-      {/* Web Header */}
-      {!isNative && (
-        <div
-          className="relative z-20"
-          style={{
-            background: 'linear-gradient(135deg, #10b981, #059669)'
-          }}
-        >
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-3 mb-3">
-              <Link
-                href="/dashboard/homeowner"
-                className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"
-              >
-                <ArrowLeft className="h-5 w-5 text-white" />
-              </Link>
-              <h1 className="text-xl font-semibold text-white">Billing & Payments</h1>
-            </div>
-            <p className="text-white/80 text-sm">Manage your payment methods for hiring contractors</p>
-          </div>
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="space-y-6">
-          {/* Payment Methods List */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Payment Methods</h2>
-              {!showAddCard && (
-                <button
-                  onClick={() => setShowAddCard(true)}
-                  className="btn btn-outline flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Card
-                </button>
-              )}
-              </div>
-
-              {paymentMethods.length === 0 && !showAddCard ? (
-                <div className="text-center py-8">
-                  <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600 mb-4">No payment methods added yet</p>
-                  <button
-                    onClick={() => setShowAddCard(true)}
-                    className="btn-primary"
-                  >
-                    Add Your First Card
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {paymentMethods.map((pm) => (
-                    <div
-                      key={pm.id}
-                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-emerald-100 rounded-lg">
-                          <CreditCard className="h-5 w-5 text-emerald-600" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900 capitalize">
-                            {pm.card.brand} •••• {pm.card.last4}
-                          </div>
-                          <div className="text-sm text-gray-600">
-                            Expires {pm.card.exp_month}/{pm.card.exp_year}
-                          </div>
-                        </div>
-                      </div>
-                      {pm.id === defaultPaymentMethodId && (
-                        <div className="flex items-center gap-2 text-emerald-600">
-                          <CheckCircle2 className="h-5 w-5" />
-                          <span className="text-sm font-medium">Default</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Add Card Form */}
-              {showAddCard && customerId && (
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-medium text-gray-900">Add New Card</h3>
-                    <button
-                      onClick={() => setShowAddCard(false)}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <AddPaymentMethodForm
-                    customerId={customerId}
-                    onSuccess={handlePaymentMethodAdded}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Info Card */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-medium text-blue-900 mb-2">Secure Payments</h3>
-              <p className="text-sm text-blue-800">
-                Your payment information is securely processed by Stripe. Rushr never stores your
-                full card details. Payments are only charged when you accept a contractor's bid.
-              </p>
-            </div>
-          </div>
       </div>
+
+      {/* Cards list */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+        {fetching && paymentMethods.length === 0 ? (
+          <div className="flex items-center justify-center py-16">
+            <LoadingSpinner size="md" text="Loading payment methods..." />
+          </div>
+        ) : paymentMethods.length === 0 ? (
+          <div className="py-16 text-center">
+            <div className="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CreditCard className="h-7 w-7 text-slate-300 dark:text-slate-600" />
+            </div>
+            <h4 className="text-lg font-medium text-slate-900 dark:text-white mb-1">No cards yet</h4>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Add a payment method to hire contractors</p>
+            <button
+              onClick={() => setShowAddCard(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-semibold rounded-xl hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add Card
+            </button>
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Saved Cards
+                <span className="ml-2 text-xs font-normal text-slate-400">({paymentMethods.length})</span>
+              </h2>
+              <button
+                onClick={() => setShowAddCard(true)}
+                className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Add
+              </button>
+            </div>
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {paymentMethods.map((pm) => (
+                <div
+                  key={pm.id}
+                  className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                >
+                  <div className="w-12 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 dark:from-slate-600 dark:to-slate-800 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[10px] font-bold text-white tracking-wider">
+                      {getBrandLabel(pm.card.brand).substring(0, 4).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-slate-900 dark:text-white text-sm">
+                      {getBrandLabel(pm.card.brand)} ending in {pm.card.last4}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Expires {String(pm.card.exp_month).padStart(2, '0')}/{pm.card.exp_year}
+                    </div>
+                  </div>
+                  {pm.id === defaultPaymentMethodId && (
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Default
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Security note */}
+      <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+        <Shield className="h-5 w-5 text-slate-400 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Your payment info is securely processed by Stripe. Rushr never stores full card details.
+          Payments are only charged when you hire a contractor.
+        </p>
+      </div>
+
+      {/* Add Card Modal */}
+      {showAddCard && customerId && (
+        <AddPaymentMethodModal
+          customerId={customerId}
+          onSuccess={handlePaymentMethodAdded}
+          onCancel={() => setShowAddCard(false)}
+        />
+      )}
     </div>
   )
 }

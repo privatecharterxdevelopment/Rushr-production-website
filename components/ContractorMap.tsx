@@ -376,6 +376,10 @@ export default function ContractorMap({
 
     contractors.forEach((contractor) => {
       const isSelected = selectedContractor?.id === contractor.id
+      const isOffline = contractor.availability !== 'online'
+      const baseColor = isOffline ? '#94A3B8' : '#10B981'
+      const selectedColor = isOffline ? '#64748B' : '#059669'
+      const activeColor = isSelected ? selectedColor : baseColor
 
       if (markersRef.current[contractor.id]) {
         const el = markersRef.current[contractor.id].getElement()
@@ -385,13 +389,14 @@ export default function ContractorMap({
             markerEl.style.transform = isSelected ? 'scale(1.2)' : 'scale(1)'
             const dot = markerEl.querySelector('.marker-dot') as HTMLElement
             if (dot) {
-              dot.style.background = isSelected ? '#059669' : '#10B981'
-              dot.style.boxShadow = isSelected ? '0 0 0 4px rgba(16, 185, 129, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)'
+              dot.style.background = activeColor
+              dot.style.boxShadow = isSelected ? `0 0 0 4px ${isOffline ? 'rgba(148, 163, 184, 0.4)' : 'rgba(16, 185, 129, 0.4)'}` : '0 2px 8px rgba(0,0,0,0.3)'
             }
             // Update ETA text to sync with sidebar
             const etaLabel = el.querySelector('.eta-label') as HTMLElement
             if (etaLabel) {
-              etaLabel.textContent = `${contractor.eta_minutes} min`
+              etaLabel.textContent = isOffline ? `${contractor.distance_miles.toFixed(1)} mi` : `${contractor.eta_minutes} min`
+              etaLabel.style.color = activeColor
             }
           }
         }
@@ -411,18 +416,18 @@ export default function ContractorMap({
           transform: ${isSelected ? 'scale(1.2)' : 'scale(1)'};
         ">
           <div class="marker-dot" style="
-            width: 32px;
-            height: 32px;
-            background: ${isSelected ? '#059669' : '#10B981'};
+            width: ${isOffline ? '28px' : '32px'};
+            height: ${isOffline ? '28px' : '32px'};
+            background: ${activeColor};
             border: 3px solid white;
             border-radius: 50%;
-            box-shadow: ${isSelected ? '0 0 0 4px rgba(16, 185, 129, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)'};
+            box-shadow: ${isSelected ? `0 0 0 4px ${isOffline ? 'rgba(148, 163, 184, 0.4)' : 'rgba(16, 185, 129, 0.4)'}` : '0 2px 8px rgba(0,0,0,0.3)'};
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 14px;
+            font-size: ${isOffline ? '12px' : '14px'};
             transition: all 0.2s ease;
           ">${contractor.business_name?.charAt(0) || 'P'}</div>
           <div class="eta-label" style="
@@ -432,10 +437,10 @@ export default function ContractorMap({
             border-radius: 4px;
             font-size: 10px;
             font-weight: 600;
-            color: #10B981;
+            color: ${activeColor};
             box-shadow: 0 1px 3px rgba(0,0,0,0.2);
             white-space: nowrap;
-          ">${contractor.eta_minutes} min</div>
+          ">${isOffline ? `${contractor.distance_miles.toFixed(1)} mi` : `${contractor.eta_minutes} min`}</div>
         </div>
       `
 

@@ -41,7 +41,7 @@ const ProMap = dynamic(() => import('../../components/ProMap'), { ssr: false })
 const PostJobMultiStep = dynamic(() => import('../../components/PostJobMultiStep'), { ssr: false })
 const InstantMatchOverlay = dynamic(() => import('../../components/InstantMatchOverlay'), { ssr: false })
 
-type Props = { userId: string | null }
+type Props = { userId: string | null; initialPhone?: string }
 
 /** Emergency contractor type */
 type Contractor = {
@@ -317,15 +317,20 @@ function CardInputForm({
         return
       }
 
-      // Save as default payment method
+      // Save as default payment method (also makes it available on dashboard/billing)
       if (setupIntent?.payment_method) {
-        await supabase
+        const { error: updateError } = await supabase
           .from('stripe_customers')
           .update({
             default_payment_method_id: setupIntent.payment_method,
             updated_at: new Date().toISOString()
           })
           .eq('user_id', userId)
+          .select()
+
+        if (updateError) {
+          console.error('Failed to save default payment method:', updateError)
+        }
       }
 
       showGlobalToast('Card saved successfully!', 'success')
@@ -531,7 +536,7 @@ function TopProgress({ active }: { active: boolean }) {
   )
 }
 
-export default function PostJobInner({ userId }: Props) {
+export default function PostJobInner({ userId, initialPhone = '' }: Props) {
   const router = useRouter()
 
   // Detect iOS native platform
@@ -542,7 +547,7 @@ export default function PostJobInner({ userId }: Props) {
 
   // Form state
   const [address, setAddress] = useState('')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState(initialPhone)
   const [category, setCategory] = useState('')
   const [emergencyType, setEmergencyType] = useState('')
   const [details, setDetails] = useState('')
@@ -612,26 +617,23 @@ export default function PostJobInner({ userId }: Props) {
     }
   }, [pendingAutoSubmit, userId, category, emergencyType, address, phone])
 
-  // Fetch user profile data (phone number)
+  // Sync phone from parent's userProfile (already loaded by AuthContext)
   useEffect(() => {
-    if (!userId) return
-
-    async function fetchUserProfile() {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('phone')
-        .eq('id', userId)
-        .single()
-
-      if (!error && data?.phone) {
-        setPhone(data.phone)
-      }
+    if (initialPhone && !phone) {
+      setPhone(initialPhone)
     }
+  }, [initialPhone])
 
-    fetchUserProfile()
-  }, [userId])
+  // Save phone to user_profiles so it persists across sessions
+  const savePhoneToProfile = async (phoneNumber: string) => {
+    if (!userId || !phoneNumber.trim()) return
+    await supabase
+      .from('user_profiles')
+      .update({ phone: phoneNumber.trim() })
+      .eq('id', userId)
+  }
 
-  // Check if user has saved card (for direct payment)
+  // Check if user has saved card (for direct payment) — uses API for reliable check
   useEffect(() => {
     if (!userId) {
       setHasSavedCard(false)
@@ -641,13 +643,9 @@ export default function PostJobInner({ userId }: Props) {
     async function checkSavedCard() {
       setCheckingCard(true)
       try {
-        const { data, error } = await supabase
-          .from('stripe_customers')
-          .select('default_payment_method_id')
-          .eq('user_id', userId)
-          .single()
-
-        setHasSavedCard(!error && !!data?.default_payment_method_id)
+        const response = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+        const data = await response.json()
+        setHasSavedCard(data.success && data.paymentMethods && data.paymentMethods.length > 0)
       } catch (err) {
         console.error('Error checking saved card:', err)
         setHasSavedCard(false)
@@ -662,20 +660,19 @@ export default function PostJobInner({ userId }: Props) {
   // Handler for when card is successfully added
   const handleCardAdded = async () => {
     setShowAddCardModal(false)
-    // Refresh the hasSavedCard state
+    // Verify card was saved via API (uses service role, bypasses RLS)
     try {
-      const { data, error } = await supabase
-        .from('stripe_customers')
-        .select('default_payment_method_id')
-        .eq('user_id', userId)
-        .single()
+      const response = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+      const data = await response.json()
 
-      if (!error && data?.default_payment_method_id) {
+      if (data.success && data.paymentMethods && data.paymentMethods.length > 0) {
         setHasSavedCard(true)
         showGlobalToast('Card saved! You can now post your job.', 'success')
       }
     } catch (err) {
       console.error('Error verifying card:', err)
+      // Optimistically set to true since confirmCardSetup succeeded
+      setHasSavedCard(true)
     }
   }
 
@@ -914,176 +911,7 @@ export default function PostJobInner({ userId }: Props) {
     return R * c
   }
 
-  // Fetch nearby contractors - Filter by radius and category
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    async function fetchNearbyContractors() {
-      // Need either userLocation or address with ZIP
-      const zipMatch = address.match(/\b\d{5}\b/)
-      const homeownerZip = zipMatch ? zipMatch[0] : null
-
-      if (!userLocation && !homeownerZip) {
-        console.log('[POST-JOB] No location yet, waiting for address or geolocation')
-        setNearbyContractors([])
-        return
-      }
-
-      setLoadingContractors(true)
-
-      try {
-        // Get ALL contractors first - we'll filter client-side
-        const { data: allContractors, error } = await supabase
-          .from('pro_contractors')
-          .select('*')
-          .limit(200)
-
-        if (error) {
-          console.error('[POST-JOB] Database error:', error)
-          console.error('[POST-JOB] Error details:', JSON.stringify(error, null, 2))
-          setNearbyContractors([])
-          return
-        }
-
-        // Client-side filter by emergency type or category
-        let contractors = allContractors || []
-
-        // Use emergencyType if available, otherwise fall back to category
-        const filterKey = emergencyType || category
-
-        if (filterKey && contractors.length > 0) {
-          // Map emergency type/category keys to actual contractor category values (home emergencies only)
-          const emergencyTypeToCategory: Record<string, string[]> = {
-            // Specific emergency types
-            'plumbing': ['Plumbing'],
-            'electrical': ['Electrical'],
-            'hvac': ['HVAC'],
-            'roofing': ['Roofing'],
-            'water-damage': ['Plumbing', 'Water Damage', 'Water Damage Restoration'],
-            'locksmith': ['Locksmith'],
-            'appliance': ['Appliance Repair'],
-            'other': ['Handyman', 'General Contractor'],
-            // Broader home category - include multiple contractor types
-            'home': ['Plumbing', 'Electrical', 'HVAC', 'Roofing', 'Locksmith', 'Appliance Repair', 'Water Damage', 'Water Damage Restoration', 'General Contractor', 'Handyman'],
-          }
-
-          const targetCategories = emergencyTypeToCategory[filterKey]
-          console.log('[POST-JOB] Filtering by:', filterKey, '→ Categories:', targetCategories)
-
-          if (targetCategories && targetCategories.length > 0) {
-            contractors = contractors.filter(c => {
-              const cats = c.categories || []
-              // Case-insensitive match - check if contractor has ANY of the target categories
-              return Array.isArray(cats) && cats.some((cat: string) =>
-                targetCategories.some(targetCat =>
-                  cat.toLowerCase().includes(targetCat.toLowerCase()) ||
-                  targetCat.toLowerCase().includes(cat.toLowerCase())
-                )
-              )
-            })
-            console.log('[POST-JOB] After category filter:', contractors.length, 'contractors match', filterKey)
-          }
-        }
-
-        if (contractors && contractors.length > 0) {
-          console.log('[POST-JOB] Fetched contractors:', contractors.length)
-          console.log('[POST-JOB] Sample contractor:', contractors[0])
-
-          const DEFAULT_RADIUS_MILES = 15
-
-          // Filter contractors by radius if we have userLocation
-          let matchingContractors = contractors
-
-          if (userLocation) {
-            console.log('[POST-JOB] Filtering by userLocation:', userLocation)
-            // Filter by distance using lat/lng
-            matchingContractors = contractors.filter(c => {
-              // Check if contractor has lat/lng (support both field name formats)
-              const lat = c.latitude || c.lat
-              const lng = c.longitude || c.lng || c.lon
-
-              if (!lat || !lng) {
-                console.log(`[POST-JOB] Contractor ${c.id} missing location data`)
-                return false
-              }
-
-              const distance = calculateDistance(
-                userLocation[0],
-                userLocation[1],
-                Number(lat),
-                Number(lng)
-              )
-              console.log(`[POST-JOB] Contractor ${c.business_name || c.name}: ${distance.toFixed(2)} miles`)
-              return distance <= DEFAULT_RADIUS_MILES
-            })
-            console.log(`[POST-JOB] After radius filter: ${matchingContractors.length} contractors`)
-          } else if (homeownerZip) {
-            console.log('[POST-JOB] Filtering by ZIP:', homeownerZip)
-            // Fallback to ZIP matching if no userLocation
-            matchingContractors = contractors.filter(c => {
-              const serviceZips = c.service_area_zips || []
-              const baseZip = c.base_zip
-              return serviceZips.includes(homeownerZip) || baseZip === homeownerZip
-            })
-            console.log(`[POST-JOB] After ZIP filter: ${matchingContractors.length} contractors`)
-          }
-
-          // Map database contractors to UI Contractor type with actual distances
-          const mappedContractors: Contractor[] = matchingContractors.map((c) => {
-            let distanceKm = 0
-            const lat = c.latitude || c.lat
-            const lng = c.longitude || c.lng || c.lon
-
-            if (userLocation && lat && lng) {
-              const distanceMiles = calculateDistance(
-                userLocation[0],
-                userLocation[1],
-                Number(lat),
-                Number(lng)
-              )
-              distanceKm = distanceMiles * 1.60934 // Convert miles to km
-            }
-
-            return {
-              id: c.id,
-              name: c.business_name || c.name || 'Contractor',
-              rating: c.rating || (4.5 + (Math.random() * 0.5)),
-              jobs: Math.floor(Math.random() * 500),
-              distanceKm,
-              etaMin: Math.ceil(distanceKm * 2) + 5, // Estimate ETA based on distance
-              trades: c.categories || [],
-              insured: true,
-              backgroundChecked: true,
-              activeNow: true,
-            }
-          })
-
-          // Sort by distance
-          mappedContractors.sort((a, b) => a.distanceKm - b.distanceKm)
-
-          // Also store contractors with full location data for the map
-          const contractorsWithLocation = matchingContractors.map(c => ({
-            ...c,
-            latitude: c.latitude || c.lat,
-            longitude: c.longitude || c.lng || c.lon,
-          }))
-
-          console.log(`[POST-JOB] Found ${mappedContractors.length} contractors, category: ${emergencyType || 'ALL'}`)
-          setNearbyContractors(mappedContractors)
-          setNearbyContractorsWithLocation(contractorsWithLocation)
-        } else {
-          console.log(`[POST-JOB] No contractors found for category: ${emergencyType || 'ALL'}`)
-          setNearbyContractors([])
-        }
-      } catch (err) {
-        console.error('[POST-JOB] Error fetching contractors:', err)
-        setNearbyContractors([])
-      } finally {
-        setLoadingContractors(false)
-      }
-    }
-
-    fetchNearbyContractors()
-  }, [category, emergencyType, address, userLocation])
+  // Contractors are shown only in the hero search InstantMatchOverlay, not on post-job
 
   const filteredNearby = useMemo(() => {
     // Only show contractors if we have a location (userLocation OR valid ZIP in address)
@@ -1688,6 +1516,7 @@ export default function PostJobInner({ userId }: Props) {
                   <button
                     onClick={() => {
                       validateField('phone', phone)
+                      savePhoneToProfile(phone)
                       setShowPhoneModal(false)
                     }}
                     className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
@@ -1749,8 +1578,7 @@ export default function PostJobInner({ userId }: Props) {
               category={category}
               radiusMiles={1}
               searchCenter={userLocation || undefined}
-              contractors={nearbyContractorsWithLocation}
-              onSelectContractor={handleSelectContractorFromMap}
+              contractors={[]}
             />
 
             {!userLocation && !address.match(/\d{5}/) && (
@@ -1759,7 +1587,7 @@ export default function PostJobInner({ userId }: Props) {
                   <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
                     <MapPin className="h-5 w-5" />
                   </div>
-                  <div className="font-medium text-slate-900 text-sm">See nearby pros</div>
+                  <div className="font-medium text-slate-900 text-sm">Enter your address above</div>
                   <button
                     type="button"
                     onClick={fetchCurrentLocation}
@@ -1939,6 +1767,7 @@ export default function PostJobInner({ userId }: Props) {
                   <button
                     onClick={() => {
                       validateField('phone', phone)
+                      savePhoneToProfile(phone)
                       setShowPhoneModal(false)
                     }}
                     className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
@@ -2000,8 +1829,7 @@ export default function PostJobInner({ userId }: Props) {
               category={category}
               radiusMiles={1}
               searchCenter={userLocation || undefined}
-              contractors={nearbyContractorsWithLocation}
-              onSelectContractor={handleSelectContractorFromMap}
+              contractors={[]}
             />
 
             {!userLocation && !address.match(/\d{5}/) && (
@@ -2010,7 +1838,7 @@ export default function PostJobInner({ userId }: Props) {
                   <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
                     <MapPin className="h-6 w-6" />
                   </div>
-                  <div className="font-medium text-slate-900">See nearby pros on the map</div>
+                  <div className="font-medium text-slate-900">Your job location</div>
                   <p className="mt-1 text-sm text-slate-500">Set your location above</p>
                   <button
                     type="button"

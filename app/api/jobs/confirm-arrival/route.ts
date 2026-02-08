@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { notifyWorkStarted } from '../../../../lib/emailService'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -97,10 +98,47 @@ export async function POST(request: NextRequest) {
       .eq('id', contractorId)
       .single()
 
+    const contractorName = contractor?.business_name || contractor?.name || 'Contractor'
+
+    // 6. Bell notification for contractor (confirmation of their arrival)
+    await supabase.from('notifications').insert({
+      user_id: contractorId,
+      type: 'job_filled',
+      title: 'Arrival Confirmed',
+      message: `Your arrival for "${job.title}" has been confirmed. Job is now in progress.`,
+      job_id: jobId,
+      bid_id: job.accepted_bid_id
+    })
+
+    // 7. Email notifications to both parties (non-blocking)
+    try {
+      const { data: homeownerAuth } = await supabase.auth.admin.getUserById(job.homeowner_id)
+      const { data: contractorAuth } = await supabase.auth.admin.getUserById(contractorId)
+
+      const { data: homeowner } = await supabase
+        .from('user_profiles')
+        .select('name')
+        .eq('id', job.homeowner_id)
+        .single()
+
+      if (homeownerAuth?.user?.email && contractorAuth?.user?.email && homeowner) {
+        await notifyWorkStarted({
+          homeownerEmail: homeownerAuth.user.email,
+          homeownerName: homeowner.name || 'Homeowner',
+          contractorEmail: contractorAuth.user.email,
+          contractorName,
+          jobTitle: job.title || 'Job',
+          estimatedCompletion: 'Today'
+        })
+      }
+    } catch (emailError) {
+      console.error('Failed to send arrival email notifications:', emailError)
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Arrival confirmed. Job is now in progress.',
-      contractorName: contractor?.business_name || contractor?.name || 'Contractor'
+      contractorName
     })
 
   } catch (error: any) {

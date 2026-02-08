@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bell, BellDot, X, MessageSquare, DollarSign, Briefcase, CheckCircle } from 'lucide-react'
+import { Bell, BellDot, X, MessageSquare, DollarSign, Briefcase, CheckCircle, XCircle, CreditCard, ArrowRightLeft, Star, ShieldCheck, ShieldX, Hammer } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../contexts/AuthContext'
 import { WelcomeService, WelcomeNotification } from '../lib/welcomeService'
@@ -19,20 +19,29 @@ export default function NotificationBell({ className = '' }: NotificationBellPro
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  const userId = user?.id
+
+  // Request notification permission once
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
+
   // Fetch notifications on mount and subscribe to real-time updates
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
 
     loadNotifications()
 
     // Subscribe to real-time notification updates
     const notificationSubscription = supabase
-      .channel('user_notifications')
+      .channel(`user_notifications_${userId}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'notifications',
-        filter: `user_id=eq.${user.id}`
+        filter: `user_id=eq.${userId}`
       }, (payload) => {
         // Add new notification to the list
         const newNotification = payload.new as WelcomeNotification
@@ -50,15 +59,10 @@ export default function NotificationBell({ className = '' }: NotificationBellPro
       })
       .subscribe()
 
-    // Request notification permission
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-
     return () => {
       supabase.removeChannel(notificationSubscription)
     }
-  }, [user])
+  }, [userId])
 
   const loadNotifications = async () => {
     if (!user) return
@@ -95,40 +99,96 @@ export default function NotificationBell({ className = '' }: NotificationBellPro
     }
   }
 
+  const markAllAsRead = async () => {
+    if (!user) return
+    try {
+      await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .eq('read', false)
+
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+      setUnreadCount(0)
+    } catch (error) {
+      console.error('Error marking all as read:', error)
+    }
+  }
+
   const handleNotificationClick = async (notification: WelcomeNotification) => {
-    // Mark as read
     if (!notification.read) {
       await markAsRead(notification.id)
     }
 
-    // Determine if user is contractor or homeowner based on user profile role
     const isContractor = userProfile?.role === 'contractor'
+    const dashboardBase = isContractor ? '/dashboard/contractor' : '/dashboard/homeowner'
 
-    // Navigate based on notification type
-    if (notification.type === 'welcome') {
-      // Welcome notification - go to messages page
-      if (isContractor) {
-        router.push('/dashboard/contractor/messages')
-      } else {
-        router.push('/dashboard/homeowner/messages')
-      }
-      setIsOpen(false)
-    } else if (notification.type === 'new_message' && notification.conversation_id) {
-      // New message notification - go to specific conversation
-      if (isContractor) {
-        router.push(`/dashboard/contractor/messages?id=${notification.conversation_id}`)
-      } else {
-        router.push(`/dashboard/homeowner/messages?id=${notification.conversation_id}`)
-      }
-      setIsOpen(false)
-    } else if (notification.type === 'payment_completed' && notification.job_id) {
-      // Navigate to job details
-      router.push(`/dashboard/homeowner/jobs/${notification.job_id}`)
-      setIsOpen(false)
-    } else if ((notification.type === 'bid_received' || notification.type === 'bid_accepted') && notification.job_id) {
-      // Navigate to job or bids page
-      router.push(`/dashboard/homeowner/bids`)
-      setIsOpen(false)
+    setIsOpen(false)
+
+    switch (notification.type) {
+      case 'new_message':
+        if (notification.conversation_id) {
+          router.push(`${dashboardBase}/messages?id=${notification.conversation_id}`)
+        } else {
+          router.push(`${dashboardBase}/messages`)
+        }
+        break
+      case 'bid_received':
+      case 'bid_response':
+      case 'bid_accepted':
+      case 'bid_rejected':
+      case 'bid_withdrawn':
+      case 'job_accepted':
+        if (notification.job_id) {
+          router.push(isContractor
+            ? `${dashboardBase}/jobs/${notification.job_id}`
+            : `${dashboardBase}/bids`)
+        } else {
+          router.push(dashboardBase)
+        }
+        break
+      case 'payment_completed':
+      case 'adjustment_accepted':
+        router.push(`${dashboardBase}/transactions`)
+        break
+      case 'job_filled':
+      case 'job_request_received':
+      case 'work_started':
+      case 'work_completed':
+        if (notification.job_id) {
+          router.push(isContractor
+            ? `${dashboardBase}/jobs/${notification.job_id}`
+            : dashboardBase)
+        } else {
+          router.push(dashboardBase)
+        }
+        break
+      case 'new_job_posted':
+        if (notification.job_id) {
+          router.push(`/dashboard/contractor/jobs/${notification.job_id}`)
+        } else {
+          router.push('/dashboard/contractor/jobs')
+        }
+        break
+      case 'payment_required':
+      case 'bid_accepted_payment_required':
+        router.push('/dashboard/homeowner/billing')
+        break
+      case 'job_cancelled':
+      case 'booking_accepted':
+      case 'booking_declined':
+      case 'booking_request':
+      case 'adjustment_declined':
+      case 'payment_adjustment':
+      case 'approval':
+      case 'rejection':
+      case 'profile_approved':
+      case 'profile_rejected':
+      case 'review_received':
+      case 'welcome':
+      default:
+        router.push(dashboardBase)
+        break
     }
   }
 
@@ -156,20 +216,46 @@ export default function NotificationBell({ className = '' }: NotificationBellPro
       case 'new_message':
         return <MessageSquare className="h-5 w-5 text-blue-500" />
       case 'payment_completed':
+      case 'adjustment_accepted':
         return <DollarSign className="h-5 w-5 text-green-500" />
       case 'bid_received':
+      case 'bid_response':
+      case 'job_accepted':
+      case 'booking_request':
+      case 'job_request_received':
+      case 'new_job_posted':
         return <Briefcase className="h-5 w-5 text-purple-500" />
       case 'bid_accepted':
+      case 'booking_accepted':
         return <CheckCircle className="h-5 w-5 text-emerald-500" />
+      case 'job_filled':
+      case 'work_completed':
+        return <CheckCircle className="h-5 w-5 text-blue-500" />
+      case 'work_started':
+        return <Hammer className="h-5 w-5 text-blue-500" />
+      case 'job_cancelled':
+      case 'booking_declined':
+      case 'adjustment_declined':
+      case 'bid_rejected':
+      case 'bid_withdrawn':
+        return <XCircle className="h-5 w-5 text-red-500" />
+      case 'payment_required':
+      case 'bid_accepted_payment_required':
+        return <CreditCard className="h-5 w-5 text-amber-500" />
+      case 'payment_adjustment':
+        return <ArrowRightLeft className="h-5 w-5 text-amber-500" />
+      case 'approval':
+      case 'profile_approved':
+        return <ShieldCheck className="h-5 w-5 text-emerald-500" />
+      case 'rejection':
+      case 'profile_rejected':
+        return <ShieldX className="h-5 w-5 text-red-500" />
+      case 'review_received':
+        return <Star className="h-5 w-5 text-amber-500" />
       case 'welcome':
-        return '🎉'
-      case 'success':
-        return '✅'
-      case 'warning':
-        return '⚠️'
-      case 'info':
+        return <Bell className="h-5 w-5 text-emerald-500" />
       default:
-        return 'ℹ️'
+        return <Bell className="h-5 w-5 text-slate-400" />
     }
   }
 
@@ -269,16 +355,25 @@ export default function NotificationBell({ className = '' }: NotificationBellPro
             </div>
 
             {/* Footer */}
-            {notifications.length > 0 && (
-              <div className="p-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
+            <div className="p-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setIsOpen(false)
+                  router.push('/dashboard/notifications')
+                }}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+              >
+                View all
+              </button>
+              {unreadCount > 0 && (
                 <button
-                  onClick={loadNotifications}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+                  onClick={markAllAsRead}
+                  className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                 >
-                  Refresh notifications
+                  Mark all read
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </>
       )}

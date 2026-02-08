@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getStripe } from '../../../../lib/stripe'
-import { notifyPaymentCompleted } from '../../../../lib/emailService'
+import { notifyPaymentCompleted, notifyWorkCompleted } from '../../../../lib/emailService'
 import { sendWorkCompletedSMSHomeowner, sendWorkCompletedSMSContractor } from '../../../../lib/smsService'
 
 const supabase = createClient(
@@ -160,6 +160,44 @@ export async function POST(request: NextRequest) {
         job_id: paymentHold.job_id,
         bid_id: paymentHold.bid_id
       })
+
+      // Email both parties about single-party confirmation (non-blocking)
+      try {
+        const { data: job } = await supabase
+          .from('homeowner_jobs')
+          .select('title')
+          .eq('id', paymentHold.job_id)
+          .single()
+
+        const { data: homeownerAuth } = await supabase.auth.admin.getUserById(paymentHold.homeowner_id)
+        const { data: contractorAuth } = await supabase.auth.admin.getUserById(paymentHold.contractor_id)
+
+        const { data: homeowner } = await supabase
+          .from('user_profiles')
+          .select('name')
+          .eq('id', paymentHold.homeowner_id)
+          .single()
+
+        const { data: contractor } = await supabase
+          .from('pro_contractors')
+          .select('name, business_name')
+          .eq('id', paymentHold.contractor_id)
+          .single()
+
+        const contractorName = contractor?.business_name || contractor?.name || 'Contractor'
+
+        if (homeownerAuth?.user?.email && contractorAuth?.user?.email && homeowner) {
+          await notifyWorkCompleted({
+            homeownerEmail: homeownerAuth.user.email,
+            homeownerName: homeowner.name || 'Homeowner',
+            contractorEmail: contractorAuth.user.email,
+            contractorName,
+            jobTitle: job?.title || 'Job'
+          })
+        }
+      } catch (emailError) {
+        console.error('Failed to send completion confirmation email:', emailError)
+      }
     }
 
     // 5. If both confirmed, release payment and update job status
