@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard, Navigation, AlertTriangle, Phone, MessageCircle, Shield } from 'lucide-react'
+import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard, Navigation, AlertTriangle, Phone, MessageCircle, Shield, Users } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { openAuth } from './AuthModal'
 import { useAuth } from '../contexts/AuthContext'
@@ -178,7 +178,7 @@ export default function InstantMatchOverlay({
   const [directJobStatus, setDirectJobStatus] = useState<'pending' | 'accepted' | 'expired'>('pending')
   const [acceptedContractorId, setAcceptedContractorId] = useState<string | null>(null)
   const [directJobExpiry, setDirectJobExpiry] = useState<Date | null>(null)
-  const [expiryCountdown, setExpiryCountdown] = useState<number>(30 * 60) // 30 minutes
+  const [expiryCountdown, setExpiryCountdown] = useState<number>(15) // 15 seconds to find a contractor
 
   // Current search location (can be overridden by settings ZIP)
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number; zip?: string } | null>(userLocation || null)
@@ -321,23 +321,25 @@ export default function InstantMatchOverlay({
     }
   }, [jobId, isOpen, paymentHoldId, directAmount, currentLocation])
 
-  // Expiry countdown for direct payment jobs
+  // 15-second countdown for direct payment jobs — auto-switch to bids when expired
   useEffect(() => {
-    if (!directJobExpiry || directJobStatus !== 'pending') return
+    if (!isDirectPaymentJob || !isOpen || directJobStatus !== 'pending') return
 
+    setExpiryCountdown(15)
     const interval = setInterval(() => {
-      const now = new Date()
-      const remaining = Math.max(0, Math.floor((directJobExpiry.getTime() - now.getTime()) / 1000))
-      setExpiryCountdown(remaining)
-
-      if (remaining <= 0) {
-        setDirectJobStatus('expired')
-        clearInterval(interval)
-      }
+      setExpiryCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(interval)
+          setDirectJobStatus('expired')
+          if (onSwitchToBids) onSwitchToBids()
+          return 0
+        }
+        return prev - 1
+      })
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [directJobExpiry, directJobStatus])
+  }, [isDirectPaymentJob, isOpen, directJobStatus])
 
   // Category to filter mapping
   const categoryMapping: Record<string, string[]> = {
@@ -514,10 +516,8 @@ export default function InstantMatchOverlay({
 
     } catch (err) {
       console.error('Error in fetchContractors:', err)
-      // On error, let the timeout handle it or set no_pros immediately
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current)
-      }
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
       setPhase('no_pros')
     }
   }, [userLocation, category, hasFetched, searchRadius, minPrice, maxPrice])
@@ -850,7 +850,7 @@ export default function InstantMatchOverlay({
       setDirectJobStatus('pending')
       setAcceptedContractorId(null)
       setDirectJobExpiry(null)
-      setExpiryCountdown(30 * 60)
+      setExpiryCountdown(15)
       setSearchCountdown(15)
       notificationsSentRef.current = false
       if (countdownRef.current) clearInterval(countdownRef.current)
@@ -902,9 +902,9 @@ export default function InstantMatchOverlay({
                       ${directAmount?.toFixed(0)}
                     </span>
                     {directJobStatus === 'pending' && (
-                      <span className="text-xs text-slate-500 flex items-center gap-1 ml-2">
+                      <span className={`text-xs flex items-center gap-1 ml-2 font-medium ${expiryCountdown <= 5 ? 'text-red-600' : 'text-slate-500'}`}>
                         <Clock className="w-3 h-3" />
-                        {Math.floor(expiryCountdown / 60)}:{(expiryCountdown % 60).toString().padStart(2, '0')} left
+                        {expiryCountdown}s
                       </span>
                     )}
                     {directJobStatus === 'accepted' && (
@@ -1761,22 +1761,22 @@ export default function InstantMatchOverlay({
                         <div className="bg-white rounded-xl p-5 text-center border-2 border-slate-200">
                           <div className="flex items-center justify-center gap-2 mb-2">
                             <Clock className="w-4 h-4 text-emerald-600" />
-                            <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Time Remaining</span>
+                            <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Finding a Pro</span>
                           </div>
-                          <div className={`text-4xl font-bold font-mono ${expiryCountdown < 300 ? 'text-red-600' : expiryCountdown < 600 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                            {Math.floor(expiryCountdown / 60)}:{(expiryCountdown % 60).toString().padStart(2, '0')}
+                          <div className={`text-5xl font-bold font-mono ${expiryCountdown <= 5 ? 'text-red-600' : expiryCountdown <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {expiryCountdown}s
                           </div>
                           <p className="text-slate-500 text-xs mt-2">
-                            After timeout, job converts to bids mode
+                            Switching to bids if no instant match
                           </p>
 
                           {/* Progress Bar */}
                           <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
                             <motion.div
-                              className={`h-full ${expiryCountdown < 300 ? 'bg-red-500' : expiryCountdown < 600 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                              className={`h-full ${expiryCountdown <= 5 ? 'bg-red-500' : expiryCountdown <= 10 ? 'bg-amber-500' : 'bg-emerald-500'}`}
                               initial={{ width: '100%' }}
                               animate={{
-                                width: `${(expiryCountdown / (30 * 60)) * 100}%`
+                                width: `${(expiryCountdown / 15) * 100}%`
                               }}
                               transition={{ duration: 1 }}
                             />
@@ -1848,21 +1848,21 @@ export default function InstantMatchOverlay({
                         animate={{ opacity: 1, y: 0 }}
                         className="space-y-4"
                       >
-                        <div className="bg-amber-500 rounded-xl p-4 text-white text-center">
+                        <div className="bg-emerald-600 rounded-xl p-4 text-white text-center">
                           <div className="flex items-center justify-center gap-2 mb-2">
-                            <Clock className="w-6 h-6" />
-                            <span className="font-bold text-lg">Time Expired</span>
+                            <CheckCircle className="w-6 h-6" />
+                            <span className="font-bold text-lg">Switched to Bids</span>
                           </div>
-                          <p className="text-amber-100 text-sm">No contractor accepted in time</p>
+                          <p className="text-emerald-100 text-sm">Your job is now open for bids</p>
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">
-                          <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <AlertTriangle className="w-7 h-7 text-amber-600" />
+                          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <Users className="w-7 h-7 text-emerald-600" />
                           </div>
-                          <h3 className="font-semibold text-slate-900 mb-1">Switching to Bids Mode</h3>
+                          <h3 className="font-semibold text-slate-900 mb-1">You'll receive bids shortly</h3>
                           <p className="text-sm text-slate-600">
-                            Your job is now open for bids. Contractors can submit their prices and you can choose the best offer.
+                            Contractors have been notified. They'll submit bids and you can choose the best offer.
                           </p>
                         </div>
 
