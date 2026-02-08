@@ -281,11 +281,13 @@ function CardInputForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, email: user.email, name: user.user_metadata?.full_name || user.email })
       })
-      const { customerId } = await createResponse.json()
+      const createData = await createResponse.json()
 
-      if (!customerId) {
-        throw new Error('Failed to create customer')
+      if (!createResponse.ok || !createData.customerId) {
+        throw new Error(createData.error || 'Failed to create customer')
       }
+
+      const customerId = createData.customerId
 
       // Create setup intent
       const intentResponse = await fetch('/api/stripe/customer/setup-intent', {
