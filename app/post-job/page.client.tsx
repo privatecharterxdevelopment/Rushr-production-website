@@ -269,11 +269,17 @@ function CardInputForm({
     setError(null)
 
     try {
+      // Get user email from Supabase auth
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user?.email) {
+        throw new Error('Could not retrieve your email. Please log in again.')
+      }
+
       // First ensure customer exists
       const createResponse = await fetch('/api/stripe/customer/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        body: JSON.stringify({ userId, email: user.email, name: user.user_metadata?.full_name || user.email })
       })
       const { customerId } = await createResponse.json()
 
@@ -404,7 +410,7 @@ function AddCardModal({
               <CreditCard className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Add Payment Card</h3>
+              <h3 className="text-lg font-semibold text-white">Add Payment Method</h3>
               <p className="text-sm text-white/80">Required for Direct Payment jobs</p>
             </div>
           </div>
