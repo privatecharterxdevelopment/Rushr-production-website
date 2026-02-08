@@ -679,6 +679,22 @@ export default function PostJobInner({ userId }: Props) {
     }
   }
 
+  // Handler for when InstantMatch times out and switches to bids
+  const handleSwitchToBids = async () => {
+    if (!createdJobId) return
+    console.log('[SWITCH-TO-BIDS] No contractor found, switching job to bids mode')
+    try {
+      await supabase
+        .from('homeowner_jobs')
+        .update({ payment_type: 'bids', direct_amount: null })
+        .eq('id', createdJobId)
+      setPaymentType('bids')
+      showGlobalToast('Switched to Bids mode — you\'ll receive bids shortly.', 'success')
+    } catch (err) {
+      console.error('[SWITCH-TO-BIDS] Error:', err)
+    }
+  }
+
   // Multi-step form state
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = 5
@@ -1181,6 +1197,19 @@ export default function PostJobInner({ userId }: Props) {
       return
     }
 
+    // For Direct Payment: check card BEFORE confirmation
+    if (paymentType === 'direct') {
+      const amount = parseFloat(directAmount)
+      if (!amount || amount <= 0) {
+        setErrorPopup('Please enter a valid amount for direct payment.')
+        return
+      }
+      if (!hasSavedCard) {
+        setShowAddCardModal(true)
+        return
+      }
+    }
+
     // Mark all fields as touched to show validation errors
     setTouched({
       address: true,
@@ -1500,6 +1529,7 @@ export default function PostJobInner({ userId }: Props) {
           jobId={createdJobId || undefined}
           directAmount={paymentType === 'direct' ? parseFloat(directAmount) : undefined}
           paymentHoldId={paymentHoldId || undefined}
+          onSwitchToBids={handleSwitchToBids}
         />
 
         {/* Full-screen sending overlay - Same style as splash */}
@@ -1811,6 +1841,7 @@ export default function PostJobInner({ userId }: Props) {
         jobId={createdJobId || undefined}
         directAmount={paymentType === 'direct' ? parseFloat(directAmount) : undefined}
         paymentHoldId={paymentHoldId || undefined}
+        onSwitchToBids={handleSwitchToBids}
       />
 
       <div className="container-max section">

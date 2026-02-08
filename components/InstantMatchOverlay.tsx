@@ -84,6 +84,7 @@ interface InstantMatchOverlayProps {
   jobId?: string           // Existing job ID for direct payment
   directAmount?: number    // Fixed price to display
   paymentHoldId?: string   // Already created payment hold
+  onSwitchToBids?: () => void  // Called when no contractor found, auto-switching to bids
 }
 
 // Haversine distance calculation
@@ -112,7 +113,8 @@ export default function InstantMatchOverlay({
   userLocation,
   jobId,
   directAmount,
-  paymentHoldId
+  paymentHoldId,
+  onSwitchToBids
 }: InstantMatchOverlayProps) {
   const router = useRouter()
   const { user } = useAuth()
@@ -211,6 +213,10 @@ export default function InstantMatchOverlay({
         .catch(err => console.error('Error fetching payment methods:', err))
     }
   }, [user, isOpen])
+
+  // Search countdown timer (15 seconds to find a contractor)
+  const [searchCountdown, setSearchCountdown] = useState(15)
+  const searchCountdownRef = useRef<NodeJS.Timeout | null>(null)
 
   // Refs
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
@@ -377,12 +383,26 @@ export default function InstantMatchOverlay({
 
     setHasFetched(true)
     setPhase('searching')
+    setSearchCountdown(15)
 
-    // Set 5-second timeout - if no contractors found by then, show no_pros
+    // Start countdown interval (ticks every second)
+    if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
+    searchCountdownRef.current = setInterval(() => {
+      setSearchCountdown(prev => {
+        if (prev <= 1) {
+          if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    // Set 15-second timeout - if no contractors found by then, switch to bids
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
+      if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
       setPhase('no_pros')
-    }, 5000)
+    }, 15000)
 
     try {
       const { data: allContractors, error } = await supabase
@@ -467,10 +487,14 @@ export default function InstantMatchOverlay({
         return
       }
 
-      // Found contractors - clear the timeout
+      // Found contractors - clear the timeout and countdown
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current)
         searchTimeoutRef.current = null
+      }
+      if (searchCountdownRef.current) {
+        clearInterval(searchCountdownRef.current)
+        searchCountdownRef.current = null
       }
 
       if (!notificationsSentRef.current) {
@@ -770,15 +794,17 @@ export default function InstantMatchOverlay({
       if (countdownRef.current) clearInterval(countdownRef.current)
       if (revealRef.current) clearTimeout(revealRef.current)
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current)
     }
   }, [])
 
+  // When no pros found, notify parent to switch job to bids mode
   useEffect(() => {
-    if (phase === 'no_pros') {
-      router.push('/post-job?category=' + encodeURIComponent(category))
+    if (phase === 'no_pros' && onSwitchToBids) {
+      onSwitchToBids()
     }
-  }, [phase, category, router])
+  }, [phase, onSwitchToBids])
 
   useEffect(() => {
     if (isOpen && userLocation && !currentLocation) {
@@ -825,9 +851,11 @@ export default function InstantMatchOverlay({
       setAcceptedContractorId(null)
       setDirectJobExpiry(null)
       setExpiryCountdown(30 * 60)
+      setSearchCountdown(15)
       notificationsSentRef.current = false
       if (countdownRef.current) clearInterval(countdownRef.current)
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current)
     }
   }, [isOpen])
@@ -1860,7 +1888,13 @@ export default function InstantMatchOverlay({
                       <div className="flex flex-col items-center justify-center h-full">
                         {currentLocation || userLocation ? (
                           <>
-                            <div className="w-14 h-14 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
+                            {/* Spinner with countdown */}
+                            <div className="relative w-16 h-16 mb-4">
+                              <div className="absolute inset-0 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-sm font-bold text-emerald-700">{searchCountdown}s</span>
+                              </div>
+                            </div>
                             <p className="text-slate-900 font-semibold">Finding {getTradePlural(category)}...</p>
                             <p className="text-slate-500 text-sm mt-1">Searching nearby professionals</p>
                           </>
@@ -1886,12 +1920,22 @@ export default function InstantMatchOverlay({
                       </div>
                     )}
 
-                    {/* No Pros State - auto-redirecting to post-job */}
+                    {/* No Pros State - switched to bids mode */}
                     {phase === 'no_pros' && (
                       <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                        <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
-                        <p className="text-slate-900 font-semibold">Redirecting to Post a Job...</p>
-                        <p className="text-slate-500 text-sm mt-1">No {getTradePlural(category).toLowerCase()} available right now</p>
+                        <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
+                          <CheckCircle className="w-8 h-8 text-emerald-600" />
+                        </div>
+                        <p className="text-slate-900 font-semibold text-lg">Switched to Bids Mode</p>
+                        <p className="text-slate-500 text-sm mt-2 max-w-xs">
+                          No {getTradePlural(category).toLowerCase()} are instantly available right now. Your job has been posted — you'll receive bids from contractors shortly.
+                        </p>
+                        <button
+                          onClick={onClose}
+                          className="mt-6 px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+                        >
+                          Got it
+                        </button>
                       </div>
                     )}
                   </div>
