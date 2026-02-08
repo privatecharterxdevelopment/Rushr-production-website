@@ -21,6 +21,7 @@ export default function ContractorJobDetailsPage() {
   const [homeowner, setHomeowner] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [markingComplete, setMarkingComplete] = useState(false)
+  const [confirmingArrival, setConfirmingArrival] = useState(false)
 
   // Bidding state
   const [bidAmount, setBidAmount] = useState('')
@@ -101,6 +102,42 @@ export default function ContractorJobDetailsPage() {
     window.open(url, '_blank')
   }
 
+  const confirmArrival = async () => {
+    if (!user || !jobId) return
+
+    setConfirmingArrival(true)
+
+    try {
+      const response = await fetch('/api/jobs/confirm-arrival', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          contractorId: user.id
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setSuccessMessage('Arrival confirmed! Job is now in progress.')
+        setShowSuccessModal(true)
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      } else {
+        setSuccessMessage(data.error || 'Failed to confirm arrival. Please try again.')
+        setShowSuccessModal(true)
+      }
+    } catch (err) {
+      console.error('Error confirming arrival:', err)
+      setSuccessMessage('Failed to confirm arrival. Please try again.')
+      setShowSuccessModal(true)
+    } finally {
+      setConfirmingArrival(false)
+    }
+  }
+
   const markJobAsComplete = async () => {
     if (!user || !jobId) return
 
@@ -111,27 +148,27 @@ export default function ContractorJobDetailsPage() {
     setMarkingComplete(true)
 
     try {
-      // Update job status to 'completed' and mark contractor_marked_complete
-      const { error } = await supabase
-        .from('homeowner_jobs')
-        .update({
-          status: 'completed',
-          contractor_marked_complete: true,
-          completed_date: new Date().toISOString()
+      const response = await fetch('/api/payments/confirm-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          userId: user.id,
+          userType: 'contractor'
         })
-        .eq('id', jobId)
+      })
 
-      if (error) {
-        console.error('Error marking job as complete:', error)
-        setSuccessMessage('Failed to mark job as complete. Please try again.')
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setSuccessMessage(data.message || 'Job marked as complete! The homeowner will review and release payment.')
         setShowSuccessModal(true)
-      } else {
-        setSuccessMessage('Job marked as complete! The homeowner will review and release payment.')
-        setShowSuccessModal(true)
-        // Refresh job data after modal is shown
         setTimeout(() => {
           window.location.reload()
         }, 2000)
+      } else {
+        setSuccessMessage(data.error || 'Failed to mark job as complete. Please try again.')
+        setShowSuccessModal(true)
       }
     } catch (err) {
       console.error('Error marking job as complete:', err)
@@ -546,8 +583,34 @@ export default function ContractorJobDetailsPage() {
             }}
             onArrival={() => {
               console.log('Contractor arrived at job location')
+              confirmArrival()
             }}
           />
+        </div>
+      )}
+
+      {/* I've Arrived Button - Show for confirmed jobs */}
+      {job.status === 'confirmed' && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <h3 className="font-semibold text-slate-900 mb-1 flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-blue-600" />
+                At the Job Location?
+              </h3>
+              <p className="text-sm text-slate-600">
+                Confirm your arrival to let the homeowner know you're here and start the job.
+              </p>
+            </div>
+            <button
+              onClick={confirmArrival}
+              disabled={confirmingArrival}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Navigation className="h-5 w-5" />
+              {confirmingArrival ? 'Confirming...' : "I've Arrived"}
+            </button>
+          </div>
         </div>
       )}
 

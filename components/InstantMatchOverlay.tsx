@@ -223,123 +223,170 @@ export default function InstantMatchOverlay({
   const revealRef = useRef<NodeJS.Timeout | null>(null)
   const notificationsSentRef = useRef(false)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const visibleContractorsRef = useRef<Contractor[]>([])
+  const connectedContractorRef = useRef<Contractor | null>(null)
 
-  // Real-time subscription for direct payment jobs
+  // Keep refs in sync with state for use inside subscription callbacks
+  useEffect(() => { visibleContractorsRef.current = visibleContractors }, [visibleContractors])
+  useEffect(() => { connectedContractorRef.current = connectedContractor }, [connectedContractor])
+
+  // Real-time subscription for direct payment jobs — listen for contractor bids (acceptances)
   useEffect(() => {
     if (!jobId || !isOpen) return
 
     setIsDirectPaymentJob(true)
 
-    // Subscribe to job updates
-    const channel = supabase
-      .channel(`direct-job-${jobId}`)
+    // Subscribe to new bids on this job (contractors accepting the direct payment)
+    const bidsChannel = supabase
+      .channel(`direct-job-bids-${jobId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: 'INSERT',
           schema: 'public',
-          table: 'homeowner_jobs',
-          filter: `id=eq.${jobId}`
+          table: 'job_bids',
+          filter: `job_id=eq.${jobId}`
         },
         async (payload) => {
-          console.log('[DirectJob] Job updated:', payload.new)
+          console.log('[DirectJob] New bid/acceptance:', payload.new)
 
-          if (payload.new.status === 'accepted' && payload.new.contractor_id) {
-            setDirectJobStatus('accepted')
-            setAcceptedContractorId(payload.new.contractor_id)
+          const bid = payload.new as any
+          const contractorId = bid.contractor_id
 
-            // Fetch contractor info
-            const { data: contractor } = await supabase
-              .from('pro_contractors')
-              .select('*')
-              .eq('id', payload.new.contractor_id)
-              .single()
+          // Check if we already have this contractor (use ref to avoid stale closure)
+          const alreadyExists = visibleContractorsRef.current.some(c => c.id === contractorId)
+          if (alreadyExists) return
 
-            if (contractor) {
-              const distance = currentLocation
-                ? calculateDistance(currentLocation.lat, currentLocation.lng, contractor.latitude, contractor.longitude)
-                : 5
-              const eta = calculateETA(distance)
+          // Fetch contractor info
+          const { data: contractor } = await supabase
+            .from('pro_contractors')
+            .select('*')
+            .eq('id', contractorId)
+            .single()
 
-              const contractorData: Contractor = {
-                id: contractor.id,
-                name: contractor.name || '',
-                business_name: contractor.business_name || contractor.name || 'Contractor',
-                rating: contractor.rating || 4.5,
-                total_jobs: contractor.total_jobs || 0,
-                hourly_rate: contractor.hourly_rate || directAmount || 0,
-                categories: contractor.categories || [],
-                latitude: contractor.latitude,
-                longitude: contractor.longitude,
-                distance_miles: distance,
-                eta_minutes: eta,
-                availability: 'online',
-                profile_image: contractor.profile_image
-              }
+          if (contractor) {
+            const distance = currentLocation
+              ? calculateDistance(currentLocation.lat, currentLocation.lng, Number(contractor.latitude), Number(contractor.longitude))
+              : 5
+            const eta = calculateETA(distance)
 
+            const contractorData: Contractor = {
+              id: contractor.id,
+              name: contractor.name || '',
+              business_name: contractor.business_name || contractor.name || 'Contractor',
+              rating: contractor.rating || 4.5,
+              total_jobs: contractor.total_jobs || 0,
+              hourly_rate: contractor.hourly_rate || directAmount || 0,
+              categories: contractor.categories || [],
+              latitude: Number(contractor.latitude),
+              longitude: Number(contractor.longitude),
+              distance_miles: distance,
+              eta_minutes: eta,
+              availability: 'online',
+              profile_image: contractor.profile_image,
+              years_in_business: contractor.years_in_business || 1,
+              response_time_minutes: contractor.response_time_minutes || 5,
+              bio: contractor.bio || `Professional service provider.`
+            }
+
+            // Add contractor to visible list
+            setVisibleContractors(prev => [...prev, contractorData])
+            setContractors(prev => [...prev, contractorData])
+
+            // Auto-select the first contractor that appears (use ref to avoid stale closure)
+            if (!connectedContractorRef.current) {
               setConnectedContractor(contractorData)
               setSelectedContractor(contractorData)
-              setPhase('connected')
-
-              // Set up tracking data
-              setTrackingData({
-                paymentHoldId: paymentHoldId || '',
-                bookingId: jobId,
-                amount: directAmount || payload.new.direct_amount || 0,
-                etaMinutes: eta,
-                contractorLocation: contractor.latitude && contractor.longitude
-                  ? { lat: contractor.latitude, lng: contractor.longitude }
-                  : null,
-                conversationId: null
-              })
             }
+
+            // Switch to connected phase — contractors are available
+            setPhase('connected')
           }
         }
       )
       .subscribe()
 
-    // Fetch job details to get expiry time
+    // Also fetch any existing bids that arrived before subscription started
     supabase
-      .from('homeowner_jobs')
-      .select('direct_expires_at, status, contractor_id')
-      .eq('id', jobId)
-      .single()
-      .then(({ data, error }) => {
-        if (!error && data) {
-          if (data.direct_expires_at) {
-            setDirectJobExpiry(new Date(data.direct_expires_at))
-          }
-          if (data.status === 'accepted' && data.contractor_id) {
-            setDirectJobStatus('accepted')
-            setAcceptedContractorId(data.contractor_id)
+      .from('job_bids')
+      .select('*, pro_contractors(*)')
+      .eq('job_id', jobId)
+      .eq('status', 'pending')
+      .then(({ data: existingBids, error }) => {
+        if (!error && existingBids && existingBids.length > 0) {
+          const contractorsList: Contractor[] = existingBids
+            .filter((bid: any) => bid.pro_contractors)
+            .map((bid: any) => {
+              const c = bid.pro_contractors
+              const distance = currentLocation
+                ? calculateDistance(currentLocation.lat, currentLocation.lng, Number(c.latitude), Number(c.longitude))
+                : 5
+              return {
+                id: c.id,
+                name: c.name || '',
+                business_name: c.business_name || c.name || 'Contractor',
+                rating: c.rating || 4.5,
+                total_jobs: c.total_jobs || 0,
+                hourly_rate: c.hourly_rate || directAmount || 0,
+                categories: c.categories || [],
+                latitude: Number(c.latitude),
+                longitude: Number(c.longitude),
+                distance_miles: distance,
+                eta_minutes: calculateETA(distance),
+                availability: 'online' as const,
+                profile_image: c.profile_image,
+                years_in_business: c.years_in_business || 1,
+                response_time_minutes: c.response_time_minutes || 5,
+                bio: c.bio || `Professional service provider.`
+              }
+            })
+
+          if (contractorsList.length > 0) {
+            setVisibleContractors(contractorsList)
+            setContractors(contractorsList)
+            setConnectedContractor(contractorsList[0])
+            setSelectedContractor(contractorsList[0])
+            setPhase('connected')
           }
         }
       })
 
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(bidsChannel)
     }
-  }, [jobId, isOpen, paymentHoldId, directAmount, currentLocation])
+  }, [jobId, isOpen, directAmount, currentLocation])
 
-  // 15-second countdown for direct payment jobs — auto-switch to bids when expired
+  // 15-second countdown for direct payment jobs
+  // If contractors accepted: stop timer, keep tabs open for HO to browse
+  // If no contractors after 15s: switch to bids mode
   useEffect(() => {
-    if (!isDirectPaymentJob || !isOpen || directJobStatus !== 'pending') return
+    if (!isDirectPaymentJob || !isOpen) return
+    // Don't run timer if already expired or if we're in connected/tracking phase
+    if (directJobStatus === 'expired') return
+    if (phase === 'connected' || phase === 'tracking') return
 
     setExpiryCountdown(15)
     const interval = setInterval(() => {
       setExpiryCountdown(prev => {
         if (prev <= 1) {
           clearInterval(interval)
-          setDirectJobStatus('expired')
-          if (onSwitchToBids) onSwitchToBids()
-          return 0
+          // Check if contractors have appeared (use ref to avoid stale closure)
+          if (visibleContractorsRef.current.length > 0) {
+            // Contractors available — keep tabs open, don't switch to bids
+            return 0
+          } else {
+            // No contractors — switch to bids
+            setDirectJobStatus('expired')
+            if (onSwitchToBids) onSwitchToBids()
+            return 0
+          }
         }
         return prev - 1
       })
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [isDirectPaymentJob, isOpen, directJobStatus])
+  }, [isDirectPaymentJob, isOpen, directJobStatus, phase])
 
   // Category to filter mapping
   const categoryMapping: Record<string, string[]> = {
@@ -520,7 +567,7 @@ export default function InstantMatchOverlay({
       if (searchCountdownRef.current) clearInterval(searchCountdownRef.current)
       setPhase('no_pros')
     }
-  }, [userLocation, category, hasFetched, searchRadius, minPrice, maxPrice])
+  }, [currentLocation, userLocation, category, hasFetched, searchRadius, minPrice, maxPrice])
 
   const sendNotificationsToContractors = async (contractorList: Contractor[]) => {
     try {
@@ -559,6 +606,9 @@ export default function InstantMatchOverlay({
   }
 
   const startCountdown = () => {
+    // No auto-confirm countdown for direct payment jobs — HO must click "Start Job"
+    if (isDirectPaymentJob) return
+
     if (countdownRef.current) {
       clearInterval(countdownRef.current)
     }
@@ -630,6 +680,56 @@ export default function InstantMatchOverlay({
     }
 
     try {
+      // DIRECT PAYMENT FLOW: Call /api/jobs/start-direct to create escrow + assign contractor
+      if (isDirectPaymentJob && jobId && directAmount) {
+        // Find the bid ID for this contractor
+        const { data: bid } = await supabase
+          .from('job_bids')
+          .select('id')
+          .eq('job_id', jobId)
+          .eq('contractor_id', connectedContractor.id)
+          .single()
+
+        const response = await fetch('/api/jobs/start-direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId,
+            contractorId: connectedContractor.id,
+            bidId: bid?.id || null,
+            amount: directAmount,
+            homeownerId: user.id
+          })
+        })
+
+        const data = await response.json()
+
+        if (!response.ok || !data.success) {
+          setPaymentError(data.error || 'Failed to start job')
+          setBookingLoading(false)
+          return
+        }
+
+        // Success! Transition to live tracking phase
+        setTrackingData({
+          paymentHoldId: data.paymentHoldId,
+          bookingId: jobId,
+          amount: directAmount,
+          etaMinutes: realEta ?? connectedContractor.eta_minutes,
+          contractorLocation: {
+            lat: connectedContractor.latitude,
+            lng: connectedContractor.longitude
+          },
+          conversationId: data.conversationId || null
+        })
+
+        setTrackingEtaCountdown((realEta ?? connectedContractor.eta_minutes) * 60)
+        setPhase('tracking')
+        setBookingLoading(false)
+        return
+      }
+
+      // REGULAR BOOKING FLOW (non-direct payment)
       // Calculate estimated amount (visit fee + 1 hour base, or 2 hour estimate)
       const visitFee = connectedContractor.visit_fee || 0
       const diagnosticFee = connectedContractor.diagnostic_fee || 0
@@ -1455,7 +1555,7 @@ export default function InstantMatchOverlay({
                           </div>
                         )}
 
-                        {/* Book Now Button */}
+                        {/* Book / Start Job Button */}
                         <button
                           onClick={handleConfirmConnection}
                           disabled={bookingLoading}
@@ -1468,7 +1568,12 @@ export default function InstantMatchOverlay({
                           {bookingLoading ? (
                             <>
                               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                              Sending Request...
+                              {isDirectPaymentJob ? 'Starting Job...' : 'Sending Request...'}
+                            </>
+                          ) : isDirectPaymentJob ? (
+                            <>
+                              <Zap className="w-5 h-5" />
+                              Start Job with {selectedContractor.business_name?.split(' ')[0]}
                             </>
                           ) : (
                             <>
@@ -1481,6 +1586,8 @@ export default function InstantMatchOverlay({
                         <p className="text-center text-xs text-slate-500">
                           {bookingLoading ? (
                             'Please wait...'
+                          ) : isDirectPaymentJob ? (
+                            <>Click to start this job • ${directAmount?.toFixed(0)} held in escrow</>
                           ) : (
                             <>Auto-booking in <span className="font-semibold text-emerald-600">{countdown}s</span> • Click another pro to switch</>
                           )}
@@ -1734,8 +1841,8 @@ export default function InstantMatchOverlay({
                       )}
                     </AnimatePresence>
 
-                    {/* Direct Payment Job - Waiting for Contractor */}
-                    {isDirectPaymentJob && directJobStatus === 'pending' && (
+                    {/* Direct Payment Job - Waiting for Contractors (searching phase) */}
+                    {isDirectPaymentJob && phase === 'searching' && directJobStatus === 'pending' && (
                       <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1747,7 +1854,7 @@ export default function InstantMatchOverlay({
                             <DollarSign className="w-6 h-6" />
                             <span className="font-bold text-lg">Direct Payment Job</span>
                           </div>
-                          <p className="text-emerald-100 text-sm">Waiting for a contractor to accept</p>
+                          <p className="text-emerald-100 text-sm">Waiting for contractors to accept</p>
                         </div>
 
                         {/* Amount Display */}
@@ -1761,13 +1868,13 @@ export default function InstantMatchOverlay({
                         <div className="bg-white rounded-xl p-5 text-center border-2 border-slate-200">
                           <div className="flex items-center justify-center gap-2 mb-2">
                             <Clock className="w-4 h-4 text-emerald-600" />
-                            <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Finding a Pro</span>
+                            <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Finding Pros</span>
                           </div>
                           <div className={`text-5xl font-bold font-mono ${expiryCountdown <= 5 ? 'text-red-600' : expiryCountdown <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
                             {expiryCountdown}s
                           </div>
                           <p className="text-slate-500 text-xs mt-2">
-                            Switching to bids if no instant match
+                            Switching to bids if no contractors accept
                           </p>
 
                           {/* Progress Bar */}
@@ -1793,7 +1900,7 @@ export default function InstantMatchOverlay({
                           </div>
                           <div className="flex-1">
                             <div className="text-sm font-semibold text-blue-800">Broadcasting to nearby pros</div>
-                            <div className="text-xs text-blue-600">First to accept gets the job</div>
+                            <div className="text-xs text-blue-600">Contractors can accept your offer</div>
                           </div>
                         </div>
 
@@ -1805,29 +1912,20 @@ export default function InstantMatchOverlay({
                               <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
                                 <span className="text-xs font-bold text-emerald-600">1</span>
                               </div>
-                              <p className="text-xs text-slate-600">Contractors in your area are notified</p>
+                              <p className="text-xs text-slate-600">Contractors in your area see the job and accept</p>
                             </div>
                             <div className="flex items-start gap-2.5">
                               <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
                                 <span className="text-xs font-bold text-emerald-600">2</span>
                               </div>
-                              <p className="text-xs text-slate-600">First contractor to accept is matched with you</p>
+                              <p className="text-xs text-slate-600">You browse profiles and click "Start Job" on the one you want</p>
                             </div>
                             <div className="flex items-start gap-2.5">
                               <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
                                 <span className="text-xs font-bold text-emerald-600">3</span>
                               </div>
-                              <p className="text-xs text-slate-600">Your payment is held securely until job completion</p>
+                              <p className="text-xs text-slate-600">Payment is held in escrow until job completion</p>
                             </div>
-                          </div>
-                        </div>
-
-                        {/* Payment Info */}
-                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
-                          <Shield className="w-5 h-5 text-emerald-600" />
-                          <div className="flex-1">
-                            <div className="text-xs font-medium text-emerald-800">Payment secured</div>
-                            <div className="text-xs text-emerald-600">${directAmount?.toFixed(2)} held until job is done</div>
                           </div>
                         </div>
 
@@ -1836,7 +1934,7 @@ export default function InstantMatchOverlay({
                           onClick={handleCancel}
                           className="w-full py-2.5 text-slate-500 hover:text-red-600 transition-colors text-sm border border-slate-200 rounded-lg hover:border-red-300"
                         >
-                          Cancel and get refund
+                          Cancel job
                         </button>
                       </motion.div>
                     )}
@@ -1950,10 +2048,12 @@ export default function InstantMatchOverlay({
                   selectedContractor={selectedContractor}
                   radiusMiles={searchRadius}
                   onSelectContractor={(c) => {
+                    // ContractorMap returns its own simpler Contractor type — cast to full type
+                    const fullContractor = visibleContractors.find(vc => vc.id === c.id) || c as any as Contractor
                     if (phase === 'connected') {
-                      handleSwitchContractor(c)
+                      handleSwitchContractor(fullContractor)
                     } else {
-                      setSelectedContractor(c)
+                      setSelectedContractor(fullContractor)
                     }
                   }}
                   onRouteCalculated={(eta, distance) => {

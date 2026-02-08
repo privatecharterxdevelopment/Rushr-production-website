@@ -444,6 +444,82 @@ function ActiveConversation({
   const [showOffer, setShowOffer] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [showPaymentAdjustment, setShowPaymentAdjustment] = useState(false)
+  const [adjustmentAmount, setAdjustmentAmount] = useState('')
+  const [adjustmentReason, setAdjustmentReason] = useState('')
+  const [adjustmentCategory, setAdjustmentCategory] = useState('')
+  const [submittingAdjustment, setSubmittingAdjustment] = useState(false)
+  const [activeBooking, setActiveBooking] = useState<any>(null)
+
+  // Fetch active booking for this conversation
+  useEffect(() => {
+    const fetchActiveBooking = async () => {
+      if (!conversation || !user) return
+
+      try {
+        // Get the homeowner and contractor IDs from conversation
+        const homeownerId = conversation.homeowner_id
+        const contractorId = conversation.pro_id
+
+        // Find active booking between these parties
+        const response = await fetch(`/api/booking/active?homeownerId=${homeownerId}&contractorId=${contractorId}`)
+        const data = await response.json()
+
+        if (data.success && data.booking) {
+          setActiveBooking(data.booking)
+        }
+      } catch (error) {
+        console.error('Error fetching active booking:', error)
+      }
+    }
+
+    fetchActiveBooking()
+  }, [conversation, user])
+
+  const handleRequestAdjustment = async () => {
+    if (!adjustmentAmount || !adjustmentReason || !activeBooking || !user) return
+
+    setSubmittingAdjustment(true)
+    try {
+      const userRole = user.id === conversation?.homeowner_id ? 'homeowner' : 'contractor'
+
+      const response = await fetch('/api/payments/request-adjustment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingId: activeBooking.id,
+          requestedBy: userRole,
+          requesterId: user.id,
+          requesterName: userRole === 'homeowner' ? conversation?.homeowner_name : conversation?.pro_name,
+          newAmount: parseFloat(adjustmentAmount),
+          reason: adjustmentReason,
+          category: adjustmentCategory || undefined,
+          homeownerId: conversation?.homeowner_id,
+          contractorId: conversation?.pro_id
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Send a system message about the adjustment request
+        await sendMessage(`💰 Payment adjustment requested: $${activeBooking.amount?.toFixed(2) || '0.00'} → $${parseFloat(adjustmentAmount).toFixed(2)}. Reason: ${adjustmentReason}`)
+
+        setShowPaymentAdjustment(false)
+        setAdjustmentAmount('')
+        setAdjustmentReason('')
+        setAdjustmentCategory('')
+        alert('Payment adjustment request sent! The other party will be notified via email.')
+      } else {
+        alert(data.error || 'Failed to submit adjustment request')
+      }
+    } catch (error) {
+      console.error('Error requesting adjustment:', error)
+      alert('Failed to submit adjustment request')
+    } finally {
+      setSubmittingAdjustment(false)
+    }
+  }
 
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -612,10 +688,76 @@ function ActiveConversation({
         ))}
       </div>
 
-      {/* Pro quote toolbar */}
-      {userRole === 'pro' && (
-        <>
-          <div className="flex items-center justify-end gap-2 border-t bg-white/60 px-3 py-2">
+      {/* Pro quote toolbar + Payment Adjustment for both roles */}
+      <div className="flex items-center justify-between gap-2 border-t bg-white/60 px-3 py-2">
+        {/* Left side - Cancel job button */}
+        {activeBooking && (
+          <button
+            onClick={() => {
+              if (confirm('Are you sure you want to cancel this job? You will need to provide a reason.')) {
+                const reason = prompt('Please provide a reason for cancellation:')
+                if (reason && reason.trim()) {
+                  const cancellerRole = user?.id === conversation?.homeowner_id ? 'homeowner' : 'contractor'
+                  const cancellerName = cancellerRole === 'homeowner' ? conversation?.homeowner_name : conversation?.pro_name
+
+                  // Call cancel API with all required fields
+                  fetch('/api/booking/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      bookingId: activeBooking.id,
+                      paymentHoldId: activeBooking.paymentHoldId,
+                      cancelledBy: cancellerRole,
+                      cancelledById: user?.id,
+                      cancelledByName: cancellerName,
+                      contractorId: conversation?.pro_id,
+                      homeownerId: conversation?.homeowner_id,
+                      reason: reason.trim(),
+                      amount: activeBooking.amount
+                    })
+                  }).then(res => res.json()).then(data => {
+                    if (data.success) {
+                      alert('Job cancelled successfully. The other party has been notified.')
+                      setActiveBooking(null)
+                    } else {
+                      alert(data.error || 'Failed to cancel job')
+                    }
+                  }).catch(err => {
+                    console.error('Cancel error:', err)
+                    alert('Failed to cancel job. Please try again.')
+                  })
+                }
+              }
+            }}
+            className="flex items-center gap-2 rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Cancel Job
+          </button>
+        )}
+
+        {/* Right side - Quote and Payment Adjustment */}
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Payment Adjustment button - for both roles when there's an active booking */}
+          {activeBooking && (
+            <button
+              onClick={() => setShowPaymentAdjustment(v => !v)}
+              className={classNames(
+                'flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm',
+                showPaymentAdjustment ? 'bg-blue-600 text-white border-blue-600' : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+              )}
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {showPaymentAdjustment ? 'Close' : 'Adjust Payment'}
+            </button>
+          )}
+
+          {/* Quote button - only for pros */}
+          {userRole === 'pro' && (
             <button
               onClick={() => setShowOffer(v => !v)}
               className={classNames(
@@ -626,19 +768,107 @@ function ActiveConversation({
               <FileTextIcon className="h-4 w-4" />
               {showOffer ? 'Close Quote' : 'Send Quote'}
             </button>
-          </div>
-          {showOffer && (
-            <div className="border-t bg-emerald-50/50 p-3">
-              <OfferComposer
-                onCancel={() => setShowOffer(false)}
-                onSubmit={async (offer) => {
-                  await sendOffer(offer)
-                  setShowOffer(false)
-                }}
-              />
-            </div>
           )}
-        </>
+        </div>
+      </div>
+
+      {/* Payment Adjustment Form */}
+      {showPaymentAdjustment && activeBooking && (
+        <div className="border-t bg-blue-50/50 p-4">
+          <div className="mx-auto max-w-3xl rounded-xl border bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="text-sm font-semibold">Request Payment Adjustment</div>
+              <div className="ml-auto text-xs text-slate-500">
+                Current: ${activeBooking.amount?.toFixed(2) || '0.00'}
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">New Amount (USD)</label>
+                <input
+                  value={adjustmentAmount}
+                  onChange={e => setAdjustmentAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Category (optional)</label>
+                <select
+                  value={adjustmentCategory}
+                  onChange={e => setAdjustmentCategory(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  <option value="">Select category</option>
+                  <option value="additional_work">Additional Work</option>
+                  <option value="materials">Materials/Parts</option>
+                  <option value="time_extension">Time Extension</option>
+                  <option value="scope_change">Scope Change</option>
+                  <option value="discount">Discount/Reduction</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-slate-600">Reason for Adjustment</label>
+                <textarea
+                  value={adjustmentReason}
+                  onChange={e => setAdjustmentReason(e.target.value)}
+                  rows={3}
+                  placeholder="Explain why the payment amount should change..."
+                  className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between">
+              <div className="text-xs text-slate-500">
+                {parseFloat(adjustmentAmount) > (activeBooking.amount || 0)
+                  ? `+$${(parseFloat(adjustmentAmount) - (activeBooking.amount || 0)).toFixed(2)} increase`
+                  : parseFloat(adjustmentAmount) < (activeBooking.amount || 0)
+                    ? `-$${((activeBooking.amount || 0) - parseFloat(adjustmentAmount)).toFixed(2)} decrease`
+                    : 'Enter a different amount'}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowPaymentAdjustment(false)}
+                  className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={!adjustmentAmount || !adjustmentReason || submittingAdjustment}
+                  onClick={handleRequestAdjustment}
+                  className={classNames(
+                    'rounded-md px-3 py-1.5 text-sm font-semibold text-white',
+                    adjustmentAmount && adjustmentReason && !submittingAdjustment
+                      ? 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-slate-300 cursor-not-allowed'
+                  )}
+                >
+                  {submittingAdjustment ? 'Sending...' : 'Request Adjustment'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quote form for pros */}
+      {showOffer && userRole === 'pro' && (
+        <div className="border-t bg-emerald-50/50 p-3">
+          <OfferComposer
+            onCancel={() => setShowOffer(false)}
+            onSubmit={async (offer) => {
+              await sendOffer(offer)
+              setShowOffer(false)
+            }}
+          />
+        </div>
       )}
 
       {/* Quick replies */}

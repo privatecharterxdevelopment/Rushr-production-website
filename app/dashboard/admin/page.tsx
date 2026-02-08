@@ -26,6 +26,8 @@ type DashboardStats = {
   totalSupportTickets: number
   activeJobs: number
   completedJobs: number
+  pendingAdjustments: number
+  pendingCancellations: number
 }
 
 function StatCard({
@@ -119,6 +121,20 @@ export default function AdminDashboard() {
         newTickets = newTicketsRes.count || 0
       }
 
+      // Fetch payment adjustments count
+      let pendingAdjustments = 0
+      const adjustmentsRes = await supabase.from('payment_adjustments').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+      if (!adjustmentsRes.error) {
+        pendingAdjustments = adjustmentsRes.count || 0
+      }
+
+      // Fetch cancellations count
+      let pendingCancellations = 0
+      const cancellationsRes = await supabase.from('job_cancellations').select('*', { count: 'exact', head: true }).eq('admin_reviewed', false)
+      if (!cancellationsRes.error) {
+        pendingCancellations = cancellationsRes.count || 0
+      }
+
       setStats({
         pendingContractors: pendingRes.count || 0,
         totalContractors: totalRes.count || 0,
@@ -129,6 +145,8 @@ export default function AdminDashboard() {
         totalSupportTickets: totalTickets,
         activeJobs: activeJobsRes.count || 0,
         completedJobs: completedJobsRes.count || 0,
+        pendingAdjustments,
+        pendingCancellations,
       })
     } catch (error) {
       console.error('Error fetching admin stats:', error)
@@ -271,6 +289,45 @@ export default function AdminDashboard() {
             hint={`${stats?.completedJobs || 0} completed`}
             icon={<TrendingUp className="h-4 w-4" />}
             tone="emerald"
+          />
+        </div>
+      </div>
+
+      {/* Payments & Jobs */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Payments & Jobs</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Payment Adjustments"
+            value={stats?.pendingAdjustments || 0}
+            hint="Pending review"
+            icon={<DollarSign className="h-4 w-4" />}
+            tone={stats?.pendingAdjustments && stats.pendingAdjustments > 0 ? 'amber' : 'blue'}
+            href="/dashboard/admin/payment-adjustments"
+          />
+          <StatCard
+            label="Cancellations"
+            value={stats?.pendingCancellations || 0}
+            hint="Needs review"
+            icon={<XCircle className="h-4 w-4" />}
+            tone={stats?.pendingCancellations && stats.pendingCancellations > 0 ? 'rose' : 'blue'}
+            href="/dashboard/admin/cancellations"
+          />
+          <StatCard
+            label="Escrow Holds"
+            value="-"
+            hint="Payment holds"
+            icon={<DollarSign className="h-4 w-4" />}
+            tone="emerald"
+            href="/dashboard/admin/payments/escrow"
+          />
+          <StatCard
+            label="All Transactions"
+            value="-"
+            hint="Payment history"
+            icon={<TrendingUp className="h-4 w-4" />}
+            tone="blue"
+            href="/dashboard/admin/payments/transactions"
           />
         </div>
       </div>

@@ -1252,48 +1252,7 @@ export default function PostJobInner({ userId }: Props) {
       }
       const autoTitle = emergencyTypeLabels[emergencyType] || 'Home Emergency'
 
-      // For Direct Payment: Create payment hold FIRST
-      let holdId: string | null = null
-      if (paymentType === 'direct') {
-        const amount = parseFloat(directAmount)
-        if (!amount || amount <= 0) {
-          setErrorPopup('Please enter a valid amount for direct payment.')
-          setSending(false)
-          return
-        }
-
-        if (!hasSavedCard) {
-          // Show inline add card modal instead of redirecting
-          setShowAddCardModal(true)
-          setSending(false)
-          return
-        }
-
-        console.log('[SUBMIT] Creating payment hold for direct payment...')
-        const holdResponse = await fetch('/api/payments/create-direct-hold', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            homeownerId: userId,
-            amount: amount,
-            category: emergencyType || category,
-            description: details || autoTitle
-          })
-        })
-
-        const holdData = await holdResponse.json()
-        if (!holdData.success) {
-          setErrorPopup(holdData.error || 'Failed to create payment hold. Please try again.')
-          setSending(false)
-          return
-        }
-
-        holdId = holdData.paymentHoldId
-        setPaymentHoldId(holdId)
-        console.log('[SUBMIT] Payment hold created:', holdId)
-      }
-
-      // Prepare job data
+      // Prepare job data (escrow is created later when HO clicks "Start Job")
       const jobData: any = {
         title: autoTitle,
         description: details || autoTitle,
@@ -1313,7 +1272,6 @@ export default function PostJobInner({ userId }: Props) {
         // Direct payment fields
         payment_type: paymentType,
         direct_amount: paymentType === 'direct' ? parseFloat(directAmount) : null,
-        payment_hold_id: holdId,
       }
 
       console.log('[SUBMIT] Job data prepared:', jobData)

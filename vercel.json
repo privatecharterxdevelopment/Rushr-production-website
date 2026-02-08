@@ -1,1 +1,19 @@
-{"framework":"nextjs","buildCommand":"npm run build","devCommand":"npm run dev","installCommand":"npm install","regions":["fra1"],"functions":{"app/**":{"maxDuration":30}},"rewrites":[{"source":"/pro/:path*","destination":"/pro/:path*"}]}
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "regions": ["fra1"],
+  "functions": {
+    "app/**": {"maxDuration": 30}
+  },
+  "rewrites": [
+    {"source": "/pro/:path*", "destination": "/pro/:path*"}
+  ],
+  "crons": [
+    {
+      "path": "/api/jobs/expire-direct",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

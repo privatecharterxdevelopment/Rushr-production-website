@@ -186,30 +186,36 @@ export default function ContractorJobsPage() {
     setAcceptingJob(job.id)
 
     try {
-      const response = await fetch('/api/jobs/accept-direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: job.id,
-          contractorId: user.id
-        })
-      })
+      // Create a bid at the fixed direct_amount price
+      // This allows multiple contractors to accept simultaneously
+      // The homeowner will then pick one and click "Start Job"
+      const { data, error } = await supabase
+        .from('job_bids')
+        .insert([{
+          job_id: job.id,
+          contractor_id: user.id,
+          homeowner_id: job.homeowner_id,
+          bid_amount: job.direct_amount,
+          message: 'Accepted at fixed price',
+          status: 'pending'
+        }])
+        .select()
 
-      const data = await response.json()
-
-      if (data.success) {
-        setSuccessMessage(`Job accepted! You'll earn $${job.direct_amount.toFixed(2)} for this job. Check your messages to coordinate with the homeowner.`)
+      if (error) {
+        if (error.code === '23505') {
+          // Unique constraint violation - already accepted
+          setSuccessMessage('You have already accepted this job. Waiting for homeowner to select you.')
+          setShowSuccessModal(true)
+        } else {
+          console.error('Error accepting direct job:', error)
+          setSuccessMessage(error.message || 'Failed to accept job. Please try again.')
+          setShowSuccessModal(true)
+        }
+      } else {
+        setSuccessMessage(`Accepted! You'll earn $${job.direct_amount.toFixed(2)} if the homeowner selects you. Waiting for their decision.`)
         setShowSuccessModal(true)
-        // Refresh lists
         fetchDirectJobs()
         fetchMyJobs()
-      } else if (data.alreadyTaken) {
-        setSuccessMessage('Sorry, another contractor already accepted this job.')
-        setShowSuccessModal(true)
-        fetchDirectJobs() // Refresh to remove the taken job
-      } else {
-        setSuccessMessage(data.error || 'Failed to accept job. Please try again.')
-        setShowSuccessModal(true)
       }
     } catch (err) {
       console.error('Error accepting direct job:', err)
@@ -742,7 +748,7 @@ export default function ContractorJobsPage() {
               <div className="flex-1">
                 <h2 className="text-xl font-bold text-emerald-900 mb-1">Direct Payment Jobs</h2>
                 <p className="text-emerald-700 text-sm">
-                  These jobs have a fixed price set by the homeowner. Accept to instantly get the job - first contractor to accept wins!
+                  These jobs have a fixed price set by the homeowner. Accept to let them know you're available — they'll pick a contractor to start the job.
                 </p>
                 <div className="flex items-center gap-4 mt-3 text-xs text-emerald-600">
                   <div className="flex items-center gap-1">
@@ -861,7 +867,7 @@ export default function ContractorJobsPage() {
                     </button>
 
                     <p className="text-center text-xs text-slate-500 mt-2">
-                      First to accept wins the job
+                      Accept to let the homeowner know you're available
                     </p>
                   </div>
                 </div>

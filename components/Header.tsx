@@ -307,11 +307,11 @@ export default function Header() {
     { label: 'Post a Job',            href: '/post-job' },
   ]
   const findWorkItems = isSignedInAsContractor ? [
-    // Contractor is logged in - go to dashboard pages
+    // Contractor is logged in - show jobs listing
     { label: 'Browse Jobs',               href: '/dashboard/contractor/jobs' },
   ] : [
-    // Not logged in - open Pro login modal
-    { label: 'Browse Jobs',               onClick: () => openProAuth() },
+    // Not logged in - go to Pro landing page
+    { label: 'Browse Jobs',               href: '/pro' },
   ]
   const moreItems = [
     { label: 'About',   href: '/about' },

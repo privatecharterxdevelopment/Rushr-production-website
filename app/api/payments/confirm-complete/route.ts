@@ -46,11 +46,12 @@ export async function POST(request: NextRequest) {
       holdError = result.error
     } else if (jobId) {
       // Look up by job ID - get the most recent active payment hold
+      // Check for 'captured' first (normal flow), then 'authorized' (direct payment fallback)
       const result = await supabase
         .from('payment_holds')
         .select('*')
         .eq('job_id', jobId)
-        .eq('status', 'captured')
+        .in('status', ['captured', 'authorized'])
         .order('created_at', { ascending: false })
         .limit(1)
         .single()
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (paymentHold.status !== 'captured') {
+    if (paymentHold.status !== 'captured' && paymentHold.status !== 'authorized') {
       return NextResponse.json(
         { error: 'Payment must be captured before confirming completion' },
         { status: 400 }
@@ -117,6 +118,14 @@ export async function POST(request: NextRequest) {
 
     if (updateError) {
       throw updateError
+    }
+
+    // 2b. When contractor confirms, also flag the job so HO dashboard can see it
+    if (userType === 'contractor' && paymentHold.job_id) {
+      await supabase
+        .from('homeowner_jobs')
+        .update({ contractor_marked_complete: true })
+        .eq('id', paymentHold.job_id)
     }
 
     // 3. Check if both parties confirmed (trigger will auto-release)

@@ -3,14 +3,17 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "predev": "pkill -f 'next dev' 2>/dev/null || true; rm -rf .next node_modules/.cache 2>/dev/null || true",
     "dev": "next dev",
-    "dev:3001": "next dev -p 3001",
-    "dev:3003": "next dev -p 3003",
-    "dev:3004": "next dev -p 3004",
-    "dev:3005": "next dev -p 3005",
-    "build": "next build",
+    "dev:fast": "next dev",
+    "dev:3001": "npm run predev && next dev -p 3001",
+    "dev:3003": "npm run predev && next dev -p 3003",
+    "dev:3004": "npm run predev && next dev -p 3004",
+    "dev:3005": "npm run predev && next dev -p 3005",
+    "build": "rm -rf .next && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "clean": "pkill -f 'next' 2>/dev/null || true; rm -rf .next node_modules/.cache"
   },
   "dependencies": {
     "@capacitor/app": "^7.1.1",

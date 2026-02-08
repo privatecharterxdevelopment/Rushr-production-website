@@ -11,7 +11,8 @@ import dynamic from 'next/dynamic'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
-// const ContractorTracker = dynamic(() => import('../../../components/ContractorTracker'), { ssr: false })
+// // const ContractorTracker = dynamic(() => import('../../../components/ContractorTracker'), { ssr: false })
+const PaymentAdjustments = dynamic(() => import('../../../components/PaymentAdjustments'), { ssr: false })
 import {
   CalendarDays,
   CheckCircle2,
@@ -171,6 +172,9 @@ export default function HomeownerDashboardPage() {
   // Bids state - Track bids for each job
   const [jobBids, setJobBids] = useState<Record<string, any[]>>({})
 
+  // Confirm completion state
+  const [confirmingJobId, setConfirmingJobId] = useState<string | null>(null)
+
   // Move all useMemo hooks to the top to avoid React hooks error
   const completeness: CompletenessField[] = useMemo(() => {
     if (!user || !userProfile) return []
@@ -214,7 +218,11 @@ export default function HomeownerDashboardPage() {
       estimatedDuration: '1-2 hours', // TODO: Calculate
       created_at: job.created_at,
       requested_contractor_id: job.requested_contractor_id || null, // Direct offer field
-      requested_contractor_name: job.requested_contractor_name || null // Direct offer contractor name
+      requested_contractor_name: job.requested_contractor_name || null, // Direct offer contractor name
+      contractor_marked_complete: job.contractor_marked_complete || false,
+      payment_hold_id: job.payment_hold_id || null,
+      contractor_id: job.contractor_id || null,
+      direct_amount: job.direct_amount || null
     }))
 
     // Sort jobs: Emergency jobs first, then by creation date (newest first)
@@ -468,6 +476,73 @@ export default function HomeownerDashboardPage() {
       console.error('❌ Failed to fetch saved addresses:', error)
     }
   }
+
+  // Handle homeowner confirming job completion (releases escrow)
+  const handleConfirmCompletion = async (jobUuid: string) => {
+    if (!user) return
+
+    if (!confirm('Confirm this job is complete? This will release payment to the contractor.')) return
+
+    setConfirmingJobId(jobUuid)
+
+    try {
+      const response = await fetch('/api/payments/confirm-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: jobUuid,
+          userId: user.id,
+          userType: 'homeowner'
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        if (data.bothConfirmed) {
+          alert('Job complete! Payment has been released to the contractor.')
+        } else {
+          alert('Completion confirmed! Waiting for contractor to also confirm.')
+        }
+        // Refresh job data
+        refreshStats()
+      } else {
+        alert(data.error || 'Failed to confirm completion. Please try again.')
+      }
+    } catch (err) {
+      console.error('Error confirming completion:', err)
+      alert('Failed to confirm completion. Please try again.')
+    } finally {
+      setConfirmingJobId(null)
+    }
+  }
+
+  // Real-time subscription for job status updates (contractor arrived, job complete, etc.)
+  useEffect(() => {
+    if (!user) return
+
+    const channel = supabase
+      .channel(`homeowner-jobs-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'homeowner_jobs',
+          filter: `homeowner_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('[HO Dashboard] Job updated:', payload.new)
+          // Refresh stats to pick up status changes
+          refreshStats()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user, refreshStats])
 
   // Geocode address function
   const geocodeAddress = async (address: string) => {
@@ -821,6 +896,14 @@ export default function HomeownerDashboardPage() {
                                 Contractor: <span className="font-medium">{job.proName}</span>
                               </p>
                             )}
+                            {job.contractor_marked_complete && job.status !== 'Completed' && (
+                              <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                                <span className="text-sm font-medium text-emerald-800">
+                                  Contractor marked this job as complete — please confirm to release payment
+                                </span>
+                              </div>
+                            )}
 
                             {/* Show bids for this job */}
                             {jobBids[job.uuid] && jobBids[job.uuid].length > 0 && (
@@ -873,6 +956,16 @@ export default function HomeownerDashboardPage() {
                             <div className="text-xs text-amber-600 font-medium">⏳ Finding Pro</div>
                             <div className="text-xs text-gray-500">ETA: 5-15 min</div>
                           </div>
+                        )}
+                        {job.contractor_marked_complete && job.status !== 'Completed' && (
+                          <button
+                            onClick={() => handleConfirmCompletion(job.uuid)}
+                            disabled={confirmingJobId === job.uuid}
+                            className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-1.5"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            {confirmingJobId === job.uuid ? 'Confirming...' : 'Confirm & Release Payment'}
+                          </button>
                         )}
                         <Link
                           href={`/jobs/${job.id}`}
@@ -1141,6 +1234,13 @@ export default function HomeownerDashboardPage() {
           </div>
         </div>
       </section>
+
+      {/* Payment Adjustments Section */}
+      {user && (
+        <section className="mb-6">
+          <PaymentAdjustments userId={user.id} userType="homeowner" limit={5} />
+        </section>
+      )}
 
       {/* Past Jobs Section */}
       <section className="mb-6">

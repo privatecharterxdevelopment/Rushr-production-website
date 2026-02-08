@@ -44,14 +44,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 2. Verify contractor owns the accepted bid
-    const { data: bid, error: bidError } = await supabase
-      .from('job_bids')
-      .select('contractor_id')
-      .eq('id', job.accepted_bid_id)
-      .single()
+    // 2. Verify contractor is assigned to this job
+    // For direct payment jobs, contractor_id is set directly on the job
+    // For bid-based jobs, verify via accepted_bid_id
+    if (job.accepted_bid_id) {
+      const { data: bid, error: bidError } = await supabase
+        .from('job_bids')
+        .select('contractor_id')
+        .eq('id', job.accepted_bid_id)
+        .single()
 
-    if (bidError || !bid || bid.contractor_id !== contractorId) {
+      if (bidError || !bid || bid.contractor_id !== contractorId) {
+        return NextResponse.json(
+          { error: 'Unauthorized - you are not assigned to this job' },
+          { status: 403 }
+        )
+      }
+    } else if (job.contractor_id !== contractorId) {
       return NextResponse.json(
         { error: 'Unauthorized - you are not assigned to this job' },
         { status: 403 }

@@ -55,7 +55,23 @@ export default function ContractorSignup() {
   const sp = useSearchParams()
 
   const categories = useMemo<string[]>(
-    () => ['Electrical','HVAC','Roofing','Plumbing','Carpentry','Landscaping'],
+    () => [
+      // Home Services
+      'Plumbing',
+      'Electrical',
+      'HVAC',
+      'Roofing',
+      'Carpentry',
+      'Landscaping',
+      'Locksmith',
+      'Appliance Repair',
+      'Water Damage Restoration',
+      'General Contractor',
+      'Pest Control',
+      'Cleaning',
+      'Painting',
+      'Handyman',
+    ],
     []
   )
 
@@ -82,6 +98,7 @@ export default function ContractorSignup() {
 
   const [errors, setErrors] = useState<Record<string,string>>({})
   const [busy, setBusy] = useState(false)
+  const [showSuccess, setShowSuccess] = useState(false)
   const [geocoding, setGeocoding] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [locationForZips, setLocationForZips] = useState('')
@@ -514,6 +531,27 @@ async function submitAll(e?: React.FormEvent) {
 
     console.log('[WIZARD] Profile saved successfully:', upsertData)
 
+    // Also create/update user_profiles entry (required for Stripe Connect FK constraint)
+    console.log('[WIZARD] Creating user_profiles entry for Stripe compatibility...')
+    const { error: userProfileError } = await supabase
+      .from('user_profiles')
+      .upsert({
+        id: session.user.id,
+        email: form.email,
+        name: form.name,
+        phone: form.phone,
+        role: 'contractor',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id' })
+
+    if (userProfileError) {
+      console.warn('[WIZARD] user_profiles upsert warning (non-fatal):', userProfileError.message)
+      // Don't fail - this is just for Stripe FK compatibility
+    } else {
+      console.log('[WIZARD] ✅ user_profiles entry created/updated')
+    }
+
     // Upload logo if provided
     let logoUrl: string | null = null
     if (form.logo) {
@@ -635,10 +673,10 @@ async function submitAll(e?: React.FormEvent) {
       // Don't fail wizard - can complete Stripe setup later
     }
 
-    // Fallback: If Stripe setup fails, still let them access dashboard
+    // Show success celebration screen
     clearDraft()
-    setBusy(false) // IMPORTANT: Clear busy state BEFORE alert/redirect
-    toast.success('Welcome to Rushr Pro! Complete payment setup from dashboard.', { duration: 5000 })
+    setBusy(false)
+    setShowSuccess(true)
 
     console.log('[WIZARD] ========================================')
     console.log('[WIZARD] CONTRACTOR PROFILE CREATED SUCCESSFULLY')
@@ -648,11 +686,10 @@ async function submitAll(e?: React.FormEvent) {
     console.log('[WIZARD] Categories:', form.categories)
     console.log('[WIZARD] Profile data:', upsertData)
     console.log('[WIZARD] ========================================')
-    console.log('[WIZARD] Waiting 2 seconds before redirect...')
+    console.log('[WIZARD] Showing success screen for 4 seconds...')
 
-    // CRITICAL: Wait 2 seconds for ProAuthContext to reload the contractor profile
-    // Otherwise the dashboard will think wizard isn't complete and redirect back here
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    // Show celebration for 4 seconds then redirect
+    await new Promise(resolve => setTimeout(resolve, 4000))
 
     console.log('[WIZARD] ========================================')
     console.log('[WIZARD] REDIRECTING TO CONTRACTOR DASHBOARD')
@@ -680,6 +717,89 @@ async function submitAll(e?: React.FormEvent) {
   const SectionTitle = ({children}:{children:React.ReactNode}) => (<div className="text-sm font-semibold text-slate-900 mb-2">{children}</div>)
 
   /* ====================== Render ====================== */
+
+  // Success celebration screen with confetti
+  if (showSuccess) {
+    return (
+      <IOSProWizardWrapper>
+        <div className="fixed inset-0 z-50 bg-gradient-to-b from-emerald-50 to-white flex flex-col items-center justify-center overflow-hidden">
+          {/* CSS Confetti */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {[...Array(50)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute animate-confetti"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `-10%`,
+                  width: `${8 + Math.random() * 8}px`,
+                  height: `${8 + Math.random() * 8}px`,
+                  backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'][Math.floor(Math.random() * 6)],
+                  borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+                  animationDelay: `${Math.random() * 2}s`,
+                  animationDuration: `${3 + Math.random() * 2}s`,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Success content */}
+          <div className="relative z-10 text-center px-6">
+            {/* Animated checkmark */}
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-emerald-100 flex items-center justify-center animate-bounce-in">
+              <svg className="w-14 h-14 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" className="animate-draw-check" />
+              </svg>
+            </div>
+
+            <h1 className="text-3xl font-bold text-slate-900 mb-3">Welcome to Rushr Pro!</h1>
+            <p className="text-lg text-slate-600 mb-2">Your account has been created successfully.</p>
+            <p className="text-slate-500">Your profile is now pending KYC verification.</p>
+
+            <div className="mt-8 flex items-center justify-center gap-2 text-emerald-600">
+              <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+              <span className="font-medium">Redirecting to your dashboard...</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Confetti animation styles */}
+        <style jsx>{`
+          @keyframes confetti-fall {
+            0% {
+              transform: translateY(0) rotate(0deg);
+              opacity: 1;
+            }
+            100% {
+              transform: translateY(100vh) rotate(720deg);
+              opacity: 0;
+            }
+          }
+          @keyframes bounce-in {
+            0% { transform: scale(0); opacity: 0; }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 1; }
+          }
+          @keyframes draw-check {
+            0% { stroke-dasharray: 0 100; }
+            100% { stroke-dasharray: 100 0; }
+          }
+          .animate-confetti {
+            animation: confetti-fall linear forwards;
+          }
+          .animate-bounce-in {
+            animation: bounce-in 0.6s ease-out forwards;
+          }
+          .animate-draw-check {
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            animation: draw-check 0.8s ease-out 0.3s forwards;
+          }
+        `}</style>
+      </IOSProWizardWrapper>
+    )
+  }
+
   return (
     <IOSProWizardWrapper>
       <Toaster position="top-center" />

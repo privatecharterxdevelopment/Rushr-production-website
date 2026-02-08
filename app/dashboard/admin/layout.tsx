@@ -16,6 +16,7 @@ import {
   DollarSign,
   Briefcase,
   AlertTriangle,
+  XCircle,
 } from 'lucide-react'
 
 // Allowed admin email addresses
@@ -131,6 +132,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       href: '/dashboard/admin/disputes',
       icon: AlertTriangle,
       badge: 'open',
+    },
+    {
+      name: 'Cancellations',
+      href: '/dashboard/admin/cancellations',
+      icon: XCircle,
+      badge: 'pending',
     },
     {
       name: 'Payments & Escrow',

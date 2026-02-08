@@ -8,6 +8,7 @@ import { supabase } from '../../../lib/supabaseClient'
 import dynamic from 'next/dynamic'
 
 const PaymentHistory = dynamic(() => import('../../../components/PaymentHistory'), { ssr: false })
+const PaymentAdjustments = dynamic(() => import('../../../components/PaymentAdjustments'), { ssr: false })
 import {
   BadgeCheck,
   CheckCircle2,
@@ -971,6 +972,13 @@ export default function ContractorDashboardPage() {
           </div>
         </div>
       </section>
+
+      {/* Payment Adjustments Section */}
+      {user && (
+        <section className="mb-6">
+          <PaymentAdjustments userId={user.id} userType="contractor" limit={5} />
+        </section>
+      )}
 
       {/* Payment History / Earnings Section */}
       <section>
