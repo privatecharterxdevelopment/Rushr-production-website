@@ -75,9 +75,10 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
 }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapObjRef = useRef<mapboxgl.Map | null>(null)
+  const mapReadyRef = useRef(false)
   const markersRef = useRef<mapboxgl.Marker[]>([])
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
-  const trackingMarkerRef = useRef<mapboxgl.Marker | null>(null)
+  const routeStartRef = useRef<[number, number] | null>(null)  // [lng, lat] of route start for snapping arrow
   const radiusLayerId = 'radius-circle'
   const radiusSourceId = 'radius-source'
 
@@ -141,6 +142,14 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
       pitch: 45, // Enable 3D view with 45 degree tilt
       bearing: 0, // No rotation
       antialias: true, // Smooth edges for 3D buildings
+      logoPosition: 'bottom-right',
+      attributionControl: false,
+    })
+    // Hide Mapbox logo via CSS
+    map.on('load', () => {
+      const container = map.getContainer()
+      const logos = container.querySelectorAll('.mapboxgl-ctrl-logo, .mapboxgl-ctrl-attrib')
+      logos.forEach((el: Element) => (el as HTMLElement).style.display = 'none')
     })
 
     // Add navigation controls (unless hidden)
@@ -150,6 +159,7 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
 
     // Add radius circle when map loads
     map.on('load', () => {
+      mapReadyRef.current = true
       // Add source for radius circle
       map.addSource(radiusSourceId, {
         type: 'geojson',
@@ -180,44 +190,46 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
       })
 
       // Add 3D buildings layer
-      const layers = map.getStyle().layers
-      const labelLayerId = layers?.find(
-        (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
-      )?.id
+      try {
+        const layers = map.getStyle()?.layers
+        const labelLayerId = layers?.find(
+          (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
+        )?.id
 
-      map.addLayer(
-        {
-          id: '3d-buildings',
-          source: 'composite',
-          'source-layer': 'building',
-          filter: ['==', 'extrude', 'true'],
-          type: 'fill-extrusion',
-          minzoom: 15,
-          paint: {
-            'fill-extrusion-color': '#aaa',
-            'fill-extrusion-height': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              15,
-              0,
-              15.05,
-              ['get', 'height']
-            ],
-            'fill-extrusion-base': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              15,
-              0,
-              15.05,
-              ['get', 'min_height']
-            ],
-            'fill-extrusion-opacity': 0.6
-          }
-        },
-        labelLayerId
-      )
+        map.addLayer(
+          {
+            id: '3d-buildings',
+            source: 'composite',
+            'source-layer': 'building',
+            filter: ['==', 'extrude', 'true'],
+            type: 'fill-extrusion',
+            minzoom: 15,
+            paint: {
+              'fill-extrusion-color': '#aaa',
+              'fill-extrusion-height': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                15,
+                0,
+                15.05,
+                ['get', 'height']
+              ],
+              'fill-extrusion-base': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                15,
+                0,
+                15.05,
+                ['get', 'min_height']
+              ],
+              'fill-extrusion-opacity': 0.6
+            }
+          },
+          labelLayerId
+        )
+      } catch {}
     })
 
     // Add search here button (only if not hidden)
@@ -258,7 +270,7 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
   // Update markers when items change
   useEffect(() => {
     const map = mapObjRef.current
-    if (!map) return
+    if (!map || !mapReadyRef.current) return
 
     // Clear existing markers
     markersRef.current.forEach(marker => marker.remove())
@@ -332,41 +344,34 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
     if (items.length > 0) {
       const bounds = new mapboxgl.LngLatBounds()
       items.forEach((item: any) => {
-        const lat = Number(item?.loc?.lat)
-        const lng = Number(item?.loc?.lng)
+        const lat = Number(item?.loc?.lat ?? item?.latitude)
+        const lng = Number(item?.loc?.lng ?? item?.longitude)
         if (isFinite(lat) && isFinite(lng)) {
           bounds.extend([lng, lat])
         }
       })
-      map.fitBounds(bounds, { padding: 50, maxZoom: 13 })
+      try { if (bounds.getSouthWest()) map.fitBounds(bounds, { padding: 50, maxZoom: 13 }) } catch {}
     }
   }, [items, category])
 
-  // Update center when searchCenter changes
+  // Update center when searchCenter changes (skip when tracking — route fitBounds handles viewport)
   useEffect(() => {
     const map = mapObjRef.current
-    if (!map) return
+    if (!map || trackingMarker) return
     map.flyTo({ center: [searchCenter[1], searchCenter[0]], zoom: 11 })
-  }, [searchCenter])
+  }, [searchCenter, trackingMarker])
 
   // Update radius circle when radius or center changes
   useEffect(() => {
     const map = mapObjRef.current
-    if (!map) return
+    if (!map || !mapReadyRef.current) return
 
-    // Wait for map to be loaded
-    const updateRadius = () => {
+    try {
       const source = map.getSource(radiusSourceId) as mapboxgl.GeoJSONSource
       if (source) {
         source.setData(createRadiusCircle(searchCenter, radiusMiles) as any)
       }
-    }
-
-    if (map.isStyleLoaded()) {
-      updateRadius()
-    } else {
-      map.on('load', updateRadius)
-    }
+    } catch {}
   }, [radiusMiles, searchCenter])
 
   // Expose zoom and route methods to parent via ref
@@ -385,13 +390,12 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
     },
     showRoute: async (fromLat: number, fromLng: number, toLat: number, toLng: number) => {
       const map = mapObjRef.current
-      if (!map) return
+      if (!map || !mapReadyRef.current) return
 
       const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
       if (!MAPBOX_TOKEN) return
 
       try {
-        // Fetch route from Mapbox Directions API
         const response = await fetch(
           `https://api.mapbox.com/directions/v5/mapbox/driving/${fromLng},${fromLat};${toLng},${toLat}?geometries=geojson&access_token=${MAPBOX_TOKEN}`
         )
@@ -399,42 +403,112 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
 
         if (data.routes && data.routes.length > 0) {
           const route = data.routes[0].geometry
+          const coords = route.coordinates
 
-          // Remove existing route layer if present
-          if (map.getLayer('route')) {
-            map.removeLayer('route')
-          }
-          if (map.getSource('route')) {
-            map.removeSource('route')
-          }
+          try { if (map.getLayer('route')) map.removeLayer('route') } catch {}
+          try { if (map.getSource('route')) map.removeSource('route') } catch {}
 
-          // Add route source
           map.addSource('route', {
             type: 'geojson',
-            data: {
-              type: 'Feature',
-              properties: {},
-              geometry: route
-            }
+            data: { type: 'Feature', properties: {}, geometry: route }
           })
 
-          // Add route layer
           map.addLayer({
             id: 'route',
             type: 'line',
             source: 'route',
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round'
-            },
-            paint: {
-              'line-color': '#10b981',
-              'line-width': 5,
-              'line-opacity': 0.8
-            }
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#10b981', 'line-width': 5, 'line-opacity': 0.8 }
           })
 
-          // Fit map to show entire route
+          // Create tracking arrow at exact route start using native map layers
+          if (coords && coords.length >= 2) {
+            const startCoord = coords[0] as [number, number]
+            routeStartRef.current = startCoord
+
+            // Calculate bearing from first few route segments
+            const idx = Math.min(5, coords.length - 1)
+            const [lng1, lat1] = coords[0]
+            const [lng2, lat2] = coords[idx]
+            const toRad = (d: number) => d * Math.PI / 180
+            const toDeg = (r: number) => r * 180 / Math.PI
+            const dLon = toRad(lng2 - lng1)
+            const la1 = toRad(lat1)
+            const la2 = toRad(lat2)
+            const y = Math.sin(dLon) * Math.cos(la2)
+            const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon)
+            const bearing = (toDeg(Math.atan2(y, x)) + 360) % 360
+
+            // Remove old arrow layers
+            try { if (map.getLayer('tracking-arrow-symbol')) map.removeLayer('tracking-arrow-symbol') } catch {}
+            try { if (map.getLayer('tracking-arrow-glow')) map.removeLayer('tracking-arrow-glow') } catch {}
+            try { if (map.getSource('tracking-arrow-src')) map.removeSource('tracking-arrow-src') } catch {}
+
+            // Create arrow image on canvas (once)
+            if (!map.hasImage('contractor-arrow')) {
+              const size = 64
+              const canvas = document.createElement('canvas')
+              canvas.width = size
+              canvas.height = size
+              const ctx = canvas.getContext('2d')!
+              // Green circle
+              ctx.beginPath()
+              ctx.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2)
+              ctx.fillStyle = '#10b981'
+              ctx.fill()
+              ctx.strokeStyle = '#ffffff'
+              ctx.lineWidth = 4
+              ctx.stroke()
+              // White arrow pointing up
+              ctx.fillStyle = '#ffffff'
+              ctx.beginPath()
+              ctx.moveTo(size / 2, 12)
+              ctx.lineTo(size / 2 + 13, size / 2 + 10)
+              ctx.lineTo(size / 2, size / 2 - 2)
+              ctx.lineTo(size / 2 - 13, size / 2 + 10)
+              ctx.closePath()
+              ctx.fill()
+              map.addImage('contractor-arrow', { width: size, height: size, data: ctx.getImageData(0, 0, size, size).data } as any)
+            }
+
+            // Add point source at route start
+            map.addSource('tracking-arrow-src', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                properties: { bearing: bearing },
+                geometry: { type: 'Point', coordinates: startCoord }
+              }
+            })
+
+            // Outer glow circle
+            map.addLayer({
+              id: 'tracking-arrow-glow',
+              type: 'circle',
+              source: 'tracking-arrow-src',
+              paint: {
+                'circle-radius': 22,
+                'circle-color': 'rgba(16, 185, 129, 0.15)',
+                'circle-stroke-width': 0
+              }
+            })
+
+            // Arrow symbol
+            map.addLayer({
+              id: 'tracking-arrow-symbol',
+              type: 'symbol',
+              source: 'tracking-arrow-src',
+              layout: {
+                'icon-image': 'contractor-arrow',
+                'icon-size': 0.6,
+                'icon-rotate': ['get', 'bearing'],
+                'icon-rotation-alignment': 'map',
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
+              }
+            })
+          }
+
           const bounds = new mapboxgl.LngLatBounds()
           bounds.extend([fromLng, fromLat])
           bounds.extend([toLng, toLat])
@@ -446,14 +520,13 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
     },
     clearRoute: () => {
       const map = mapObjRef.current
-      if (!map) return
-
-      if (map.getLayer('route')) {
-        map.removeLayer('route')
-      }
-      if (map.getSource('route')) {
-        map.removeSource('route')
-      }
+      if (!map || !mapReadyRef.current) return
+      try { if (map.getLayer('route')) map.removeLayer('route') } catch {}
+      try { if (map.getSource('route')) map.removeSource('route') } catch {}
+      try { if (map.getLayer('tracking-arrow-symbol')) map.removeLayer('tracking-arrow-symbol') } catch {}
+      try { if (map.getLayer('tracking-arrow-glow')) map.removeLayer('tracking-arrow-glow') } catch {}
+      try { if (map.getSource('tracking-arrow-src')) map.removeSource('tracking-arrow-src') } catch {}
+      routeStartRef.current = null
     },
     flyToLocation: (lat: number, lng: number, zoom: number = 14) => {
       const map = mapObjRef.current
@@ -469,15 +542,15 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
     },
     hideRadiusCircle: () => {
       const map = mapObjRef.current
-      if (!map) return
-      if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'none')
-      if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'none')
+      if (!map || !mapReadyRef.current) return
+      try { if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'none') } catch {}
+      try { if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'none') } catch {}
     },
     showRadiusCircle: () => {
       const map = mapObjRef.current
-      if (!map) return
-      if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'visible')
-      if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'visible')
+      if (!map || !mapReadyRef.current) return
+      try { if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'visible') } catch {}
+      try { if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'visible') } catch {}
     }
   }), [])
 
@@ -516,60 +589,16 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
     }
   }, [userLocation])
 
-  // Directional arrow marker for contractor tracking
+  // Cleanup tracking arrow layers when trackingMarker prop becomes null (tracking view closed)
   useEffect(() => {
-    const map = mapObjRef.current
-    if (!map) return
-
-    // Remove existing tracking marker
-    if (trackingMarkerRef.current) {
-      trackingMarkerRef.current.remove()
-      trackingMarkerRef.current = null
-    }
-
-    if (trackingMarker) {
-      const el = document.createElement('div')
-      el.className = 'tracking-arrow-marker'
-      el.innerHTML = `
-        <div style="
-          width: 40px;
-          height: 40px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transform: rotate(${trackingMarker.bearing}deg);
-          filter: drop-shadow(0 3px 6px rgba(0,0,0,0.3));
-        ">
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-            <circle cx="18" cy="18" r="16" fill="#10b981" stroke="white" stroke-width="3"/>
-            <path d="M18 8L24 24L18 20L12 24L18 8Z" fill="white"/>
-          </svg>
-        </div>
-        <div style="
-          position: absolute;
-          top: -2px;
-          left: -2px;
-          width: 44px;
-          height: 44px;
-          border-radius: 50%;
-          background: rgba(16, 185, 129, 0.2);
-          animation: trackingPulse 2s infinite;
-          z-index: -1;
-        "></div>
-        <style>
-          @keyframes trackingPulse {
-            0% { transform: scale(1); opacity: 0.6; }
-            50% { transform: scale(1.5); opacity: 0.2; }
-            100% { transform: scale(2); opacity: 0; }
-          }
-        </style>
-      `
-      el.style.position = 'relative'
-
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([trackingMarker.lng, trackingMarker.lat])
-        .addTo(map)
-      trackingMarkerRef.current = marker
+    if (!trackingMarker) {
+      const map = mapObjRef.current
+      if (map && mapReadyRef.current) {
+        try { if (map.getLayer('tracking-arrow-symbol')) map.removeLayer('tracking-arrow-symbol') } catch {}
+        try { if (map.getLayer('tracking-arrow-glow')) map.removeLayer('tracking-arrow-glow') } catch {}
+        try { if (map.getSource('tracking-arrow-src')) map.removeSource('tracking-arrow-src') } catch {}
+      }
+      routeStartRef.current = null
     }
   }, [trackingMarker])
 

@@ -135,32 +135,7 @@ export default function LoadingSpinner({
   fullScreen = false,
   className = ''
 }: LoadingSpinnerProps) {
-  const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform()
-
-  // iOS Native: Green gradient fullscreen with pulsing Rushr logo (matches splash)
-  if (isNative) {
-    if (fullScreen) {
-      return (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ background: 'linear-gradient(160deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-        >
-          <IOSNativeLoader size={size} text={text} />
-        </div>
-      )
-    }
-
-    return (
-      <div
-        className={`min-h-screen flex items-center justify-center ${className}`}
-        style={{ background: 'linear-gradient(160deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-      >
-        <IOSNativeLoader size={size} text={text} />
-      </div>
-    )
-  }
-
-  // Web: Use RushrLoader (logo with spinner ring) - same as iOS just different background
+  // Unified loader — same on web and iOS: white background + spinning ring + logo
   if (fullScreen) {
     return (
       <div className="fixed inset-0 bg-white flex items-center justify-center z-50">
@@ -185,28 +160,13 @@ export function ButtonSpinner({ className = 'w-5 h-5' }: { className?: string })
   )
 }
 
-// Page loading wrapper - iOS native aware
+// Page loading wrapper - unified for web and iOS
 export function PageLoading({ children, isLoading, loadingText }: {
   children: React.ReactNode
   isLoading: boolean
   loadingText?: string
 }) {
-  const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform()
-
   if (isLoading) {
-    if (isNative) {
-      // iOS: Green gradient fullscreen with pulsing Rushr logo (matches splash)
-      return (
-        <div
-          className="min-h-screen flex items-center justify-center"
-          style={{ background: 'linear-gradient(160deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-        >
-          <IOSNativeLoader size="lg" text={loadingText} />
-        </div>
-      )
-    }
-
-    // Web: White background with RushrLoader
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <RushrLoader size="lg" text={loadingText} />
@@ -217,14 +177,11 @@ export function PageLoading({ children, isLoading, loadingText }: {
   return <>{children}</>
 }
 
-// Dedicated iOS native loading screen component - Green gradient splash style
+// Alias for backwards compatibility
 export function IOSLoadingScreen({ size = 'lg', text }: { size?: 'sm' | 'md' | 'lg' | 'xl', text?: string }) {
   return (
-    <div
-      className="min-h-screen flex items-center justify-center"
-      style={{ background: 'linear-gradient(160deg, #10b981 0%, #059669 50%, #047857 100%)' }}
-    >
-      <IOSNativeLoader size={size} text={text} />
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <RushrLoader size={size} text={text} />
     </div>
   )
 }

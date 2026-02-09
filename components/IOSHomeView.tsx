@@ -19,6 +19,8 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { Keyboard } from '@capacitor/keyboard'
 import { App } from '@capacitor/app'
+import { PushNotifications } from '@capacitor/push-notifications'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { getCurrentLocation as getNativeLocation, isNativePlatform } from '../lib/nativeLocation'
 import type { FindProMapboxHandle } from './FindProMapbox'
 import PaymentModal from './PaymentModal'
@@ -1032,14 +1034,17 @@ interface ContractorTrackingViewProps {
   job: TrackingJob
   userLocation: LatLng
   onBack: () => void
-  onChat: () => void
   onJobComplete?: () => void
 }
 
-function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComplete }: ContractorTrackingViewProps) {
+function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: ContractorTrackingViewProps) {
   const router = useRouter()
   const mapRef = useRef<FindProMapboxHandle>(null)
-  const [contractorLocation, setContractorLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [contractorLocation, setContractorLocation] = useState<{ lat: number; lng: number } | null>(
+    job.contractor_latitude && job.contractor_longitude
+      ? { lat: job.contractor_latitude, lng: job.contractor_longitude }
+      : null
+  )
   const [eta, setEta] = useState<number | null>(job.eta_minutes || null)
   const [distance, setDistance] = useState<string | null>(null)
   const [jobStatus, setJobStatus] = useState(job.status)
@@ -1051,6 +1056,29 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
   const [contractorImage, setContractorImage] = useState<string | null>(job.contractor_image || null)
   const [homeownerConfirmed, setHomeownerConfirmed] = useState(job.homeowner_confirmed_complete || false)
   const [contractorConfirmed, setContractorConfirmed] = useState(job.contractor_confirmed_complete || false)
+  const [showInlineChat, setShowInlineChat] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelReasonOther, setCancelReasonOther] = useState('')
+  const [trackingCard, setTrackingCard] = useState<{ brand: string; last4: string } | null>(null)
+
+  // Fetch homeowner's saved card
+  useEffect(() => {
+    const fetchCard = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      try {
+        const res = await fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+        const data = await res.json()
+        if (data.success && data.paymentMethods?.length > 0) {
+          const pm = data.paymentMethods.find((p: any) => p.id === data.defaultPaymentMethodId) || data.paymentMethods[0]
+          if (pm?.card) setTrackingCard({ brand: pm.card.brand, last4: pm.card.last4 })
+        }
+      } catch {}
+    }
+    fetchCard()
+  }, [])
 
   // Fetch contractor profile image
   useEffect(() => {
@@ -1198,14 +1226,22 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
 
   // Show route on map
   useEffect(() => {
-    if (contractorLocation && mapRef.current && jobStatus === 'confirmed') {
-      mapRef.current.showRoute(
-        contractorLocation.lat,
-        contractorLocation.lng,
-        userLocation[0],
-        userLocation[1]
-      )
+    if (!contractorLocation || jobStatus !== 'confirmed') return
+    const drawRoute = () => {
+      if (mapRef.current) {
+        mapRef.current.hideRadiusCircle()
+        mapRef.current.showRoute(
+          contractorLocation.lat,
+          contractorLocation.lng,
+          userLocation[0],
+          userLocation[1]
+        )
+      }
     }
+    // Draw immediately if map ready, also retry after short delay for initial mount
+    drawRoute()
+    const timer = setTimeout(drawRoute, 1500)
+    return () => clearTimeout(timer)
   }, [contractorLocation, userLocation, jobStatus])
 
   // Build items for the map
@@ -1277,6 +1313,73 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
     }
   }
 
+  // Handle job cancellation with reason
+  const handleCancelJob = async (reason: string) => {
+    setCancelling(true)
+    try {
+      // Demo/preview mode — just close and go back
+      if (job.id === 'preview-demo') {
+        await triggerHaptic(ImpactStyle.Heavy)
+        setShowCancelModal(false)
+        onBack()
+        return
+      }
+
+      // Update job status to cancelled with reason
+      await supabase
+        .from('homeowner_jobs')
+        .update({ status: 'cancelled', cancellation_reason: reason })
+        .eq('id', job.id)
+
+      // Cancel the payment hold if it exists
+      const { data: paymentHold } = await supabase
+        .from('payment_holds')
+        .select('id, stripe_payment_intent_id')
+        .eq('job_id', job.id)
+        .in('status', ['captured', 'authorized', 'held'])
+        .single()
+
+      if (paymentHold) {
+        await supabase
+          .from('payment_holds')
+          .update({ status: 'cancelled' })
+          .eq('id', paymentHold.id)
+
+        // Refund via Stripe if captured
+        if (paymentHold.stripe_payment_intent_id) {
+          try {
+            await fetch('/api/stripe/refund', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paymentIntentId: paymentHold.stripe_payment_intent_id })
+            })
+          } catch (refundErr) {
+            console.error('Stripe refund error (may need manual refund):', refundErr)
+          }
+        }
+      }
+
+      // Notify contractor
+      if (job.contractor_id) {
+        await supabase.from('notifications').insert({
+          user_id: job.contractor_id,
+          type: 'job_cancelled',
+          title: 'Job Cancelled',
+          message: `The homeowner cancelled the job "${job.title}". Reason: ${reason}`,
+          job_id: job.id
+        })
+      }
+
+      await triggerHaptic(ImpactStyle.Heavy)
+      setShowCancelModal(false)
+      onBack()
+    } catch (err) {
+      console.error('Error cancelling job:', err)
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   // Get status display
   const getStatusInfo = () => {
     switch (jobStatus) {
@@ -1297,52 +1400,26 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
       <div className="flex-1 relative">
         <FindProMapbox
           ref={mapRef}
-          items={mapItems}
+          items={[]}
           radiusMiles={10}
           searchCenter={userLocation}
+          userLocation={userLocation}
           fullscreen={true}
           hideSearchButton={true}
           hideControls={true}
+          trackingMarker={contractorLocation ? { lat: contractorLocation.lat, lng: contractorLocation.lng, bearing: 0 } : null}
         />
 
         {/* Back Button */}
         <button
           onClick={onBack}
-          className="absolute top-4 left-4 w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center z-10 active:scale-95 transition-transform"
-          style={{ marginTop: 'env(safe-area-inset-top)' }}
+          className="absolute left-4 w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center z-10 active:scale-95 transition-transform"
+          style={{ top: 'calc(max(env(safe-area-inset-top, 54px), 54px) + 8px)' }}
         >
           <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-
-        {/* Live ETA Badge - Top center */}
-        {jobStatus === 'confirmed' && (
-          <div
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-10"
-            style={{ marginTop: 'env(safe-area-inset-top)' }}
-          >
-            <div className="bg-blue-600 rounded-full px-5 py-2.5 shadow-lg flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              <span className="text-white font-bold text-[16px]">
-                {eta ? `${eta} min` : '...'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Status Badge for in_progress */}
-        {jobStatus === 'in_progress' && (
-          <div
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-10"
-            style={{ marginTop: 'env(safe-area-inset-top)' }}
-          >
-            <div className="bg-blue-600 rounded-full px-5 py-2.5 shadow-lg flex items-center gap-2">
-              <span className="text-lg">🔧</span>
-              <span className="text-white font-bold text-[16px]">Job In Progress</span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Bottom Card - Contractor Info */}
@@ -1357,31 +1434,31 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
 
         <div className="px-4 pb-4">
           {/* Contractor Profile Row */}
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex items-center gap-3 mb-3">
             {/* Profile Image */}
             <div className="relative">
               {contractorImage ? (
                 <img
                   src={contractorImage}
                   alt={job.contractor_name || 'Contractor'}
-                  className="w-16 h-16 rounded-full object-cover border-2 border-emerald-500"
+                  className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center border-2 border-emerald-500">
-                  <span className="text-white font-bold text-2xl">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center border-2 border-emerald-500">
+                  <span className="text-white font-bold text-lg">
                     {(job.contractor_name || 'C')[0].toUpperCase()}
                   </span>
                 </div>
               )}
-              <div className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white" />
+              <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
             </div>
 
             {/* Name and Status */}
-            <div className="flex-1">
-              <p className="text-gray-900 font-bold text-[18px]">{job.contractor_name || 'Contractor'}</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <div className={`w-2 h-2 rounded-full ${jobStatus === 'in_progress' ? 'bg-blue-500' : 'bg-emerald-500'} animate-pulse`} />
-                <span className={`text-[13px] font-medium ${jobStatus === 'in_progress' ? 'text-blue-600' : 'text-emerald-600'}`}>
+            <div className="flex-1 min-w-0">
+              <p className="text-gray-900 font-semibold text-[15px] truncate">{job.contractor_name || 'Contractor'}</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <div className={`w-1.5 h-1.5 rounded-full ${jobStatus === 'in_progress' ? 'bg-blue-500' : 'bg-emerald-500'} animate-pulse`} />
+                <span className={`text-[11px] font-medium ${jobStatus === 'in_progress' ? 'text-blue-600' : 'text-emerald-600'}`}>
                   {statusInfo.text}
                 </span>
               </div>
@@ -1389,59 +1466,101 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
 
             {/* Chat Button */}
             <button
-              onClick={onChat}
-              className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center active:scale-95 transition-transform"
+              onClick={() => setShowInlineChat(true)}
+              className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center active:scale-95 transition-transform"
             >
-              <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </button>
           </div>
 
-          {/* Stats Row */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="bg-blue-50 rounded-xl p-3 text-center">
-              <p className="text-gray-500 text-[11px] uppercase tracking-wide mb-1">ETA</p>
-              <p className="text-blue-700 font-bold text-[20px]">
-                {jobStatus === 'in_progress' ? '—' : eta ? `${eta}m` : '...'}
-              </p>
+          {/* Compact Stats Row — no colored boxes */}
+          <div className="flex items-center justify-between py-2.5 mb-2 border-t border-b border-gray-100">
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-gray-500 text-[11px]">ETA</span>
+              <span className="text-gray-900 font-semibold text-[13px] ml-0.5">
+                {jobStatus === 'in_progress' ? '—' : eta ? `${String(Math.floor(eta / 60)).padStart(2, '0')}:${String(eta % 60).padStart(2, '0')}` : '...'}
+              </span>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <p className="text-gray-500 text-[11px] uppercase tracking-wide mb-1">Distance</p>
-              <p className="text-gray-700 font-bold text-[20px]">
+            <div className="w-px h-4 bg-gray-200" />
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              </svg>
+              <span className="text-gray-500 text-[11px]">Dist</span>
+              <span className="text-gray-900 font-semibold text-[13px] ml-0.5">
                 {jobStatus === 'in_progress' ? '—' : distance || '...'}
-              </p>
+              </span>
             </div>
-            <div className="bg-emerald-50 rounded-xl p-3 text-center">
-              <p className="text-gray-500 text-[11px] uppercase tracking-wide mb-1">Price</p>
-              <p className="text-emerald-700 font-bold text-[20px]">
+            <div className="w-px h-4 bg-gray-200" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-500 text-[11px]">Price</span>
+              <span className="text-gray-900 font-semibold text-[13px]">
                 ${job.estimated_cost?.toFixed(0) || '—'}
-              </p>
+              </span>
             </div>
           </div>
 
-          {/* Job Title */}
-          <div className="bg-gray-50 rounded-xl p-3 mb-4">
-            <p className="text-gray-500 text-[11px] uppercase tracking-wide mb-1">Job</p>
-            <p className="text-gray-900 font-semibold text-[15px]">{job.title}</p>
+          {/* Job Title — compact */}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-gray-400 text-[11px]">Job</span>
+            <span className="text-gray-700 font-medium text-[13px]">{job.title}</span>
           </div>
 
-          {/* Action Button based on status */}
-          {jobStatus === 'in_progress' && !homeownerConfirmed && (
-            <button
-              onClick={() => setShowCompleteModal(true)}
-              className="w-full py-4 rounded-xl font-bold text-[16px] text-white active:scale-98 transition-transform"
-              style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-            >
-              Job Completed - Confirm
-            </button>
-          )}
-
-          {homeownerConfirmed && !contractorConfirmed && (
-            <div className="bg-amber-50 rounded-xl p-4 text-center">
-              <p className="text-amber-700 font-medium">Waiting for contractor to confirm completion...</p>
+          {/* Payment Card Tab */}
+          {trackingCard && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 bg-gray-50 mb-3">
+              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+              <span className="text-gray-500 text-[12px] capitalize">{trackingCard.brand}</span>
+              <span className="text-gray-300 text-[12px]">····</span>
+              <span className="text-gray-700 font-semibold text-[12px]">{trackingCard.last4}</span>
+              <svg className="w-3.5 h-3.5 text-emerald-500 ml-auto" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+              </svg>
             </div>
           )}
+
+          {/* Action Buttons based on status */}
+          <div className="space-y-3">
+            {/* Job Done button - visible when in_progress */}
+            {jobStatus === 'in_progress' && !homeownerConfirmed && (
+              <button
+                onClick={() => setShowCompleteModal(true)}
+                className="w-full py-4 rounded-xl font-bold text-[16px] text-white active:scale-[0.98] transition-transform"
+                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+              >
+                Job Done
+              </button>
+            )}
+
+            {/* More info link - opens cancel flow */}
+            {(jobStatus === 'confirmed' || jobStatus === 'in_progress') && !homeownerConfirmed && (
+              <button
+                onClick={() => {
+                  triggerHaptic(ImpactStyle.Light)
+                  setCancelReason('')
+                  setCancelReasonOther('')
+                  setShowCancelModal(true)
+                }}
+                className="w-full text-center text-gray-400 text-[13px] py-2 active:text-gray-600"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                More info
+              </button>
+            )}
+
+            {homeownerConfirmed && !contractorConfirmed && (
+              <div className="bg-amber-50 rounded-xl p-4 text-center">
+                <p className="text-amber-700 font-medium">Waiting for contractor to confirm completion...</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1570,6 +1689,306 @@ function ContractorTrackingView({ job, userLocation, onBack, onChat, onJobComple
           </div>
         </div>
       )}
+
+      {/* Cancel Job - Full Screen with Reason */}
+      {showCancelModal && (
+        <div
+          className="fixed inset-0 z-[70] bg-white flex flex-col"
+          style={{ animation: 'slideUp 0.25s ease-out' }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center gap-3 px-4 py-3 border-b border-gray-100"
+            style={{ paddingTop: 'calc(max(env(safe-area-inset-top, 54px), 54px) + 8px)' }}
+          >
+            <button
+              onClick={() => setShowCancelModal(false)}
+              className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center active:scale-95"
+            >
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <h2 className="text-[17px] font-semibold text-gray-900">Cancel Job</h2>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-5 pt-6">
+            <p className="text-gray-500 text-[14px] mb-5">
+              Please let us know why you're cancelling. This helps us improve our service.
+            </p>
+
+            {/* Reason Options */}
+            <div className="space-y-2.5">
+              {[
+                'Contractor is taking too long',
+                'Found another contractor',
+                'Job no longer needed',
+                'Price too high',
+                'Changed my mind',
+                'Safety concern',
+                'Other'
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => {
+                    triggerHaptic(ImpactStyle.Light)
+                    setCancelReason(reason)
+                    if (reason !== 'Other') setCancelReasonOther('')
+                  }}
+                  className={`w-full text-left px-4 py-3.5 rounded-xl border text-[15px] transition-all active:scale-[0.98] ${
+                    cancelReason === reason
+                      ? 'border-red-400 bg-red-50 text-red-700 font-medium'
+                      : 'border-gray-200 bg-white text-gray-700'
+                  }`}
+                >
+                  {reason}
+                </button>
+              ))}
+
+              {/* Other reason text input */}
+              {cancelReason === 'Other' && (
+                <textarea
+                  value={cancelReasonOther}
+                  onChange={(e) => setCancelReasonOther(e.target.value)}
+                  placeholder="Please describe the reason..."
+                  className="w-full px-4 py-3 bg-gray-50 rounded-xl text-[15px] text-gray-900 placeholder-gray-400 border border-gray-200 focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none resize-none"
+                  rows={3}
+                  style={{ fontSize: '16px' }}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Action */}
+          <div
+            className="px-5 pt-3 border-t border-gray-100"
+            style={{ paddingBottom: 'calc(max(env(safe-area-inset-bottom, 34px), 34px) + 8px)' }}
+          >
+            <p className="text-gray-400 text-[12px] text-center mb-3">
+              The contractor will be notified and your payment will be refunded.
+            </p>
+            <button
+              onClick={() => {
+                const reason = cancelReason === 'Other' ? (cancelReasonOther.trim() || 'Other') : cancelReason
+                handleCancelJob(reason)
+              }}
+              disabled={cancelling || !cancelReason}
+              className="w-full py-4 rounded-xl font-semibold text-[16px] text-white bg-red-500 disabled:opacity-40 active:scale-[0.98] transition-transform"
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel Job'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Chat View */}
+      {showInlineChat && (
+        <InlineJobChat
+          jobId={job.id}
+          contractorId={job.contractor_id}
+          contractorName={job.contractor_name || 'Contractor'}
+          contractorImage={contractorImage}
+          jobStatus={jobStatus}
+          onClose={() => setShowInlineChat(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Inline Job Chat — self-contained chat within tracking view (no navigation)
+function InlineJobChat({ jobId, contractorId, contractorName, contractorImage, jobStatus, onClose }: {
+  jobId: string
+  contractorId?: string
+  contractorName: string
+  contractorImage?: string | null
+  jobStatus?: string
+  onClose: () => void
+}) {
+  const { user } = useAuth()
+  const [messages, setMessages] = useState<any[]>([])
+  const [newMessage, setNewMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const isChatEnded = jobStatus === 'completed' || jobStatus === 'cancelled'
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  useEffect(() => {
+    const fetchMessages = async () => {
+      const { data } = await supabase
+        .from('job_chat_messages')
+        .select('*')
+        .eq('job_id', jobId)
+        .order('created_at', { ascending: true })
+      if (data) {
+        setMessages(data)
+        setTimeout(scrollToBottom, 100)
+        const unread = data.filter(m => m.sender_id !== user?.id && !m.read_at)
+        if (unread.length > 0) {
+          await supabase
+            .from('job_chat_messages')
+            .update({ read_at: new Date().toISOString() })
+            .in('id', unread.map(m => m.id))
+        }
+      }
+    }
+    fetchMessages()
+
+    const channel = supabase
+      .channel(`ios-job-chat-${jobId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'job_chat_messages',
+        filter: `job_id=eq.${jobId}`
+      }, (payload) => {
+        const msg = payload.new as any
+        setMessages(prev => [...prev, msg])
+        setTimeout(scrollToBottom, 100)
+        if (msg.sender_id !== user?.id) {
+          supabase.from('job_chat_messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', msg.id)
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [jobId, user?.id])
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !user || isChatEnded) return
+    setSending(true)
+    const msgText = newMessage.trim()
+    try {
+      await supabase.from('job_chat_messages').insert({
+        job_id: jobId,
+        sender_id: user.id,
+        sender_role: 'homeowner',
+        message: msgText
+      })
+      setNewMessage('')
+
+      // Send push notification to contractor (fire-and-forget)
+      if (contractorId) {
+        fetch('/api/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipientId: contractorId,
+            title: user.user_metadata?.name || 'Homeowner',
+            body: msgText.length > 100 ? msgText.substring(0, 100) + '...' : msgText,
+            data: { jobId, contractorId, type: 'chat_message' }
+          })
+        }).catch(() => {}) // Don't block on push failure
+      }
+    } catch (err) {
+      console.error('Error sending message:', err)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[55] flex flex-col bg-white" style={{ animation: 'slideUp 0.25s ease-out' }}>
+      {/* Chat Header */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200"
+        style={{ paddingTop: 'calc(max(env(safe-area-inset-top, 54px), 54px) + 12px)' }}
+      >
+        <button
+          onClick={onClose}
+          className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center active:scale-95"
+        >
+          <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-3 flex-1">
+          {contractorImage ? (
+            <img src={contractorImage} alt="" className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+              <span className="text-white font-bold">{(contractorName || 'C')[0].toUpperCase()}</span>
+            </div>
+          )}
+          <div>
+            <p className="font-semibold text-[15px] text-gray-900">{contractorName}</p>
+            <p className="text-[12px] text-emerald-600">Active now</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <p className="text-sm">No messages yet</p>
+            <p className="text-xs mt-1">Send a message to {contractorName}</p>
+          </div>
+        ) : (
+          messages.map((msg: any) => {
+            const isOwn = msg.sender_id === user?.id
+            return (
+              <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
+                  isOwn ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-900'
+                }`}>
+                  <p className="text-[15px] whitespace-pre-wrap break-words">{msg.message}</p>
+                  <p className={`text-[11px] mt-1 ${isOwn ? 'text-emerald-200' : 'text-gray-400'}`}>
+                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            )
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input or Chat Ended */}
+      <div
+        className="p-3 bg-white border-t border-gray-200"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
+      >
+        {isChatEnded ? (
+          <div className="flex items-center justify-center gap-2 py-3">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span className="text-gray-400 text-[14px]">This conversation has ended</span>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+              placeholder="Type a message..."
+              className="flex-1 px-4 py-3 bg-gray-100 rounded-full text-[15px] focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              style={{ fontSize: '16px' }}
+              disabled={sending}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={sending || !newMessage.trim()}
+              className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center disabled:opacity-50 active:scale-95 transition-transform flex-shrink-0"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1966,7 +2385,7 @@ function formatCountdown(totalSeconds: number): string {
 }
 
 // Home Tab Content - Split view: Map on top half, Jobs with live bids below
-function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro }: {
+function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro, onPreviewTracking }: {
   center: LatLng
   setCenter: (c: LatLng) => void
   filtered: any[]
@@ -1986,6 +2405,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   onOpenTracking: () => void
   onStartJobSuccess: (data: { jobId: string; contractorId: string; contractorName: string; title: string; estimatedAmount: number; etaMinutes?: number }) => void
   onFindPro: (search: string, category: string) => void
+  onPreviewTracking: () => void
 }) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = React.useState('')
@@ -2015,6 +2435,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   const [searchResults, setSearchResults] = React.useState<any[]>([])
   const [searchLoading, setSearchLoading] = React.useState(false)
   const [hasSearched, setHasSearched] = React.useState(false)
+  const [searchCountdown, setSearchCountdown] = React.useState(0)
   // Elapsed timer for waiting on bids after posting a job
   const [waitElapsed, setWaitElapsed] = React.useState(0)
   const waitTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
@@ -2243,6 +2664,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   const handleBottomSheetSearch = React.useCallback(async (query: string) => {
     setSearchLoading(true)
     setHasSearched(true)
+    setSearchCountdown(15)
     try {
       const detectedCategory = detectCategoryFromSearch(query)
 
@@ -2309,6 +2731,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
 
       enriched.sort((a, b) => (a._eatMinutes ?? 999) - (b._eatMinutes ?? 999))
       setSearchResults(enriched)
+      if (enriched.length > 0) setSearchCountdown(0)
     } catch (err) {
       console.error('Bottom sheet search error:', err)
     } finally {
@@ -2330,6 +2753,13 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     }
     return () => { if (waitTimerRef.current) clearInterval(waitTimerRef.current) }
   }, [mostRecentPendingJob?.id, bids.length])
+
+  // Search countdown: 15s timer, if no results when it hits 0 → show "Post a Job Instead"
+  React.useEffect(() => {
+    if (searchCountdown <= 0) return
+    const timer = setTimeout(() => setSearchCountdown(prev => prev - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [searchCountdown])
 
   // --- In-sheet tracking: subscribe to contractor location + calculate live EAT ---
   React.useEffect(() => {
@@ -2568,7 +2998,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       const category = enrichedContractorData?.categories?.[0] || contractor?.services?.[0] || 'General'
       const jobTitle = jobDescription || `${category} Service`
 
-      // 4. Create homeowner_jobs record
+      // 4. Create homeowner_jobs record with status 'pending' (start-direct will set 'confirmed')
       const { data: jobRecord, error: jobError } = await supabase
         .from('homeowner_jobs')
         .insert({
@@ -2576,8 +3006,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           title: jobTitle,
           description: jobDescription || `${category} service needed`,
           category,
-          status: 'confirmed',
-          contractor_id: contractor.id,
+          status: 'pending',
           estimated_cost: estimatedAmount,
           latitude: center[0],
           longitude: center[1],
@@ -2590,26 +3019,28 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         throw new Error(jobError?.message || 'Failed to create job')
       }
 
-      // 5. Create escrow payment hold
-      const escrowResponse = await fetch('/api/stripe/escrow/create-hold', {
+      // 5. Call start-direct API — creates escrow, assigns contractor, notifies
+      const startResponse = await fetch('/api/jobs/start-direct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          homeownerId: user.id,
+          jobId: jobRecord.id,
           contractorId: contractor.id,
           amount: estimatedAmount,
-          jobDescription: jobTitle,
-          category,
-          bookingId: jobRecord.id
+          homeownerId: user.id
         })
       })
 
-      const escrowData = await escrowResponse.json()
+      const startData = await startResponse.json()
 
-      if (!escrowResponse.ok || !escrowData.success) {
+      if (!startResponse.ok || !startData.success) {
         // Rollback: delete the job record
         await supabase.from('homeowner_jobs').delete().eq('id', jobRecord.id)
-        throw new Error(escrowData.error || 'Payment authorization failed')
+        if (startData.needsCard) {
+          setShowAddCardAlert(true)
+          return
+        }
+        throw new Error(startData.error || 'Payment authorization failed')
       }
 
       // 6. Success — close bottom sheet and open tracking
@@ -2629,7 +3060,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       onStartJobSuccess({
         jobId: jobRecord.id,
         contractorId: contractor.id,
-        contractorName: contractor.name || contractor.business_name || 'Contractor',
+        contractorName: startData.contractorName || contractor.name || contractor.business_name || 'Contractor',
         title: jobTitle,
         estimatedAmount,
         etaMinutes: etaMins
@@ -2846,88 +3277,10 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         />
       </div>
 
-      {/* Floating Search Bar with Dropdown - Fixed position, moved down below status bar */}
-      <div
-        className="fixed left-4 right-4 z-30"
-        style={{ top: 'max(calc(env(safe-area-inset-top, 59px) + 8px), 67px)' }}
-      >
-        <div
-          className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5"
-          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
-        >
-          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Find a pro..."
-            className="flex-1 text-[14px] text-gray-900 placeholder-gray-400 bg-transparent outline-none"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center"
-            >
-              <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={handleSearch}
-            className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center active:scale-95 transition-transform"
-            style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-          >
-            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Category Dropdown - shows when typing */}
-        {searchQuery.length > 0 && (
-          <div
-            className="mt-2 bg-white rounded-xl overflow-hidden"
-            style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
-          >
-            <div className="p-2">
-              <p className="text-[10px] text-gray-400 uppercase font-semibold px-2 mb-2">Categories</p>
-              <div className="grid grid-cols-4 gap-1.5">
-                {CATEGORY_BUBBLES.filter(cat =>
-                  cat.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  cat.key.toLowerCase().includes(searchQuery.toLowerCase())
-                ).slice(0, 8).map((cat) => (
-                  <button
-                    key={cat.key}
-                    onClick={() => {
-                      handleCategoryPress(cat.key)
-                      setSearchQuery('')
-                    }}
-                    className="flex flex-col items-center gap-0.5 p-2 rounded-lg bg-gray-50 active:bg-gray-100 active:scale-95 transition-all"
-                  >
-                    <span className="text-[14px]">{cat.icon}</span>
-                    <span className="text-[8px] font-medium text-gray-600 text-center leading-tight">{cat.label}</span>
-                  </button>
-                ))}
-              </div>
-              {CATEGORY_BUBBLES.filter(cat =>
-                cat.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                cat.key.toLowerCase().includes(searchQuery.toLowerCase())
-              ).length === 0 && (
-                <p className="text-center text-gray-400 text-[12px] py-3">No matching categories</p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Map Controls - Zoom and Location buttons - Fixed position */}
       <div
         className="fixed right-4 z-30 flex flex-col gap-2"
-        style={{ top: 'max(calc(env(safe-area-inset-top, 59px) + 70px), 129px)' }}
+        style={{ top: 'max(calc(env(safe-area-inset-top, 59px) + 12px), 71px)' }}
       >
         {/* Zoom In */}
         <button
@@ -3183,6 +3536,18 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   </svg>
                 </div>
               )}
+
+              {/* DEBUG: Preview tracking view */}
+              <button
+                onClick={onPreviewTracking}
+                className="w-full py-3 rounded-xl font-semibold text-[13px] text-blue-600 bg-blue-50 border border-blue-200 active:scale-95 transition-transform flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Preview: Tracking View (Demo)
+              </button>
             </div>
           )}
 
@@ -3287,7 +3652,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                     {/* Action buttons: Chat + Track */}
                     <div className="flex gap-3">
                       <button
-                        onClick={() => { if (trackingJob.contractor_id) router.push(`/messages/${trackingJob.contractor_id}`) }}
+                        onClick={() => { onOpenTracking() }}
                         className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-[14px] text-emerald-700 bg-emerald-50 border border-emerald-200 active:scale-95 transition-transform"
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3430,27 +3795,26 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
             ) : (
               /* ═══ NO ACTIVE JOB: Search results ═══ */
               <div className="space-y-4">
-                {/* Search Loading */}
-                {searchLoading && (
+                {/* Search Loading / Countdown */}
+                {(searchLoading || (hasSearched && !searchLoading && searchResults.length === 0 && searchCountdown > 0)) && (
                   <div className="flex flex-col items-center py-6">
-                    <div className="relative w-16 h-16 mb-3">
+                    <div className="relative w-20 h-20 mb-3">
                       <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
                       <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
                       <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                          </svg>
+                        <div className="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <span className="text-white text-[20px] font-bold">{searchCountdown}</span>
                         </div>
                       </div>
                     </div>
                     <p className="text-gray-600 font-medium text-[13px]">Searching for nearby pros...</p>
+                    <p className="text-gray-400 text-[11px] mt-1">{searchCountdown}s remaining</p>
                   </div>
                 )}
 
-                {/* No results */}
-                {hasSearched && !searchLoading && searchResults.length === 0 && (
+                {/* No results — shown after countdown expires */}
+                {hasSearched && !searchLoading && searchResults.length === 0 && searchCountdown <= 0 && (
                   <div className="text-center py-6">
                     <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
                       <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3836,6 +4200,7 @@ function FindProView({ center, setCenter, initialSearch, initialCategory, onClos
       const category = enrichedContractorData?.categories?.[0] || contractor?.services?.[0] || 'General'
       const jobTitle = jobDescription || `${category} Service`
 
+      // Create job with status 'pending' (start-direct will set 'confirmed')
       const { data: jobRecord, error: jobError } = await supabase
         .from('homeowner_jobs')
         .insert({
@@ -3843,8 +4208,7 @@ function FindProView({ center, setCenter, initialSearch, initialCategory, onClos
           title: jobTitle,
           description: jobDescription || `${category} service needed`,
           category,
-          status: 'confirmed',
-          contractor_id: contractor.id,
+          status: 'pending',
           estimated_cost: estimatedAmount,
           latitude: center[0],
           longitude: center[1],
@@ -3855,23 +4219,26 @@ function FindProView({ center, setCenter, initialSearch, initialCategory, onClos
 
       if (jobError || !jobRecord) throw new Error(jobError?.message || 'Failed to create job')
 
-      const escrowResponse = await fetch('/api/stripe/escrow/create-hold', {
+      // Call start-direct API — creates escrow, assigns contractor, notifies
+      const startResponse = await fetch('/api/jobs/start-direct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          homeownerId: user.id,
+          jobId: jobRecord.id,
           contractorId: contractor.id,
           amount: estimatedAmount,
-          jobDescription: jobTitle,
-          category,
-          bookingId: jobRecord.id
+          homeownerId: user.id
         })
       })
 
-      const escrowData = await escrowResponse.json()
-      if (!escrowResponse.ok || !escrowData.success) {
+      const startData = await startResponse.json()
+      if (!startResponse.ok || !startData.success) {
         await supabase.from('homeowner_jobs').delete().eq('id', jobRecord.id)
-        throw new Error(escrowData.error || 'Payment authorization failed')
+        if (startData.needsCard) {
+          setShowAddCardAlert(true)
+          return
+        }
+        throw new Error(startData.error || 'Payment authorization failed')
       }
 
       await triggerHaptic(ImpactStyle.Heavy)
@@ -3887,7 +4254,7 @@ function FindProView({ center, setCenter, initialSearch, initialCategory, onClos
       onStartJobSuccess({
         jobId: jobRecord.id,
         contractorId: contractor.id,
-        contractorName: contractor.name || contractor.business_name || 'Contractor',
+        contractorName: startData.contractorName || contractor.name || contractor.business_name || 'Contractor',
         title: jobTitle,
         estimatedAmount,
         etaMinutes: etaMins
@@ -4470,9 +4837,10 @@ function MessagesTab({ conversations, loading, unreadCount }: {
 }) {
   const router = useRouter()
 
-  const handleConversationPress = async (conversationId: string) => {
+  const handleConversationPress = async (conversationId: string, name: string) => {
     await triggerHaptic()
-    router.push(`/messages?conversation=${conversationId}`)
+    setActiveConvName(name)
+    setActiveConversation(conversationId)
   }
 
   const formatTime = (dateStr: string) => {
@@ -4490,6 +4858,49 @@ function MessagesTab({ conversations, loading, unreadCount }: {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
+  const [activeConversation, setActiveConversation] = React.useState<string | null>(null)
+  const [activeConvName, setActiveConvName] = React.useState('')
+
+  // If viewing a conversation, show inline chat
+  if (activeConversation) {
+    return (
+      <div
+        className="absolute inset-0 flex flex-col bg-white"
+        style={{ paddingBottom: 'calc(65px + max(env(safe-area-inset-bottom, 20px), 20px))' }}
+      >
+        {/* Header */}
+        <div
+          className="relative z-20 flex-shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'calc(max(env(safe-area-inset-top, 54px), 54px) + 4px)'
+          }}
+        >
+          <div className="flex items-center gap-3 px-4 py-3">
+            <button
+              onClick={() => setActiveConversation(null)}
+              className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center active:scale-95"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <p className="text-white font-semibold text-[16px] truncate">{activeConvName}</p>
+          </div>
+        </div>
+
+        {/* Chat content — use iframe to messages page */}
+        <div className="flex-1 overflow-hidden">
+          <iframe
+            src={`/messages?conversation=${activeConversation}&embed=true`}
+            className="w-full h-full border-0"
+            style={{ minHeight: '100%' }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="absolute inset-0 flex flex-col bg-white"
@@ -4497,10 +4908,10 @@ function MessagesTab({ conversations, loading, unreadCount }: {
     >
       {/* Green Header */}
       <div
-        className="relative z-20"
+        className="relative z-20 flex-shrink-0"
         style={{
           background: 'linear-gradient(135deg, #10b981, #059669)',
-          paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          paddingTop: 'calc(max(env(safe-area-inset-top, 54px), 54px) + 4px)'
         }}
       >
         <div className="flex items-center justify-between px-4 py-3">
@@ -4541,7 +4952,7 @@ function MessagesTab({ conversations, loading, unreadCount }: {
             {conversations.map((conv) => (
               <button
                 key={conv.id}
-                onClick={() => handleConversationPress(conv.id)}
+                onClick={() => handleConversationPress(conv.id, conv.pro_name || conv.homeowner_name || conv.title || 'Chat')}
                 className="w-full px-4 py-3 flex items-center gap-3 active:bg-gray-50 text-left"
               >
                 {/* Avatar */}
@@ -5504,6 +5915,27 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
   const [showTrackingView, setShowTrackingView] = useState(false)
   const [trackingJob, setTrackingJob] = useState<TrackingJob | null>(null)
 
+  // Debug: Preview tracking view with simulated data
+  const handlePreviewTracking = () => {
+    const mockJob: TrackingJob = {
+      id: 'preview-demo',
+      title: 'HVAC Repair - Emergency',
+      status: 'confirmed',
+      contractor_id: 'demo-contractor',
+      contractor_name: 'Mike\'s HVAC Services',
+      contractor_image: null,
+      eta_minutes: 8,
+      contractor_latitude: center[0] + 0.025,
+      contractor_longitude: center[1] - 0.018,
+      address: '123 Main Street',
+      estimated_cost: 150,
+      homeowner_confirmed_complete: false,
+      contractor_confirmed_complete: false
+    }
+    setTrackingJob(mockJob)
+    setShowTrackingView(true)
+  }
+
   // Find a Pro view state
   const [showFindPro, setShowFindPro] = useState(false)
   const [findProCategory, setFindProCategory] = useState('')
@@ -5550,6 +5982,88 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
 
     initNative()
   }, [])
+
+  // Push notification registration
+  useEffect(() => {
+    if (!user) return
+
+    const setupPush = async () => {
+      try {
+        // Request permission
+        const permResult = await PushNotifications.requestPermissions()
+        if (permResult.receive !== 'granted') {
+          console.log('[PUSH] Permission not granted')
+          return
+        }
+
+        // Register with APNs
+        await PushNotifications.register()
+
+        // Listen for registration success — store token
+        PushNotifications.addListener('registration', async (token) => {
+          console.log('[PUSH] Token:', token.value)
+          try {
+            await fetch('/api/push/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: user.id, token: token.value, platform: 'ios' })
+            })
+          } catch (err) {
+            console.error('[PUSH] Failed to register token:', err)
+          }
+        })
+
+        // Handle registration error
+        PushNotifications.addListener('registrationError', (err) => {
+          console.error('[PUSH] Registration error:', err)
+        })
+
+        // Handle notification received while app is in foreground — show local notification
+        PushNotifications.addListener('pushNotificationReceived', async (notification) => {
+          console.log('[PUSH] Foreground notification:', notification)
+          try {
+            await LocalNotifications.schedule({
+              notifications: [{
+                title: notification.title || 'New Message',
+                body: notification.body || '',
+                id: Date.now(),
+                extra: notification.data
+              }]
+            })
+          } catch (e) {
+            console.log('[PUSH] Local notification fallback failed:', e)
+          }
+        })
+
+        // Handle notification tap — navigate to chat
+        PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          console.log('[PUSH] Notification tapped:', action)
+          const data = action.notification.data
+          if (data?.jobId && data?.contractorId) {
+            // Open tracking view with chat for this job
+            handleOpenTrackingForJob(data.jobId)
+          }
+        })
+
+        // Also handle local notification tap
+        LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+          const data = action.notification.extra
+          if (data?.jobId && data?.contractorId) {
+            handleOpenTrackingForJob(data.jobId)
+          }
+        })
+      } catch (e) {
+        console.log('[PUSH] Push notifications not available:', e)
+      }
+    }
+
+    setupPush()
+
+    return () => {
+      PushNotifications.removeAllListeners()
+      LocalNotifications.removeAllListeners()
+    }
+  }, [user?.id])
 
   // Get user location on mount — native → browser → IP-based (guaranteed)
   useEffect(() => {
@@ -5913,59 +6427,51 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
   // Handler to close tracking view
   const handleCloseTracking = () => {
     setShowTrackingView(false)
+    setTrackingJob(null)
   }
 
   const router = useRouter()
 
-  // Handler to open chat from tracking view
-  const handleTrackingChat = () => {
-    if (trackingJob?.contractor_id) {
-      router.push(`/messages/${trackingJob.contractor_id}`)
-    }
-  }
-
   // Handler for accepting a bid
   const handleAcceptBid = async (bid: Bid) => {
-    if (!activeJob) return
+    if (!activeJob || !user) return
 
     try {
-      // Update the bid status based on source table
-      const bidTable = bid.source === 'job_bids' ? 'job_bids' : 'direct_offers'
-      await supabase
-        .from(bidTable)
-        .update({ status: 'accepted' })
-        .eq('id', bid.id)
-
-      // Update the job with the contractor
-      await supabase
-        .from('homeowner_jobs')
-        .update({
-          contractor_id: bid.contractor_id,
-          status: 'confirmed',
-          estimated_cost: bid.bid_amount,
-          accepted_bid_id: bid.id
+      // Call start-direct API — creates escrow, assigns contractor, rejects other bids, notifies
+      const startResponse = await fetch('/api/jobs/start-direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: activeJob.id,
+          contractorId: bid.contractor_id,
+          bidId: bid.id,
+          amount: bid.bid_amount,
+          homeownerId: user.id
         })
-        .eq('id', activeJob.id)
+      })
 
-      // Decline all other pending bids from both tables
-      await Promise.all([
-        supabase
-          .from('direct_offers')
-          .update({ status: 'declined' })
-          .eq('job_id', activeJob.id)
-          .neq('id', bid.id)
-          .eq('status', 'pending'),
-        supabase
-          .from('job_bids')
-          .update({ status: 'rejected' })
-          .eq('job_id', activeJob.id)
-          .neq('id', bid.id)
-          .in('status', ['pending', 'submitted'])
-      ])
+      const startData = await startResponse.json()
+
+      if (!startResponse.ok || !startData.success) {
+        console.error('Start-direct failed:', startData.error)
+        return
+      }
+
+      await triggerHaptic(ImpactStyle.Heavy)
 
       // Clear the active job overlay
       setActiveJob(null)
       setBids([])
+
+      // Transition to tracking view
+      handleStartJobSuccess({
+        jobId: activeJob.id,
+        contractorId: bid.contractor_id,
+        contractorName: startData.contractorName || bid.contractor_name,
+        title: activeJob.title,
+        estimatedAmount: bid.bid_amount,
+        etaMinutes: bid.eta_minutes
+      })
     } catch (error) {
       console.error('Error accepting bid:', error)
     }
@@ -6059,7 +6565,6 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
           job={trackingJob}
           userLocation={center}
           onBack={handleCloseTracking}
-          onChat={handleTrackingChat}
           onJobComplete={() => {
             // Close tracking view and let the jobs list refresh via real-time subscription
             setShowTrackingView(false)
@@ -6091,6 +6596,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
             onOpenTracking={handleOpenTracking}
             onStartJobSuccess={handleStartJobSuccess}
             onFindPro={handleFindPro}
+            onPreviewTracking={handlePreviewTracking}
           />
         )}
         {activeTab === 'jobs' && (

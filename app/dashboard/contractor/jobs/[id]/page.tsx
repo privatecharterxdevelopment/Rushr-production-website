@@ -304,7 +304,7 @@ export default function ContractorJobDetailsPage() {
 
   const isJobActive = job.status === 'bid_accepted' || job.status === 'confirmed' || job.status === 'in_progress'
   const showFullDetails = isJobActive
-  const showChat = isJobActive && homeowner
+  const showChat = (isJobActive || job.status === 'completed') && homeowner
   const showNavigation = isJobActive && job.latitude && job.longitude
   const canFileDispute = job.status === 'in_progress'
 
@@ -666,7 +666,9 @@ export default function ContractorJobDetailsPage() {
           <JobChat
             jobId={jobId}
             homeownerName={homeowner.name || 'Homeowner'}
-            contractorName={user.email?.split('@')[0] || 'You'}
+            contractorName={user?.email?.split('@')[0] || 'You'}
+            jobStatus={job.status}
+            recipientId={job.homeowner_id}
           />
         </div>
       )}

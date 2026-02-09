@@ -19,9 +19,11 @@ interface JobChatProps {
   jobId: string
   contractorName?: string
   homeownerName?: string
+  jobStatus?: string
+  recipientId?: string
 }
 
-export default function JobChat({ jobId, contractorName, homeownerName }: JobChatProps) {
+export default function JobChat({ jobId, contractorName, homeownerName, jobStatus, recipientId }: JobChatProps) {
   const { user: homeownerUser } = useAuth()
   const { user: contractorUser } = useProAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -31,6 +33,7 @@ export default function JobChat({ jobId, contractorName, homeownerName }: JobCha
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const user = homeownerUser || contractorUser
   const userRole = homeownerUser ? 'homeowner' : 'contractor'
+  const isChatEnded = jobStatus === 'completed' || jobStatus === 'cancelled'
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -100,9 +103,10 @@ export default function JobChat({ jobId, contractorName, homeownerName }: JobCha
   // Send message
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newMessage.trim() || !user) return
+    if (!newMessage.trim() || !user || isChatEnded) return
 
     setSending(true)
+    const msgText = newMessage.trim()
 
     const { error } = await supabase
       .from('job_chat_messages')
@@ -110,12 +114,26 @@ export default function JobChat({ jobId, contractorName, homeownerName }: JobCha
         job_id: jobId,
         sender_id: user.id,
         sender_role: userRole,
-        message: newMessage.trim(),
+        message: msgText,
         created_at: new Date().toISOString()
       })
 
     if (!error) {
       setNewMessage('')
+
+      // Send push notification to recipient (fire-and-forget)
+      if (recipientId) {
+        fetch('/api/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipientId,
+            title: userRole === 'contractor' ? (contractorName || 'Contractor') : (homeownerName || 'Homeowner'),
+            body: msgText.length > 100 ? msgText.substring(0, 100) + '...' : msgText,
+            data: { jobId, type: 'chat_message' }
+          })
+        }).catch(() => {}) // Don't block on push failure
+      }
     } else {
       console.error('[CHAT] Error sending message:', error)
       alert('Failed to send message')
@@ -184,28 +202,39 @@ export default function JobChat({ jobId, contractorName, homeownerName }: JobCha
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Message Input */}
-      <form onSubmit={sendMessage} className="p-3 bg-slate-50 border-t border-slate-200">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-            disabled={sending}
-          />
-          <button
-            type="submit"
-            disabled={sending || !newMessage.trim()}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      {/* Message Input or Chat Ended */}
+      {isChatEnded ? (
+        <div className="p-3 bg-slate-50 border-t border-slate-200">
+          <div className="flex items-center justify-center gap-2 py-2">
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-          </button>
+            <span className="text-slate-400 text-sm">This conversation has ended</span>
+          </div>
         </div>
-      </form>
+      ) : (
+        <form onSubmit={sendMessage} className="p-3 bg-slate-50 border-t border-slate-200">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+              disabled={sending}
+            />
+            <button
+              type="submit"
+              disabled={sending || !newMessage.trim()}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

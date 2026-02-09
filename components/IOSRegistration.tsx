@@ -133,20 +133,21 @@ export default function IOSRegistration({ onSwitchToContractor }: Props) {
           className="flex-1 flex flex-col items-center justify-center px-8 relative overflow-hidden"
           style={{ minHeight: '60%' }}
         >
-          {/* Map Background Image */}
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: 'url(https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/-74.006,40.7128,12,0/800x1200@2x?access_token=pk.eyJ1IjoicnVzaHJhcHAiLCJhIjoiY200OHFyZTR1MDRoNzJrcjNjOWR2NDhzNyJ9.AJC5_k3SJyFNgKb0c5WDCQ)',
-              backgroundSize: 'cover',
-              backgroundPosition: 'center'
-            }}
+          {/* Background Video */}
+          <video
+            className="absolute inset-0 w-full h-full object-cover"
+            src="https://jtrxdcccswdwlritgstp.supabase.co/storage/v1/object/public/MockUp_video/14649311_3840_2160_30fps.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            webkit-playsinline="true"
           />
           {/* Green Gradient Overlay */}
           <div
             className="absolute inset-0"
             style={{
-              background: 'linear-gradient(180deg, rgba(16, 185, 129, 0.85) 0%, rgba(5, 150, 105, 0.92) 100%)'
+              background: 'linear-gradient(180deg, rgba(16, 185, 129, 0.6) 0%, rgba(5, 150, 105, 0.75) 100%)'
             }}
           />
 

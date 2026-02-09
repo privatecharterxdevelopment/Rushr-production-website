@@ -1,13 +1,13 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-// Production - Load from new Vercel deployment
+// Production - Load from Vercel deployment
 const config: CapacitorConfig = {
   appId: 'com.userushr.app',
   appName: 'Rushr',
   webDir: 'out',
   server: {
-    url: 'http://172.16.1.114:3000',
-    cleartext: true
+    url: 'https://rushr-production-website.vercel.app',
+    cleartext: false
   },
   ios: {
     contentInset: 'never',
