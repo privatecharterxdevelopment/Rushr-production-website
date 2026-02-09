@@ -6,8 +6,8 @@ const config: CapacitorConfig = {
   appName: 'Rushr',
   webDir: 'out',
   server: {
-    url: 'https://staging-rushr-five.vercel.app',
-    cleartext: false
+    url: 'http://172.16.1.114:3000',
+    cleartext: true
   },
   ios: {
     contentInset: 'never',

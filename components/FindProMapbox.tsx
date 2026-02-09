@@ -47,6 +47,7 @@ interface Props {
   hideSearchButton?: boolean
   hideControls?: boolean
   userLocation?: LatLng | null  // User's exact GPS location for green dot
+  trackingMarker?: { lat: number; lng: number; bearing: number } | null  // Directional arrow for live contractor tracking
 }
 
 export interface FindProMapboxHandle {
@@ -55,6 +56,8 @@ export interface FindProMapboxHandle {
   showRoute: (fromLat: number, fromLng: number, toLat: number, toLng: number) => void
   clearRoute: () => void
   flyToLocation: (lat: number, lng: number, zoom?: number) => void
+  hideRadiusCircle: () => void
+  showRadiusCircle: () => void
 }
 
 const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
@@ -68,11 +71,13 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
   hideSearchButton = false,
   hideControls = false,
   userLocation = null,
+  trackingMarker = null,
 }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapObjRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<mapboxgl.Marker[]>([])
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
+  const trackingMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const radiusLayerId = 'radius-circle'
   const radiusSourceId = 'radius-source'
 
@@ -461,6 +466,18 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
           duration: 1500
         })
       }
+    },
+    hideRadiusCircle: () => {
+      const map = mapObjRef.current
+      if (!map) return
+      if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'none')
+      if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'none')
+    },
+    showRadiusCircle: () => {
+      const map = mapObjRef.current
+      if (!map) return
+      if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'visible')
+      if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'visible')
     }
   }), [])
 
@@ -498,6 +515,63 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
       userMarkerRef.current = marker
     }
   }, [userLocation])
+
+  // Directional arrow marker for contractor tracking
+  useEffect(() => {
+    const map = mapObjRef.current
+    if (!map) return
+
+    // Remove existing tracking marker
+    if (trackingMarkerRef.current) {
+      trackingMarkerRef.current.remove()
+      trackingMarkerRef.current = null
+    }
+
+    if (trackingMarker) {
+      const el = document.createElement('div')
+      el.className = 'tracking-arrow-marker'
+      el.innerHTML = `
+        <div style="
+          width: 40px;
+          height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transform: rotate(${trackingMarker.bearing}deg);
+          filter: drop-shadow(0 3px 6px rgba(0,0,0,0.3));
+        ">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="16" fill="#10b981" stroke="white" stroke-width="3"/>
+            <path d="M18 8L24 24L18 20L12 24L18 8Z" fill="white"/>
+          </svg>
+        </div>
+        <div style="
+          position: absolute;
+          top: -2px;
+          left: -2px;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(16, 185, 129, 0.2);
+          animation: trackingPulse 2s infinite;
+          z-index: -1;
+        "></div>
+        <style>
+          @keyframes trackingPulse {
+            0% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.5); opacity: 0.2; }
+            100% { transform: scale(2); opacity: 0; }
+          }
+        </style>
+      `
+      el.style.position = 'relative'
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([trackingMarker.lng, trackingMarker.lat])
+        .addTo(map)
+      trackingMarkerRef.current = marker
+    }
+  }, [trackingMarker])
 
   return (
     <div className={fullscreen ? "absolute inset-0" : "relative"}>

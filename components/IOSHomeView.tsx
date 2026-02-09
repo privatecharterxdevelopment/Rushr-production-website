@@ -23,6 +23,10 @@ import { getCurrentLocation as getNativeLocation, isNativePlatform } from '../li
 import type { FindProMapboxHandle } from './FindProMapbox'
 import PaymentModal from './PaymentModal'
 import OfferJobModal from './OfferJobModal'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 // Error Boundary to catch render errors
 interface ErrorBoundaryProps {
@@ -174,118 +178,209 @@ const IOSCard = ({ children, className = '' }: { children: React.ReactNode; clas
 // Divider component
 const Divider = () => <div className="h-px bg-gray-100 ml-14" />
 
-// Bottom Sheet Component for Contractor Card (Uber-style)
+// Minimal Bottom Sheet — Uber/Bolt style. Map shows the route, sheet is compact.
 interface ContractorBottomSheetProps {
   contractor: any
   onClose: () => void
   onContact: (contractor: any) => void
+  onStartJob: (contractor: any) => void
+  onViewProfile: (contractor: any) => void
+  eta?: string | null
+  loadingETA?: boolean
+  bookingLoading?: boolean
+  savedCard?: { brand: string; last4: string } | null
+  enrichedData?: any
+  loadingEnrichedData?: boolean
+  paymentError?: string | null
+  jobDescription?: string
+  onJobDescriptionChange?: (val: string) => void
 }
 
-function ContractorBottomSheet({ contractor, onClose, onContact }: ContractorBottomSheetProps) {
-  const router = useRouter()
+function ContractorBottomSheet({ contractor, onClose, onContact, onStartJob, onViewProfile, eta, loadingETA, bookingLoading, savedCard, enrichedData, loadingEnrichedData, paymentError, jobDescription, onJobDescriptionChange }: ContractorBottomSheetProps) {
+  const [expanded, setExpanded] = React.useState(false)
 
   const handleContact = async () => {
     await triggerHaptic(ImpactStyle.Medium)
     onContact(contractor)
   }
-
   const handleViewProfile = async () => {
     await triggerHaptic()
-    router.push(`/contractors/${contractor.id}`)
+    onViewProfile(contractor)
+  }
+  const handleStartJob = async () => {
+    await triggerHaptic(ImpactStyle.Medium)
+    onStartJob(contractor)
+  }
+  const toggleExpand = async () => {
+    await triggerHaptic()
+    setExpanded(prev => !prev)
   }
 
-  const services = Array.isArray(contractor?.services) ? contractor.services : []
   const rating = contractor?.rating ? Number(contractor.rating).toFixed(1) : null
+  const hourlyRate = enrichedData?.hourly_rate || contractor?.hourly_rate
+  const profileImage = enrichedData?.profile_image_url || contractor?.profile_image_url
+  const services = Array.isArray(contractor?.services) ? contractor.services : (enrichedData?.categories || [])
+  const yearsExp = enrichedData?.years_in_business || contractor?.years
+  const city = contractor?.city || ''
+  const state = contractor?.state || ''
+
+  // Parse ETA "X.X mi • Y min drive"
+  const etaParts = eta ? eta.match(/^([\d.]+)\s*mi\s*•\s*(\d+)\s*min/) : null
+  const etaDistance = etaParts ? etaParts[1] : null
+  const etaMinutes = etaParts ? etaParts[2] : null
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Bottom Sheet — no backdrop so map + route stays visible */}
       <div
-        className="fixed inset-0 bg-black/30 z-40"
-        onClick={onClose}
-      />
-      {/* Bottom Sheet */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[70vh] overflow-y-auto"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-2xl"
         style={{
-          paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 65px)',
-          animation: 'slideUp 0.3s ease-out'
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 70px)',
+          animation: 'slideUp 0.25s ease-out',
+          boxShadow: '0 -4px 30px rgba(0,0,0,0.15)',
+          transition: 'max-height 0.3s ease'
         }}
       >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-2 sticky top-0 bg-white z-10">
+        {/* Handle bar — tap to expand/collapse */}
+        <div className="flex items-center justify-between px-5 pt-3 pb-1" onClick={toggleExpand}>
+          <div className="w-8" />
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
+          <button onClick={(e) => { e.stopPropagation(); onClose() }} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center active:scale-95">
+            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
-        {/* Content */}
-        <div className="px-4 pb-4">
-          {/* Contractor Info */}
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-              <span className="text-emerald-700 font-bold text-lg">
-                {(contractor?.name || 'C')[0].toUpperCase()}
-              </span>
+        <div className="px-5 pb-3">
+          {/* === COLLAPSED: image + name + ETA number + Start Job === */}
+          <div className="flex items-center gap-3">
+            {/* Avatar */}
+            <div className="relative flex-shrink-0">
+              {profileImage ? (
+                <img src={profileImage} alt="" className="w-12 h-12 rounded-2xl object-cover border border-gray-200" />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                  <span className="text-white font-bold text-lg">{(contractor?.business_name || contractor?.name || 'C')[0].toUpperCase()}</span>
+                </div>
+              )}
             </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-[17px] font-semibold text-gray-900 truncate">
-                {contractor?.name || 'Contractor'}
-              </h3>
-              <p className="text-[13px] text-gray-500">{contractor?.city || 'Local Pro'}</p>
-              <div className="flex items-center gap-3 mt-1">
-                {rating && (
-                  <span className="text-[13px] text-gray-700 flex items-center gap-1">
-                    <span className="text-amber-400">★</span> {rating}
-                  </span>
-                )}
-                {contractor?.years_experience && (
-                  <span className="text-[13px] text-gray-500">
-                    {contractor.years_experience}+ yrs
-                  </span>
-                )}
-                {contractor?.__distance && (
-                  <span className="text-[13px] text-gray-500">
-                    {contractor.__distance.toFixed(1)} mi
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
 
-          {/* Services */}
-          {services.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {services.slice(0, 4).map((svc: string) => (
-                <span
-                  key={svc}
-                  className="px-2.5 py-1 bg-gray-100 rounded-lg text-[12px] text-gray-700"
-                >
-                  {svc}
-                </span>
-              ))}
-              {services.length > 4 && (
-                <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[12px] text-gray-500">
-                  +{services.length - 4}
+            {/* Name + rating */}
+            <div className="flex-1 min-w-0">
+              <h3 className="text-[15px] font-bold text-gray-900 truncate">
+                {contractor?.business_name || contractor?.name || 'Contractor'}
+              </h3>
+              {rating && (
+                <span className="flex items-center gap-0.5 text-[12px]">
+                  <span className="text-amber-400">★</span>
+                  <span className="font-medium text-gray-600">{rating}</span>
                 </span>
               )}
             </div>
+
+            {/* EAT — large 00:00 format like Uber */}
+            <div className="flex-shrink-0 text-right">
+              {loadingETA ? (
+                <div className="w-14 h-8 rounded bg-gray-100 animate-pulse" />
+              ) : etaMinutes ? (
+                <>
+                  <p className="text-[28px] font-bold text-gray-900 leading-none font-mono tracking-tight">{etaMinutes.padStart(2, '0')}:00</p>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">EAT</p>
+                </>
+              ) : null}
+            </div>
+
+          </div>
+
+          {/* === EXPANDED: details + buttons === */}
+          {expanded && (
+            <div style={{ animation: 'fadeSlideIn 0.2s ease-out' }}>
+              {/* Divider */}
+              <div className="h-px bg-gray-100 my-3" />
+
+              {/* Distance + Rate row */}
+              <div className="flex items-center gap-3 mb-3">
+                {etaDistance && (
+                  <span className="text-[13px] text-gray-500">{etaDistance} mi away</span>
+                )}
+                {etaDistance && hourlyRate && <span className="text-gray-300">•</span>}
+                {hourlyRate && (
+                  <span className="text-[13px] font-semibold text-emerald-600">${hourlyRate}/hr</span>
+                )}
+                {(city || state) && (
+                  <>
+                    <span className="text-gray-300">•</span>
+                    <span className="text-[13px] text-gray-500">{[city, state].filter(Boolean).join(', ')}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Services pills */}
+              {services.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {services.slice(0, 4).map((s: string, i: number) => (
+                    <span key={i} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[11px] font-medium">{s}</span>
+                  ))}
+                  {services.length > 4 && (
+                    <span className="px-2.5 py-1 bg-gray-50 text-gray-400 rounded-lg text-[11px]">+{services.length - 4}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Quick stats */}
+              {yearsExp && (
+                <p className="text-[12px] text-gray-400 mb-3">{yearsExp}+ years experience</p>
+              )}
+
+              {/* Saved card (compact) */}
+              {savedCard && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-xl mb-3">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                  <span className="text-[12px] text-gray-600 capitalize">{savedCard.brand} •••• {savedCard.last4}</span>
+                </div>
+              )}
+
+              {/* Payment Error */}
+              {paymentError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 mb-3">
+                  <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p className="text-[12px] text-red-700">{paymentError}</p>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleContact}
+                  className="flex-1 py-2.5 rounded-xl font-medium text-[14px] text-emerald-700 border border-emerald-200 bg-emerald-50 active:bg-emerald-100 transition-colors"
+                >
+                  Direct Offer
+                </button>
+                <button
+                  onClick={handleStartJob}
+                  disabled={bookingLoading}
+                  className="flex-1 py-2.5 rounded-xl font-semibold text-[14px] text-white disabled:opacity-60 active:scale-[0.98] transition-transform"
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                >
+                  {bookingLoading ? 'Starting...' : 'Start Job'}
+                </button>
+              </div>
+            </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex gap-3">
-            <button
-              onClick={handleViewProfile}
-              className="flex-1 py-3 rounded-xl font-medium text-[15px] text-gray-700 bg-gray-100 active:scale-98 transition-transform"
-            >
-              View Profile
+          {/* Expand hint when collapsed */}
+          {!expanded && (
+            <button onClick={toggleExpand} className="w-full flex items-center justify-center pt-2">
+              <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+              </svg>
             </button>
-            <button
-              onClick={handleContact}
-              className="flex-1 py-3 rounded-xl font-semibold text-[15px] text-white active:scale-98 transition-transform"
-              style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-            >
-              Send Offer
-            </button>
-          </div>
+          )}
         </div>
       </div>
       <style>{`
@@ -293,8 +388,267 @@ function ContractorBottomSheet({ contractor, onClose, onContact }: ContractorBot
           from { transform: translateY(100%); }
           to { transform: translateY(0); }
         }
+        @keyframes fadeSlideIn {
+          from { opacity: 0; transform: translateY(-8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
     </>
+  )
+}
+
+// Full-screen Contractor Profile View — opens inline when "View Profile" is tapped
+function ContractorProfileView({ contractor, enrichedData, eta, onClose, onStartJob, onContact }: {
+  contractor: any
+  enrichedData: any
+  eta?: string | null
+  onClose: () => void
+  onStartJob: (contractor: any) => void
+  onContact: (contractor: any) => void
+}) {
+  const profileImage = enrichedData?.profile_image_url || contractor?.profile_image_url
+  const name = contractor?.business_name || contractor?.name || 'Contractor'
+  const contactName = contractor?.name
+  const rating = contractor?.rating ? Number(contractor.rating).toFixed(1) : null
+  const bio = enrichedData?.bio || contractor?.bio || contractor?.description
+  const hourlyRate = enrichedData?.hourly_rate || contractor?.hourly_rate
+  const services = Array.isArray(contractor?.services) ? contractor.services : (enrichedData?.categories || [])
+  const city = contractor?.city || ''
+  const state = contractor?.state || ''
+
+  const etaParts = eta ? eta.match(/^([\d.]+)\s*mi\s*•\s*(\d+)\s*min/) : null
+  const etaDistance = etaParts ? etaParts[1] : null
+  const etaMinutes = etaParts ? etaParts[2] : null
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-white" style={{ animation: 'slideUp 0.25s ease-out' }}>
+      {/* Header */}
+      <div
+        className="sticky top-0 z-10 px-5 flex items-center gap-3"
+        style={{
+          paddingTop: 'max(env(safe-area-inset-top, 54px), 54px)',
+          paddingBottom: '12px',
+          background: 'linear-gradient(135deg, #10b981, #059669)'
+        }}
+      >
+        <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center active:scale-95 transition-transform">
+          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h1 className="text-white font-semibold text-[17px]">Contractor Profile</h1>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="overflow-y-auto" style={{ height: 'calc(100vh - max(env(safe-area-inset-top, 54px), 54px) - 12px - 32px)' }}>
+        {/* Profile Card */}
+        <div className="px-5 pt-5 pb-4">
+          <div className="flex items-start gap-4">
+            {profileImage ? (
+              <img src={profileImage} alt="" className="w-20 h-20 rounded-2xl object-cover border-2 border-gray-200" />
+            ) : (
+              <div className="w-20 h-20 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                <span className="text-white font-bold text-2xl">{name[0].toUpperCase()}</span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <h2 className="text-[20px] font-bold text-gray-900 truncate">{name}</h2>
+              {contactName && contactName !== name && (
+                <p className="text-[13px] text-gray-500">{contactName}</p>
+              )}
+              {rating && (
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-1">
+                    <span className="text-amber-400 text-[16px]">★</span>
+                    <span className="text-[16px] font-semibold text-gray-900">{rating}</span>
+                  </div>
+                  {contractor?.total_reviews && (
+                    <span className="text-[13px] text-gray-400">({contractor.total_reviews} reviews)</span>
+                  )}
+                </div>
+              )}
+              {(city || state) && (
+                <div className="flex items-center gap-1 mt-1 text-[13px] text-gray-500">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>{[city, state].filter(Boolean).join(', ')}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ETA Card */}
+        {eta && (
+          <div className="mx-5 mb-4 bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[24px] font-bold text-emerald-700">{etaMinutes || '?'} min</p>
+                  <p className="text-[12px] text-emerald-600 -mt-1">Estimated arrival</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[18px] font-semibold text-gray-700">{etaDistance || '?'} mi</p>
+                <p className="text-[11px] text-gray-400">driving</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Services */}
+        {services.length > 0 && (
+          <div className="px-5 mb-4">
+            <div className="flex flex-wrap gap-2">
+              {services.map((svc: string) => (
+                <span key={svc} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-[13px] font-medium">{svc}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Stats Section */}
+        <div className="mx-5 mb-4 bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex justify-between">
+            {(enrichedData?.years_in_business || contractor?.years_experience) && (
+              <div className="text-center flex-1">
+                <p className="text-[18px] font-bold text-gray-900">{enrichedData?.years_in_business || contractor.years_experience}+</p>
+                <p className="text-[11px] text-gray-500">years exp.</p>
+              </div>
+            )}
+            {enrichedData?.total_jobs != null && (
+              <div className="text-center flex-1">
+                <p className="text-[18px] font-bold text-gray-900">{enrichedData.total_jobs}</p>
+                <p className="text-[11px] text-gray-500">jobs done</p>
+              </div>
+            )}
+            {enrichedData?.response_time_minutes && (
+              <div className="text-center flex-1">
+                <p className="text-[18px] font-bold text-gray-900">{enrichedData.response_time_minutes}m</p>
+                <p className="text-[11px] text-gray-500">response</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Pricing Section */}
+        <div className="mx-5 mb-4 bg-white rounded-xl border border-gray-200 p-4">
+          <h3 className="font-semibold text-gray-900 mb-3 text-[15px]">Pricing</h3>
+          {hourlyRate && (
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[13px] text-gray-500">Base rate</span>
+              <span className="text-[18px] font-bold text-emerald-600">${hourlyRate}/hr</span>
+            </div>
+          )}
+          {(enrichedData?.peak_rate || enrichedData?.off_peak_rate || enrichedData?.surge_rate) && (
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+              {enrichedData.off_peak_rate && (
+                <div className="text-center p-2 bg-slate-50 rounded-lg">
+                  <p className="text-[13px] font-semibold text-slate-700">${enrichedData.off_peak_rate}</p>
+                  <p className="text-[10px] text-slate-400">Off-peak</p>
+                </div>
+              )}
+              {enrichedData.peak_rate && (
+                <div className="text-center p-2 bg-amber-50 rounded-lg">
+                  <p className="text-[13px] font-semibold text-amber-700">${enrichedData.peak_rate}</p>
+                  <p className="text-[10px] text-amber-500">Peak</p>
+                </div>
+              )}
+              {enrichedData.surge_rate && (
+                <div className="text-center p-2 bg-red-50 rounded-lg">
+                  <p className="text-[13px] font-semibold text-red-700">${enrichedData.surge_rate}</p>
+                  <p className="text-[10px] text-red-400">Surge</p>
+                </div>
+              )}
+            </div>
+          )}
+          {(enrichedData?.visit_fee || enrichedData?.diagnostic_fee) && (
+            <div className="flex gap-2 pt-2 border-t border-gray-100 mt-2">
+              {enrichedData.visit_fee > 0 && (
+                <div className="flex-1 flex items-center justify-between px-2 py-1.5 bg-blue-50 rounded-lg">
+                  <span className="text-[11px] text-blue-600">Visit fee</span>
+                  <span className="text-[13px] font-semibold text-blue-700">${enrichedData.visit_fee}</span>
+                </div>
+              )}
+              {enrichedData.diagnostic_fee > 0 && (
+                <div className="flex-1 flex items-center justify-between px-2 py-1.5 bg-purple-50 rounded-lg">
+                  <span className="text-[11px] text-purple-600">Diagnostic</span>
+                  <span className="text-[13px] font-semibold text-purple-700">${enrichedData.diagnostic_fee}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* About */}
+        {bio && (
+          <div className="mx-5 mb-4 bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="font-semibold text-gray-900 mb-2 text-[15px]">About</h3>
+            <p className="text-[14px] text-gray-600 whitespace-pre-wrap">{bio}</p>
+          </div>
+        )}
+
+        {/* Credentials */}
+        {(enrichedData?.license_number || enrichedData?.insurance_carrier) && (
+          <div className="mx-5 mb-4 bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="font-semibold text-gray-900 mb-3 text-[15px] flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
+              Credentials
+            </h3>
+            <div className="space-y-2">
+              {enrichedData.license_number && (
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-gray-500">License</span>
+                  <span className="text-gray-900 font-medium">{enrichedData.license_number}</span>
+                </div>
+              )}
+              {enrichedData.insurance_carrier && (
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-gray-500">Insurance</span>
+                  <span className="text-gray-900 font-medium">{enrichedData.insurance_carrier}</span>
+                </div>
+              )}
+              {enrichedData?.kyc_status === 'completed' && (
+                <div className="flex items-center gap-1.5 text-emerald-600 text-[13px] mt-1">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  Verified Professional
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="px-5 pb-8 space-y-2.5">
+          <button
+            onClick={() => onStartJob(contractor)}
+            className="w-full py-4 rounded-2xl font-semibold text-[16px] text-white flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition-transform"
+            style={{ background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Start Job with {name.split(' ')[0]}
+          </button>
+          <button
+            onClick={() => onContact(contractor)}
+            className="w-full py-3.5 rounded-2xl font-medium text-[15px] text-emerald-700 border-2 border-emerald-200 bg-white active:scale-[0.98] transition-transform"
+          >
+            Send Direct Offer
+          </button>
+          <p className="text-[11px] text-gray-400 text-center mt-2">
+            Payment held securely in escrow until job is complete
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1433,6 +1787,139 @@ function BidTrackingOverlay({
   )
 }
 
+// ─── Inline Add Card Modal (Stripe SetupIntent) ───
+function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSuccess: (card: { brand: string; last4: string }) => void; onCancel: () => void }) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = async () => {
+    if (!stripe || !elements) return
+    setSaving(true)
+    setError(null)
+
+    try {
+      // 1. Ensure Stripe customer exists
+      const custRes = await fetch('/api/stripe/customer/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      })
+      const custData = await custRes.json()
+      if (!custData.success) throw new Error(custData.error || 'Failed to create customer')
+
+      // 2. Create SetupIntent
+      const siRes = await fetch('/api/stripe/customer/setup-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId: custData.customerId })
+      })
+      const siData = await siRes.json()
+      if (!siData.success) throw new Error(siData.error || 'Failed to create setup intent')
+
+      // 3. Confirm with card element
+      const cardElement = elements.getElement(CardElement)
+      if (!cardElement) throw new Error('Card element not found')
+
+      const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(siData.clientSecret, {
+        payment_method: { card: cardElement }
+      })
+
+      if (stripeError) throw new Error(stripeError.message || 'Card verification failed')
+      if (!setupIntent?.payment_method) throw new Error('No payment method returned')
+
+      // 4. Save card to backend
+      const pmId = typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method.id
+      const saveRes = await fetch('/api/stripe/customer/save-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, paymentMethodId: pmId, setAsDefault: true })
+      })
+      const saveData = await saveRes.json()
+      if (!saveData.success) throw new Error(saveData.error || 'Failed to save card')
+
+      // 5. Fetch the saved card details
+      const pmRes = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+      const pmData = await pmRes.json()
+      if (pmData.success && pmData.paymentMethods?.length > 0) {
+        const pm = pmData.paymentMethods.find((p: any) => p.id === pmId) || pmData.paymentMethods[0]
+        if (pm?.card) {
+          onSuccess({ brand: pm.card.brand, last4: pm.card.last4 })
+          return
+        }
+      }
+      onSuccess({ brand: 'card', last4: '••••' })
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+        <CardElement
+          options={{
+            style: {
+              base: {
+                fontSize: '16px',
+                color: '#1f2937',
+                '::placeholder': { color: '#9ca3af' },
+                fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+              },
+              invalid: { color: '#ef4444' }
+            },
+            hidePostalCode: true
+          }}
+        />
+      </div>
+      {error && (
+        <p className="text-red-500 text-sm text-center">{error}</p>
+      )}
+      <button
+        onClick={handleSave}
+        disabled={saving || !stripe}
+        className="w-full py-3 rounded-xl font-semibold text-[15px] text-white disabled:opacity-60 active:scale-[0.98] transition-transform"
+        style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+      >
+        {saving ? 'Saving...' : 'Save Card'}
+      </button>
+      <button
+        onClick={onCancel}
+        disabled={saving}
+        className="w-full py-3 rounded-xl font-medium text-[15px] text-gray-700 bg-gray-100 active:scale-[0.98] transition-transform"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
+
+function AddCardModal({ isOpen, userId, onSuccess, onClose }: { isOpen: boolean; userId: string; onSuccess: (card: { brand: string; last4: string }) => void; onClose: () => void }) {
+  if (!isOpen) return null
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
+      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[61] bg-white rounded-2xl p-6 shadow-xl">
+        <div className="text-center mb-5">
+          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900">Add Payment Method</h3>
+          <p className="text-gray-500 text-xs mt-1">Your card will only be charged when a job starts.</p>
+        </div>
+        <Elements stripe={stripePromise}>
+          <AddCardForm userId={userId} onSuccess={onSuccess} onCancel={onClose} />
+        </Elements>
+      </div>
+    </>
+  )
+}
+
 // Category bubbles for quick access
 const CATEGORY_BUBBLES = [
   { key: 'plumbing', label: 'Plumbing', icon: '🔧' },
@@ -1445,8 +1932,41 @@ const CATEGORY_BUBBLES = [
   { key: 'other', label: 'Other', icon: '🔨' },
 ]
 
+// Keyword-to-category detection — keys MUST match pro_contractors.categories values from wizard
+const CATEGORY_KEYWORDS_MAP: Record<string, string[]> = {
+  'Plumbing': ['plumb', 'leak', 'pipe', 'drain', 'water', 'toilet', 'sink', 'faucet', 'sewer'],
+  'Electrical': ['electric', 'power', 'outlet', 'breaker', 'wiring', 'light', 'switch'],
+  'HVAC': ['hvac', 'heat', 'cool', 'ac', 'furnace', 'thermostat', 'air condition'],
+  'Roofing': ['roof', 'shingle', 'gutter', 'ceiling leak'],
+  'Locksmith': ['lock', 'key', 'locked out', 'door lock'],
+  'Appliance Repair': ['appliance', 'fridge', 'washer', 'dryer', 'dishwasher', 'oven', 'stove'],
+  'Pest Control': ['pest', 'bug', 'rat', 'mouse', 'termite', 'roach', 'ant'],
+  'Cleaning': ['clean', 'mold', 'carpet', 'deep clean'],
+  'Handyman': ['handyman', 'repair', 'fix'],
+  'Carpentry': ['carpent', 'wood', 'cabinet', 'deck'],
+  'Landscaping': ['landscap', 'lawn', 'garden', 'tree', 'yard'],
+  'Painting': ['paint', 'stain', 'wall'],
+  'Water Damage Restoration': ['water damage', 'flood', 'restoration'],
+  'General Contractor': ['general contract', 'remodel', 'renovation'],
+}
+
+function detectCategoryFromSearch(text: string): string | null {
+  const lower = text.toLowerCase()
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS_MAP)) {
+    if (keywords.some(kw => lower.includes(kw))) return category
+  }
+  return null
+}
+
+function formatCountdown(totalSeconds: number): string {
+  if (totalSeconds <= 0) return '00:00'
+  const m = Math.floor(totalSeconds / 60)
+  const s = totalSeconds % 60
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+}
+
 // Home Tab Content - Split view: Map on top half, Jobs with live bids below
-function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking }: {
+function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro }: {
   center: LatLng
   setCenter: (c: LatLng) => void
   filtered: any[]
@@ -1464,10 +1984,14 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   user: any
   trackingJob: TrackingJob | null
   onOpenTracking: () => void
+  onStartJobSuccess: (data: { jobId: string; contractorId: string; contractorName: string; title: string; estimatedAmount: number; etaMinutes?: number }) => void
+  onFindPro: (search: string, category: string) => void
 }) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = React.useState('')
   const [selectedContractor, setSelectedContractor] = React.useState<any>(null)
+  const [contractorETA, setContractorETA] = React.useState<string | null>(null)
+  const [loadingContractorETA, setLoadingContractorETA] = React.useState(false)
   const [selectedBid, setSelectedBid] = React.useState<Bid | null>(null)
   const [bidDistance, setBidDistance] = React.useState<string | null>(null)
   const [bidAddress, setBidAddress] = React.useState<string | null>(null)
@@ -1477,9 +2001,99 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   const [loadingETAs, setLoadingETAs] = React.useState(false)
   const [showOfferModal, setShowOfferModal] = React.useState(false)
   const [offerContractor, setOfferContractor] = React.useState<any>(null)
+  const [enrichedContractorData, setEnrichedContractorData] = React.useState<any>(null)
+  const [loadingEnrichedData, setLoadingEnrichedData] = React.useState(false)
+  const [savedCard, setSavedCard] = React.useState<{ brand: string; last4: string } | null>(null)
+  const [bookingLoading, setBookingLoading] = React.useState(false)
+  const [paymentError, setPaymentError] = React.useState<string | null>(null)
+  const [showAddCardAlert, setShowAddCardAlert] = React.useState(false)
+  const [jobDescription, setJobDescription] = React.useState('')
+  const [showContractorProfile, setShowContractorProfile] = React.useState(false)
+
+  // --- Inline search state ---
+  const [bottomSheetSearch, setBottomSheetSearch] = React.useState('')
+  const [searchResults, setSearchResults] = React.useState<any[]>([])
+  const [searchLoading, setSearchLoading] = React.useState(false)
+  const [hasSearched, setHasSearched] = React.useState(false)
+  // Elapsed timer for waiting on bids after posting a job
+  const [waitElapsed, setWaitElapsed] = React.useState(0)
+  const waitTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // --- In-sheet tracking mode state ---
+  const [trackingEatSeconds, setTrackingEatSeconds] = React.useState(0)
+  const [trackingContractorLoc, setTrackingContractorLoc] = React.useState<{ lat: number; lng: number } | null>(null)
+  const [trackingBearing, setTrackingBearing] = React.useState(0)
+  const prevTrackingLocRef = React.useRef<{ lat: number; lng: number } | null>(null)
+  const [cancellingJob, setCancellingJob] = React.useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = React.useState(false)
+  const trackingEatRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Fetch saved payment method on mount
+  React.useEffect(() => {
+    if (!user) return
+    fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.paymentMethods?.length > 0) {
+          const defaultPm = data.paymentMethods.find((pm: any) => pm.id === data.defaultPaymentMethodId) || data.paymentMethods[0]
+          if (defaultPm?.card) {
+            setSavedCard({ brand: defaultPm.card.brand, last4: defaultPm.card.last4 })
+          }
+        }
+      })
+      .catch(err => console.error('Error fetching payment methods:', err))
+  }, [user])
 
   // Map ref for zoom controls
   const mapRef = useRef<FindProMapboxHandle>(null)
+
+  // Fetch online contractors within radius on mount (for showing as tabs before search)
+  const [nearbyOnline, setNearbyOnline] = React.useState<any[]>([])
+  React.useEffect(() => {
+    const fetchOnline = async () => {
+      try {
+        const { data } = await supabase
+          .from('pro_contractors')
+          .select('*')
+          .eq('status', 'approved')
+          .eq('availability', 'online')
+          .not('latitude', 'is', null)
+          .not('longitude', 'is', null)
+          .limit(30)
+        if (data) {
+          const nearby = data.filter((c: any) => {
+            const R = 3959
+            const dLat = (c.latitude - center[0]) * Math.PI / 180
+            const dLon = (c.longitude - center[1]) * Math.PI / 180
+            const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(center[0] * Math.PI / 180) * Math.cos(c.latitude * Math.PI / 180) *
+              Math.sin(dLon / 2) ** 2
+            const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+            return dist <= 5
+          })
+          setNearbyOnline(nearby)
+        }
+      } catch (err) {
+        console.error('Error fetching online contractors:', err)
+      }
+    }
+    fetchOnline()
+  }, [center])
+
+  // Contractor tabs: EMPTY until user searches a category, then filtered by that category
+  const mapCategoryContractors = React.useMemo(() => {
+    if (!hasSearched || !bottomSheetSearch) return []
+    const detectedCategory = detectCategoryFromSearch(bottomSheetSearch)
+    if (detectedCategory) {
+      return nearbyOnline.filter((c: any) =>
+        Array.isArray(c.categories) && c.categories.some((cat: string) => cat.toLowerCase() === detectedCategory.toLowerCase())
+      )
+    }
+    const q = bottomSheetSearch.toLowerCase()
+    return nearbyOnline.filter((c: any) =>
+      (c.business_name || '').toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q)
+    )
+  }, [nearbyOnline, hasSearched, bottomSheetSearch])
 
   // Bottom sheet state - minimized shows only the drag handle stripe, expanded covers the map
   const [sheetExpanded, setSheetExpanded] = React.useState(false)
@@ -1572,32 +2186,353 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
 
   const handleSearch = async () => {
     await triggerHaptic(ImpactStyle.Medium)
-    if (searchQuery.trim()) {
-      router.push(`/find-pro?search=${encodeURIComponent(searchQuery)}`)
-    } else {
-      router.push('/find-pro')
-    }
+    // Inline search — stay in bottom sheet, no FindProView overlay
+    setBottomSheetSearch(searchQuery.trim())
+    handleBottomSheetSearch(searchQuery.trim())
+    setSearchQuery('')
+    setSheetMinimized(false)
+    setSheetExpanded(true)
   }
 
   const handleCategoryPress = async (categoryKey: string) => {
     await triggerHaptic()
-    router.push(`/find-pro?category=${categoryKey}`)
+    const label = CATEGORY_BUBBLES.find(c => c.key === categoryKey)?.label || categoryKey
+    setBottomSheetSearch(label)
+    handleBottomSheetSearch(label)
+    setSearchQuery('')
+    setSheetMinimized(false)
   }
 
   const handleLocation = async () => {
     await triggerHaptic()
     setFetchingLocation(true)
 
-    const result = await getNativeLocation()
-    if (result.success && result.coordinates) {
-      setCenter([result.coordinates.latitude, result.coordinates.longitude])
+    // 1) Native
+    const nativeResult = await getNativeLocation()
+    if (nativeResult.success && nativeResult.coordinates) {
+      setCenter([nativeResult.coordinates.latitude, nativeResult.coordinates.longitude])
+      setFetchingLocation(false)
+      return
+    }
+
+    // 2) Browser geolocation
+    const browserOk = await new Promise<boolean>((resolve) => {
+      if (!navigator.geolocation) { resolve(false); return }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { setCenter([pos.coords.latitude, pos.coords.longitude]); resolve(true) },
+        () => resolve(false),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      )
+    })
+    if (browserOk) { setFetchingLocation(false); return }
+
+    // 3) IP-based fallback
+    try {
+      const res = await fetch('https://ipapi.co/json/')
+      const data = await res.json()
+      if (data.latitude && data.longitude) {
+        setCenter([data.latitude, data.longitude])
+      }
+    } catch (e) {
+      // All methods failed
     }
     setFetchingLocation(false)
+  }
+
+  // --- Inline bottom sheet search for contractors ---
+  const handleBottomSheetSearch = React.useCallback(async (query: string) => {
+    setSearchLoading(true)
+    setHasSearched(true)
+    try {
+      const detectedCategory = detectCategoryFromSearch(query)
+
+      // Fetch all online contractors, filter by category in JS for case-insensitive matching
+      const { data, error } = await supabase
+        .from('pro_contractors')
+        .select('*')
+        .eq('status', 'approved')
+        .eq('availability', 'online')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+        .limit(50)
+      if (error) throw error
+
+      // Filter by category (case-insensitive) or name in JS
+      let categoryFiltered = data || []
+      if (detectedCategory) {
+        categoryFiltered = categoryFiltered.filter((c: any) =>
+          Array.isArray(c.categories) && c.categories.some(
+            (cat: string) => cat.toLowerCase() === detectedCategory.toLowerCase()
+          )
+        )
+      } else if (query.trim()) {
+        const q = query.toLowerCase()
+        categoryFiltered = categoryFiltered.filter((c: any) =>
+          (c.name || '').toLowerCase().includes(q) || (c.business_name || '').toLowerCase().includes(q)
+        )
+      }
+
+      // Filter by 5-mile radius
+      const radiusFiltered = categoryFiltered.filter((c: any) => {
+        if (!c.latitude || !c.longitude) return false
+        const R = 3959
+        const dLat = (c.latitude - center[0]) * Math.PI / 180
+        const dLon = (c.longitude - center[1]) * Math.PI / 180
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(center[0] * Math.PI / 180) * Math.cos(c.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2
+        const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        return dist <= 5
+      })
+
+      // Enrich with Mapbox EAT
+      const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      const enriched = await Promise.all(
+        radiusFiltered.map(async (c) => {
+          let _eatMinutes: number | null = null
+          let _distanceMiles: string | null = null
+          if (MAPBOX_TOKEN && c.latitude && c.longitude) {
+            try {
+              const res = await fetch(
+                `https://api.mapbox.com/directions/v5/mapbox/driving/${c.longitude},${c.latitude};${center[1]},${center[0]}?access_token=${MAPBOX_TOKEN}`
+              )
+              const d = await res.json()
+              if (d.routes?.[0]) {
+                _eatMinutes = Math.round(d.routes[0].duration / 60)
+                _distanceMiles = (d.routes[0].distance / 1609.34).toFixed(1)
+              }
+            } catch {}
+          }
+          return { ...c, _eatMinutes, _distanceMiles }
+        })
+      )
+
+      enriched.sort((a, b) => (a._eatMinutes ?? 999) - (b._eatMinutes ?? 999))
+      setSearchResults(enriched)
+    } catch (err) {
+      console.error('Bottom sheet search error:', err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [center])
+
+  // EAT is now distance-based (static), no countdown interval for search/bid cards.
+  // The only countdown timer is trackingEatSeconds (Phase 2 tracking mode).
+
+  // Wait timer: counts up while waiting for bids on a pending job
+  React.useEffect(() => {
+    if (waitTimerRef.current) clearInterval(waitTimerRef.current)
+    if (mostRecentPendingJob && bids.length === 0) {
+      setWaitElapsed(0)
+      waitTimerRef.current = setInterval(() => setWaitElapsed(prev => prev + 1), 1000)
+    } else {
+      setWaitElapsed(0)
+    }
+    return () => { if (waitTimerRef.current) clearInterval(waitTimerRef.current) }
+  }, [mostRecentPendingJob?.id, bids.length])
+
+  // --- In-sheet tracking: subscribe to contractor location + calculate live EAT ---
+  React.useEffect(() => {
+    if (!trackingJob?.contractor_id || !trackingJob?.id) {
+      setTrackingContractorLoc(null)
+      setTrackingEatSeconds(0)
+      return
+    }
+
+    // Initialize EAT from tracking job
+    if (trackingJob.eta_minutes) setTrackingEatSeconds(trackingJob.eta_minutes * 60)
+
+    // Subscribe to real-time contractor location
+    const channel = supabase
+      .channel(`home-tracking-${trackingJob.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contractor_location_tracking', filter: `job_id=eq.${trackingJob.id}` },
+        (payload) => {
+          if (payload.new && 'latitude' in payload.new) {
+            const loc = payload.new as any
+            setTrackingContractorLoc({ lat: loc.latitude, lng: loc.longitude })
+            if (loc.eta_minutes) setTrackingEatSeconds(loc.eta_minutes * 60)
+          }
+        }
+      )
+      .subscribe()
+
+    // Fetch initial location
+    const fetchInitial = async () => {
+      const { data } = await supabase
+        .from('contractor_location_tracking')
+        .select('*')
+        .eq('job_id', trackingJob.id)
+        .eq('contractor_id', trackingJob.contractor_id!)
+        .order('last_update_at', { ascending: false })
+        .limit(1)
+        .single()
+      if (data) {
+        setTrackingContractorLoc({ lat: data.latitude, lng: data.longitude })
+        if (data.eta_minutes) setTrackingEatSeconds(data.eta_minutes * 60)
+      }
+    }
+    fetchInitial()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [trackingJob?.id, trackingJob?.contractor_id])
+
+  // Calculate bearing when contractor location updates
+  React.useEffect(() => {
+    if (!trackingContractorLoc) return
+    const prev = prevTrackingLocRef.current
+    if (prev) {
+      const dLon = (trackingContractorLoc.lng - prev.lng) * Math.PI / 180
+      const lat1 = prev.lat * Math.PI / 180
+      const lat2 = trackingContractorLoc.lat * Math.PI / 180
+      const y = Math.sin(dLon) * Math.cos(lat2)
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+      const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+      setTrackingBearing(bearing)
+    }
+    prevTrackingLocRef.current = trackingContractorLoc
+  }, [trackingContractorLoc])
+
+  // Recalculate EAT via Mapbox when contractor location updates
+  React.useEffect(() => {
+    if (!trackingContractorLoc || !trackingJob) return
+    const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+    if (!MAPBOX_TOKEN) return
+
+    const calcEAT = async () => {
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${trackingContractorLoc.lng},${trackingContractorLoc.lat};${center[1]},${center[0]}?access_token=${MAPBOX_TOKEN}`
+        )
+        const d = await res.json()
+        if (d.routes?.[0]?.duration) {
+          setTrackingEatSeconds(Math.ceil(d.routes[0].duration))
+        }
+      } catch {}
+    }
+    calcEAT()
+  }, [trackingContractorLoc, center, trackingJob])
+
+  // Tick tracking EAT countdown every second
+  React.useEffect(() => {
+    if (trackingEatRef.current) clearInterval(trackingEatRef.current)
+    if (trackingEatSeconds <= 0 || !trackingJob) return
+    trackingEatRef.current = setInterval(() => {
+      setTrackingEatSeconds(prev => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => { if (trackingEatRef.current) clearInterval(trackingEatRef.current) }
+  }, [trackingJob?.id, trackingEatSeconds > 0])
+
+  // Show route on map for tracking
+  React.useEffect(() => {
+    if (trackingContractorLoc && trackingJob && mapRef.current) {
+      mapRef.current.showRoute(trackingContractorLoc.lat, trackingContractorLoc.lng, center[0], center[1])
+      mapRef.current.hideRadiusCircle()
+    }
+  }, [trackingContractorLoc, trackingJob, center])
+
+  // Cancel job handler
+  const handleCancelJob = async () => {
+    if (!trackingJob || cancellingJob) return
+    setCancellingJob(true)
+    try {
+      // Update job status to cancelled
+      await supabase.from('homeowner_jobs').update({ status: 'cancelled' }).eq('id', trackingJob.id)
+
+      // Release payment hold if exists
+      const { data: paymentHold } = await supabase
+        .from('payment_holds')
+        .select('id')
+        .eq('job_id', trackingJob.id)
+        .eq('status', 'held')
+        .single()
+
+      if (paymentHold) {
+        await fetch('/api/booking/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bookingId: trackingJob.id,
+            reason: 'Cancelled by homeowner',
+            cancelledBy: 'homeowner',
+            cancelledById: user?.id
+          })
+        })
+      }
+
+      await triggerHaptic(ImpactStyle.Heavy)
+      setShowCancelConfirm(false)
+      mapRef.current?.clearRoute()
+      mapRef.current?.showRadiusCircle()
+    } catch (err) {
+      console.error('Cancel job error:', err)
+    } finally {
+      setCancellingJob(false)
+    }
   }
 
   const handleContractorSelect = async (contractor: any) => {
     await triggerHaptic()
     setSelectedContractor(contractor)
+    setContractorETA(null)
+    setLoadingContractorETA(true)
+    setEnrichedContractorData(null)
+    setLoadingEnrichedData(true)
+    setPaymentError(null)
+    setJobDescription('')
+    setShowContractorProfile(false)
+
+    const lat = Number(contractor?.loc?.lat ?? contractor?.latitude)
+    const lng = Number(contractor?.loc?.lng ?? contractor?.longitude)
+
+    // Draw green route line on map + hide radius
+    if (isFinite(lat) && isFinite(lng)) {
+      mapRef.current?.showRoute(lat, lng, center[0], center[1])
+      mapRef.current?.hideRadiusCircle()
+    }
+
+    // Fetch ETA and enriched data in parallel
+    const etaPromise = (async () => {
+      try {
+        if (!isFinite(lat) || !isFinite(lng)) return
+        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+        if (!MAPBOX_TOKEN) return
+
+        const response = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${lng},${lat};${center[1]},${center[0]}?access_token=${MAPBOX_TOKEN}`
+        )
+        if (response.ok) {
+          const data = await response.json()
+          if (data.routes && data.routes[0]) {
+            const distanceMiles = (data.routes[0].distance / 1609.34).toFixed(1)
+            const durationMinutes = Math.round(data.routes[0].duration / 60)
+            setContractorETA(`${distanceMiles} mi • ${durationMinutes} min drive`)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch contractor ETA:', err)
+      } finally {
+        setLoadingContractorETA(false)
+      }
+    })()
+
+    const enrichPromise = (async () => {
+      try {
+        const { data } = await supabase
+          .from('pro_contractors')
+          .select('hourly_rate, bio, categories, profile_image_url, years_in_business, total_jobs, visit_fee, diagnostic_fee, peak_rate, off_peak_rate, surge_rate, response_time_minutes, license_number, insurance_carrier, kyc_status, description, business_name, city, state, total_reviews')
+          .eq('id', contractor.id)
+          .single()
+        setEnrichedContractorData(data)
+      } catch (err) {
+        console.error('Failed to fetch enriched contractor data:', err)
+      } finally {
+        setLoadingEnrichedData(false)
+      }
+    })()
+
+    await Promise.all([etaPromise, enrichPromise])
   }
 
   const handleContactContractor = (contractor: any) => {
@@ -1605,6 +2540,107 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     setOfferContractor(contractor)
     setShowOfferModal(true)
     setSelectedContractor(null)
+  }
+
+  const handleStartJob = async (contractor: any) => {
+    // 1. Check auth
+    if (!user) {
+      router.push('/sign-in')
+      return
+    }
+
+    // 2. Check payment method
+    if (!savedCard) {
+      setShowAddCardAlert(true)
+      return
+    }
+
+    setBookingLoading(true)
+    setPaymentError(null)
+
+    try {
+      // 3. Calculate estimated amount
+      const visitFee = enrichedContractorData?.visit_fee || 0
+      const diagnosticFee = enrichedContractorData?.diagnostic_fee || 0
+      const hourlyRate = enrichedContractorData?.hourly_rate || 65
+      const baseAmount = (visitFee + diagnosticFee) > 0 ? (visitFee + diagnosticFee) : (hourlyRate * 2)
+      const estimatedAmount = Math.max(baseAmount, hourlyRate)
+      const category = enrichedContractorData?.categories?.[0] || contractor?.services?.[0] || 'General'
+      const jobTitle = jobDescription || `${category} Service`
+
+      // 4. Create homeowner_jobs record
+      const { data: jobRecord, error: jobError } = await supabase
+        .from('homeowner_jobs')
+        .insert({
+          homeowner_id: user.id,
+          title: jobTitle,
+          description: jobDescription || `${category} service needed`,
+          category,
+          status: 'confirmed',
+          contractor_id: contractor.id,
+          estimated_cost: estimatedAmount,
+          latitude: center[0],
+          longitude: center[1],
+          source: 'mobile_map'
+        })
+        .select()
+        .single()
+
+      if (jobError || !jobRecord) {
+        throw new Error(jobError?.message || 'Failed to create job')
+      }
+
+      // 5. Create escrow payment hold
+      const escrowResponse = await fetch('/api/stripe/escrow/create-hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          homeownerId: user.id,
+          contractorId: contractor.id,
+          amount: estimatedAmount,
+          jobDescription: jobTitle,
+          category,
+          bookingId: jobRecord.id
+        })
+      })
+
+      const escrowData = await escrowResponse.json()
+
+      if (!escrowResponse.ok || !escrowData.success) {
+        // Rollback: delete the job record
+        await supabase.from('homeowner_jobs').delete().eq('id', jobRecord.id)
+        throw new Error(escrowData.error || 'Payment authorization failed')
+      }
+
+      // 6. Success — close bottom sheet and open tracking
+      await triggerHaptic(ImpactStyle.Heavy)
+      setSelectedContractor(null)
+      setContractorETA(null)
+      setEnrichedContractorData(null)
+      setJobDescription('')
+
+      // Parse ETA minutes from the contractorETA string (e.g., "3.2 mi • 8 min drive")
+      let etaMins: number | undefined
+      if (contractorETA) {
+        const match = contractorETA.match(/(\d+)\s*min/)
+        if (match) etaMins = parseInt(match[1])
+      }
+
+      onStartJobSuccess({
+        jobId: jobRecord.id,
+        contractorId: contractor.id,
+        contractorName: contractor.name || contractor.business_name || 'Contractor',
+        title: jobTitle,
+        estimatedAmount,
+        etaMinutes: etaMins
+      })
+
+    } catch (err: any) {
+      console.error('Error in Start Job flow:', err)
+      setPaymentError(err.message || 'Failed to process booking. Please try again.')
+    } finally {
+      setBookingLoading(false)
+    }
   }
 
   // Fetch driving distance and address from Mapbox APIs
@@ -1798,13 +2834,15 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         <FindProMapbox
           ref={mapRef}
           items={filtered}
-          radiusMiles={25}
+          radiusMiles={5}
           searchCenter={center}
+          userLocation={center}
           onSearchHere={(c) => setCenter(c)}
-          onContractorSelect={handleContractorSelect}
+          onContractorSelect={(c: any) => { if (hasSearched) handleContractorSelect(c) }}
           fullscreen={true}
           hideSearchButton={true}
           hideControls={true}
+          trackingMarker={trackingContractorLoc ? { lat: trackingContractorLoc.lat, lng: trackingContractorLoc.lng, bearing: trackingBearing } : null}
         />
       </div>
 
@@ -1944,12 +2982,13 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         </button>
       </div>
 
-      {/* Jobs Section - Draggable Bottom Sheet - Fixed position above tab bar */}
+      {/* Jobs Section - Draggable Bottom Sheet - Hidden when contractor sheet is open */}
+      {!selectedContractor && (
       <div
         className={`fixed left-0 right-0 bg-white rounded-t-2xl z-20 flex flex-col ${!isDragging ? 'transition-all duration-300 ease-out' : ''}`}
         style={{
           boxShadow: '0 -4px 20px rgba(0,0,0,0.15)',
-          height: sheetMinimized ? '80px' : sheetExpanded ? '70%' : '45%',
+          height: sheetMinimized ? '80px' : sheetExpanded ? '70%' : (hasSearched || mostRecentPendingJob || trackingJob) ? '50%' : '25%',
           transform: `translateY(${-currentTranslate}px)`,
           paddingBottom: sheetMinimized ? '0' : '16px',
           bottom: 'calc(65px + env(safe-area-inset-bottom, 0px))'
@@ -1986,7 +3025,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           >
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-[14px] text-gray-900">
-                {mostRecentPendingJob ? 'Active Request' : 'Get a Pro Now'}
+                {mostRecentPendingJob ? 'Active Request' : hasSearched && searchResults.length > 0 ? `${searchResults.length} Pros Found` : 'Find a Pro'}
               </h3>
               {mostRecentPendingJob && (
                 <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
@@ -2003,200 +3042,529 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
 
         {/* Scrollable Content - hidden when minimized */}
         <div className={`flex-1 overflow-auto ${sheetMinimized ? 'hidden' : ''}`}>
-          {/* Section Header */}
+          {/* Section Header — only shown when content is active */}
+          {(hasSearched || mostRecentPendingJob || trackingJob) && (
           <div className="flex items-center justify-between px-4 py-2">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-[15px] text-gray-900">
-              {mostRecentPendingJob ? 'Active Request' : 'Get a Pro Now'}
-            </h3>
-            {mostRecentPendingJob && (
-              <span className="px-2 py-0.5 bg-amber-100 rounded-full text-[11px] font-semibold text-amber-700 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
-                Finding Pros
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => router.push('/post-job')}
-            className="text-emerald-600 text-[13px] font-medium flex items-center gap-1"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New
-          </button>
-        </div>
-
-        {/* Job State Content */}
-        <div className="px-4 pb-4">
-          {jobsLoading ? (
-            // Loading skeleton
-            <div className="bg-gray-50 rounded-xl p-4 animate-pulse">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-gray-200 rounded-full" />
-                <div className="flex-1">
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-                  <div className="h-3 bg-gray-200 rounded w-1/2" />
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-[15px] text-gray-900">
+                {mostRecentPendingJob ? 'Active Request' : hasSearched && searchResults.length > 0 ? `${searchResults.length} Pros Found` : 'Find a Pro'}
+              </h3>
+              {mostRecentPendingJob && (
+                <span className="px-2 py-0.5 bg-amber-100 rounded-full text-[11px] font-semibold text-amber-700 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                  Finding Pros
+                </span>
+              )}
+              {searchLoading && (
+                <span className="px-2 py-0.5 bg-emerald-100 rounded-full text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+                  Searching
+                </span>
+              )}
             </div>
-          ) : trackingJob ? (
-            // In-progress job - Track Contractor card (opens full-screen tracking view)
             <button
-              onClick={onOpenTracking}
-              className="w-full bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-4 active:scale-98 transition-transform text-left"
-              style={{ boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)' }}
+              onClick={() => router.push('/post-job')}
+              className="text-emerald-600 text-[13px] font-medium flex items-center gap-1"
             >
-              <div className="flex items-center gap-4">
-                {/* Contractor Avatar */}
-                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
-                  <span className="text-white font-bold text-xl">
-                    {(trackingJob.contractor_name || 'C')[0].toUpperCase()}
-                  </span>
-                </div>
-
-                {/* Info */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    <span className="text-white/90 text-[13px] font-medium">Contractor On The Way</span>
-                  </div>
-                  <p className="text-white font-semibold text-[17px]">{trackingJob.contractor_name || 'Contractor'}</p>
-                  <p className="text-white/80 text-[13px]">{trackingJob.title}</p>
-                </div>
-
-                {/* Track Button Arrow */}
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Track Now Label */}
-              <div className="mt-3 pt-3 border-t border-white/20 flex items-center justify-center gap-2">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                <span className="text-white font-semibold text-[15px]">Track Live Location</span>
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </div>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New
             </button>
-          ) : !mostRecentPendingJob ? (
-            // Empty state - no active jobs, show Post a Job
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </div>
+          )}
+
+          {/* Search Bar + Category Pills — always visible (quarter-height default) */}
+          {!trackingJob && !mostRecentPendingJob && (
+            <div className="px-4 pb-3 space-y-3">
+              <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 focus-within:border-emerald-400 focus-within:bg-white transition-colors">
+                <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
+                <input
+                  type="text"
+                  value={bottomSheetSearch}
+                  onChange={(e) => setBottomSheetSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { handleBottomSheetSearch(bottomSheetSearch); setSheetExpanded(true) } }}
+                  placeholder="What do you need help with?"
+                  className="flex-1 text-[15px] text-gray-900 placeholder-gray-400 bg-transparent outline-none"
+                />
+                {bottomSheetSearch && (
+                  <button
+                    onClick={() => { setBottomSheetSearch(''); setSearchResults([]); setHasSearched(false) }}
+                    className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center"
+                  >
+                    <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  onClick={() => { handleBottomSheetSearch(bottomSheetSearch); setSheetExpanded(true) }}
+                  disabled={searchLoading}
+                  className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center active:scale-95 transition-transform disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                >
+                  {searchLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  )}
+                </button>
               </div>
-              <p className="text-gray-900 font-semibold text-[17px] mb-1">Post a Job Now</p>
-              <p className="text-gray-500 text-[13px] mb-4">Get instant quotes from nearby pros</p>
-              <button
-                onClick={handleBookPro}
-                className="px-6 py-3 rounded-xl font-semibold text-[15px] text-white active:scale-95 transition-transform"
-                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-              >
-                Post a Job Now
-              </button>
-            </div>
-          ) : (
-            // Contractor bids displayed as avatar cards
-            <div className="space-y-3">
-              {/* Live Bid Loading Animation */}
-              {bidsLoading && bids.length === 0 && (
-                <div className="flex flex-col items-center py-6">
-                  <div className="relative w-16 h-16 mb-3">
-                    <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
-                    <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
-                    <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                {CATEGORY_BUBBLES.map(cat => (
+                  <button
+                    key={cat.key}
+                    onClick={() => { setBottomSheetSearch(cat.label); handleBottomSheetSearch(cat.label); setSheetExpanded(true) }}
+                    className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-medium bg-gray-100 text-gray-600 active:bg-emerald-100 active:text-emerald-700 active:scale-95 transition-all"
+                  >
+                    <span className="text-[13px]">{cat.icon}</span>
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Contractor tabs — only shown after user searches a category */}
+              {mapCategoryContractors.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                  {mapCategoryContractors.map((c: any) => (
+                    <button
+                      key={c.id}
+                      onClick={() => handleContractorSelect(c)}
+                      className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 active:scale-95 transition-all"
+                      style={{ minWidth: '140px' }}
+                    >
+                      <div className="relative w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                        {c.profile_image_url ? (
+                          <img src={c.profile_image_url} alt="" className="w-full h-full rounded-full object-cover" />
+                        ) : (
+                          <span className="text-white font-bold text-[11px]">
+                            {(c.business_name || c.name || 'C').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                          </span>
+                        )}
+                        {/* Online indicator */}
+                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-white" />
                       </div>
-                    </div>
-                  </div>
-                  <p className="text-gray-600 font-medium text-[13px]">Finding available pros...</p>
-                  <p className="text-gray-400 text-[11px] mt-1">Usually takes 30-60 seconds</p>
-                </div>
-              )}
-
-              {/* Contractor Bids - Horizontal scroll of avatar cards with ETA */}
-              {(enrichedBids.length > 0 || bids.length > 0) && (
-                <div className="overflow-x-auto pb-2 -mx-4 px-4">
-                  <div className="flex gap-3" style={{ minWidth: 'min-content' }}>
-                    {(enrichedBids.length > 0 ? enrichedBids : bids).map((bid) => {
-                      const displayEta = bid.calculated_eta || bid.eta_minutes
-                      return (
-                        <button
-                          key={bid.id}
-                          onClick={() => setSelectedBid(bid)}
-                          className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-100 active:scale-95 transition-transform"
-                          style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)', minWidth: '100px' }}
-                        >
-                          {/* Avatar */}
-                          <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mb-2 relative">
-                            <span className="text-emerald-700 font-bold text-[18px]">
-                              {(bid.contractor_name || 'C')[0].toUpperCase()}
+                      <div className="min-w-0 text-left">
+                        <p className="text-[12px] font-semibold text-gray-900 truncate">{c.business_name || c.name || 'Contractor'}</p>
+                        <div className="flex items-center gap-1">
+                          {c.rating && (
+                            <span className="flex items-center gap-0.5">
+                              <span className="text-amber-400 text-[9px]">&#9733;</span>
+                              <span className="text-[10px] text-gray-500">{Number(c.rating).toFixed(1)}</span>
                             </span>
-                            {bid.contractor_rating && (
-                              <div className="absolute -bottom-1 -right-1 bg-white rounded-full px-1.5 py-0.5 border border-gray-100 flex items-center gap-0.5">
-                                <span className="text-amber-400 text-[10px]">★</span>
-                                <span className="text-[10px] font-medium text-gray-700">{bid.contractor_rating.toFixed(1)}</span>
-                              </div>
-                            )}
-                          </div>
-                          {/* Bid Amount */}
-                          <p className="text-[18px] font-bold text-gray-900">${bid.bid_amount}</p>
-                          {/* ETA - calculated from Mapbox or fallback */}
-                          {displayEta ? (
-                            <p className="text-[11px] text-emerald-600 font-medium">~{displayEta} min</p>
-                          ) : loadingETAs ? (
-                            <div className="flex items-center gap-1">
-                              <div className="w-2 h-2 border border-emerald-300 border-t-emerald-600 rounded-full animate-spin" />
-                              <span className="text-[10px] text-gray-400">ETA...</span>
-                            </div>
-                          ) : bid.calculated_distance ? (
-                            <p className="text-[10px] text-gray-500">{bid.calculated_distance}</p>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
+                          )}
+                          {Array.isArray(c.categories) && c.categories[0] && (
+                            <span className="text-[10px] text-gray-400">{c.categories[0]}</span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
 
-              {/* No Bids Yet (after loading) */}
-              {!bidsLoading && bids.length === 0 && (
-                <div className="text-center py-6">
-                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              {/* Saved card preview */}
+              {savedCard && (
+                <div className="flex items-center gap-2.5 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
+                  <div className="w-8 h-5 rounded bg-gradient-to-r from-gray-700 to-gray-500 flex items-center justify-center">
+                    <svg className="w-4 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
                     </svg>
                   </div>
-                  <p className="text-gray-600 text-[13px] font-medium">Waiting for contractors</p>
-                  <p className="text-gray-400 text-[11px] mt-0.5">Pros will respond soon</p>
+                  <span className="text-[13px] text-gray-700 capitalize font-medium">{savedCard.brand}</span>
+                  <span className="text-[13px] text-gray-400">····</span>
+                  <span className="text-[13px] text-gray-700 font-semibold">{savedCard.last4}</span>
+                  <svg className="w-4 h-4 text-emerald-500 ml-auto" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+                  </svg>
                 </div>
               )}
             </div>
           )}
-        </div>
+
+          {/* Job State Content */}
+          <div className="px-4 pb-4">
+            {jobsLoading ? (
+              <div className="bg-gray-50 rounded-xl p-4 animate-pulse">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-gray-200 rounded-full" />
+                  <div className="flex-1">
+                    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+                    <div className="h-3 bg-gray-200 rounded w-1/2" />
+                  </div>
+                </div>
+              </div>
+            ) : trackingJob ? (
+              /* ═══ TRACKING JOB — two phases ═══ */
+              <div className="space-y-4">
+                {!trackingContractorLoc ? (
+                  /* --- Phase 1: Waiting for contractor to accept & start tracking --- */
+                  <div className="flex flex-col items-center py-6">
+                    <div className="relative w-16 h-16 mb-3">
+                      <div className="absolute inset-0 rounded-full bg-amber-100 animate-ping opacity-25" />
+                      <div className="absolute inset-2 rounded-full bg-amber-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                          {trackingJob.contractor_image ? (
+                            <img src={trackingJob.contractor_image} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-white font-bold text-lg">{(trackingJob.contractor_name || 'C')[0].toUpperCase()}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="font-semibold text-[15px] text-gray-900">{trackingJob.contractor_name || 'Contractor'}</p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      <p className="text-amber-600 text-[13px] font-medium">Waiting for contractor to accept...</p>
+                    </div>
+                    <p className="text-gray-400 text-[11px] mt-2">{trackingJob.title}</p>
+                    {trackingJob.estimated_cost && (
+                      <p className="text-gray-500 text-[13px] mt-1">Price: <span className="font-bold text-gray-900">${Number(trackingJob.estimated_cost).toFixed(0)}</span></p>
+                    )}
+                    {/* Cancel while waiting */}
+                    <button
+                      onClick={() => setShowCancelConfirm(true)}
+                      className="mt-4 px-6 py-2 rounded-xl text-[13px] font-semibold text-red-500 bg-red-50 border border-red-200 active:scale-95 transition-transform"
+                    >
+                      Cancel Job
+                    </button>
+                    {showCancelConfirm && (
+                      <div className="mt-3 bg-red-50 rounded-xl p-4 border-2 border-red-200 space-y-3 w-full">
+                        <p className="text-red-700 text-[13px] font-semibold text-center">Cancel this job?</p>
+                        <div className="flex gap-3">
+                          <button onClick={() => setShowCancelConfirm(false)} className="flex-1 py-2 rounded-xl text-[12px] font-semibold text-gray-600 bg-white border border-gray-200 active:scale-95 transition-transform">Keep</button>
+                          <button onClick={handleCancelJob} disabled={cancellingJob} className="flex-1 py-2 rounded-xl text-[12px] font-bold text-white bg-red-500 active:scale-95 transition-transform disabled:opacity-50">{cancellingJob ? 'Cancelling...' : 'Yes, Cancel'}</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* --- Phase 2: Contractor accepted — live tracking mode --- */
+                  <>
+                    {/* Contractor info + Live EAT */}
+                    <div className="bg-white rounded-2xl p-4 border-2 border-emerald-200" style={{ boxShadow: '0 4px 16px rgba(16,185,129,0.12)' }}>
+                      <div className="flex items-center gap-3">
+                        <div className="relative flex-shrink-0">
+                          <div className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                            {trackingJob.contractor_image ? (
+                              <img src={trackingJob.contractor_image} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-white font-bold text-xl">{(trackingJob.contractor_name || 'C')[0].toUpperCase()}</span>
+                            )}
+                          </div>
+                          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="text-emerald-600 text-[12px] font-semibold">On The Way</span>
+                          </div>
+                          <p className="font-bold text-[17px] text-gray-900 truncate">{trackingJob.contractor_name || 'Contractor'}</p>
+                          <p className="text-gray-500 text-[12px]">{trackingJob.title}</p>
+                        </div>
+                        <div className="flex-shrink-0 text-center">
+                          <p className="text-[28px] font-bold text-emerald-600 font-mono leading-none">{formatCountdown(trackingEatSeconds)}</p>
+                          <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">EAT</p>
+                        </div>
+                      </div>
+
+                      {/* Price row */}
+                      {trackingJob.estimated_cost && (
+                        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                          <span className="text-gray-500 text-[13px]">Agreed Price</span>
+                          <span className="text-[20px] font-bold text-gray-900">${Number(trackingJob.estimated_cost).toFixed(0)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action buttons: Chat + Track */}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { if (trackingJob.contractor_id) router.push(`/messages/${trackingJob.contractor_id}`) }}
+                        className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-[14px] text-emerald-700 bg-emerald-50 border border-emerald-200 active:scale-95 transition-transform"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                        Chat
+                      </button>
+                      <button
+                        onClick={onOpenTracking}
+                        className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-[14px] text-white active:scale-95 transition-transform"
+                        style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Track Live
+                      </button>
+                    </div>
+
+                    {/* Cancel Job button */}
+                    {!showCancelConfirm ? (
+                      <button
+                        onClick={() => setShowCancelConfirm(true)}
+                        className="w-full py-3.5 rounded-xl font-bold text-[15px] text-red-600 bg-red-50 border-2 border-red-200 active:scale-95 transition-transform"
+                      >
+                        Cancel Job
+                      </button>
+                    ) : (
+                      <div className="bg-red-50 rounded-xl p-4 border-2 border-red-200 space-y-3">
+                        <p className="text-red-700 text-[14px] font-semibold text-center">Are you sure you want to cancel?</p>
+                        <p className="text-red-500 text-[12px] text-center">The contractor will be notified and any payment hold will be released.</p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => setShowCancelConfirm(false)}
+                            className="flex-1 py-2.5 rounded-xl font-semibold text-[13px] text-gray-600 bg-white border border-gray-200 active:scale-95 transition-transform"
+                          >
+                            Keep Job
+                          </button>
+                          <button
+                            onClick={handleCancelJob}
+                            disabled={cancellingJob}
+                            className="flex-1 py-2.5 rounded-xl font-bold text-[13px] text-white bg-red-500 active:scale-95 transition-transform disabled:opacity-50"
+                          >
+                            {cancellingJob ? 'Cancelling...' : 'Yes, Cancel'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : mostRecentPendingJob ? (
+              /* ═══ ACTIVE JOB: loading timer + vertical bid cards ═══ */
+              <div className="space-y-3">
+                {/* Waiting for bids — loading timer */}
+                {bids.length === 0 && (
+                  <div className="flex flex-col items-center py-6">
+                    <div className="relative w-16 h-16 mb-3">
+                      <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
+                      <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
+                      <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-gray-600 font-medium text-[13px]">Finding available pros...</p>
+                    <p className="text-emerald-600 text-[18px] font-mono font-bold mt-1">{formatCountdown(waitElapsed)}</p>
+                    <p className="text-gray-400 text-[11px] mt-1">Average response time: 4 minutes</p>
+                  </div>
+                )}
+
+                {/* Vertical bid card list */}
+                {(enrichedBids.length > 0 || bids.length > 0) && (
+                  <div className="space-y-2">
+                    {(enrichedBids.length > 0 ? enrichedBids : bids).map((bid, index) => {
+                      const displayEat = bid.calculated_eta || bid.eta_minutes
+                      const isFirst = index === 0
+                      return (
+                        <button
+                          key={bid.id}
+                          onClick={() => setSelectedBid(bid)}
+                          className={`w-full flex items-center gap-3 p-4 rounded-2xl active:scale-[0.98] transition-all text-left ${
+                            isFirst ? 'border-2 border-emerald-500 bg-emerald-50' : 'border-2 border-gray-100 bg-white'
+                          }`}
+                          style={{ boxShadow: isFirst ? '0 4px 16px rgba(16,185,129,0.15)' : '0 1px 4px rgba(0,0,0,0.04)' }}
+                        >
+                          <div className="relative flex-shrink-0">
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                              {(bid as any).contractor_image ? (
+                                <img src={(bid as any).contractor_image} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-white font-bold text-[16px]">
+                                  {(bid.contractor_name || 'C').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-[15px] text-gray-900 truncate">{bid.contractor_name || 'Contractor'}</p>
+                              {bid.contractor_rating && (
+                                <span className="flex items-center gap-0.5 flex-shrink-0">
+                                  <span className="text-amber-400 text-[12px]">&#9733;</span>
+                                  <span className="text-[12px] font-medium text-gray-600">{bid.contractor_rating.toFixed(1)}</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Licensed</span>
+                              {bid.calculated_distance && (
+                                <span className="text-[11px] text-gray-500">{bid.calculated_distance} away</span>
+                              )}
+                            </div>
+                            {bid.message && (
+                              <p className="text-[11px] text-gray-500 mt-1 line-clamp-1">&ldquo;{bid.message}&rdquo;</p>
+                            )}
+                          </div>
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-[22px] font-bold text-gray-900">${bid.bid_amount}</p>
+                            {displayEat ? (
+                              <p className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full mt-1">{formatCountdown(displayEat * 60)} EAT</p>
+                            ) : loadingETAs ? (
+                              <div className="flex items-center justify-end gap-1 mt-1">
+                                <div className="w-2.5 h-2.5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+                              </div>
+                            ) : null}
+                          </div>
+                        </button>
+                      )
+                    })}
+                    <p className="text-center text-emerald-600 text-[12px] font-medium pt-2">Average response time: 4 minutes</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* ═══ NO ACTIVE JOB: Search results ═══ */
+              <div className="space-y-4">
+                {/* Search Loading */}
+                {searchLoading && (
+                  <div className="flex flex-col items-center py-6">
+                    <div className="relative w-16 h-16 mb-3">
+                      <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
+                      <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
+                      <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-gray-600 font-medium text-[13px]">Searching for nearby pros...</p>
+                  </div>
+                )}
+
+                {/* No results */}
+                {hasSearched && !searchLoading && searchResults.length === 0 && (
+                  <div className="text-center py-6">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-600 text-[13px] font-medium">No pros found nearby</p>
+                    <p className="text-gray-400 text-[11px] mt-0.5">Try a different service or post a job</p>
+                    <button
+                      onClick={() => router.push('/post-job')}
+                      className="mt-3 px-5 py-2 rounded-xl font-semibold text-[13px] text-white active:scale-95 transition-transform"
+                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                    >
+                      Post a Job Instead
+                    </button>
+                  </div>
+                )}
+
+                {/* Search Results — Vertical contractor cards */}
+                {hasSearched && !searchLoading && searchResults.length > 0 && (
+                  <div className="space-y-2">
+                    {searchResults.map((contractor, index) => {
+                      const isFirst = index === 0
+                      const eatMinutes = contractor._eatMinutes || 0
+                      return (
+                        <button
+                          key={contractor.id}
+                          onClick={() => handleContractorSelect(contractor)}
+                          className={`w-full flex items-center gap-3 p-4 rounded-2xl active:scale-[0.98] transition-all text-left ${
+                            isFirst ? 'border-2 border-emerald-500 bg-emerald-50' : 'border-2 border-gray-100 bg-white'
+                          }`}
+                          style={{ boxShadow: isFirst ? '0 4px 16px rgba(16,185,129,0.15)' : '0 1px 4px rgba(0,0,0,0.04)' }}
+                        >
+                          <div className="relative flex-shrink-0">
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                              {contractor.profile_image_url ? (
+                                <img src={contractor.profile_image_url} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-white font-bold text-[16px]">
+                                  {(contractor.business_name || contractor.name || 'C').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-[15px] text-gray-900 truncate">{contractor.business_name || contractor.name || 'Contractor'}</p>
+                              {contractor.rating && (
+                                <span className="flex items-center gap-0.5 flex-shrink-0">
+                                  <span className="text-amber-400 text-[12px]">&#9733;</span>
+                                  <span className="text-[12px] font-medium text-gray-600">{Number(contractor.rating).toFixed(1)}</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {contractor.license_number && (
+                                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Licensed</span>
+                              )}
+                              {contractor._distanceMiles && (
+                                <span className="text-[11px] text-gray-500">{contractor._distanceMiles} mi away</span>
+                              )}
+                            </div>
+                            {contractor.bio && (
+                              <p className="text-[11px] text-gray-500 mt-1 line-clamp-1">&ldquo;{contractor.bio}&rdquo;</p>
+                            )}
+                          </div>
+                          <div className="flex-shrink-0 text-right">
+                            {contractor.hourly_rate && (
+                              <p className="text-[22px] font-bold text-gray-900">${contractor.hourly_rate}</p>
+                            )}
+                            {eatMinutes > 0 ? (
+                              <p className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full mt-1">{formatCountdown(eatMinutes * 60)} EAT</p>
+                            ) : null}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+      )}
 
       {/* Contractor Bottom Sheet */}
       {selectedContractor && (
         <ContractorBottomSheet
           contractor={selectedContractor}
-          onClose={() => setSelectedContractor(null)}
+          onClose={() => { setSelectedContractor(null); setContractorETA(null); setEnrichedContractorData(null); setPaymentError(null); setJobDescription(''); mapRef.current?.clearRoute(); mapRef.current?.showRadiusCircle() }}
           onContact={handleContactContractor}
+          onStartJob={handleStartJob}
+          onViewProfile={() => setShowContractorProfile(true)}
+          eta={contractorETA}
+          loadingETA={loadingContractorETA}
+          bookingLoading={bookingLoading}
+          savedCard={savedCard}
+          enrichedData={enrichedContractorData}
+          loadingEnrichedData={loadingEnrichedData}
+          paymentError={paymentError}
+          jobDescription={jobDescription}
+          onJobDescriptionChange={setJobDescription}
         />
       )}
+
+      {/* Inline Add Card Modal */}
+      <AddCardModal
+        isOpen={showAddCardAlert}
+        userId={user?.id || ''}
+        onSuccess={(card) => { setSavedCard(card); setShowAddCardAlert(false) }}
+        onClose={() => setShowAddCardAlert(false)}
+      />
 
       {/* Direct Offer Modal */}
       {showOfferModal && offerContractor && (
@@ -2266,6 +3634,624 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
             setBidDistance(null)
             setBidAddress(null)
           }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Find a Pro View — same layout as Home tab (full-screen map + draggable bottom sheet)
+// Only shows ONLINE contractors
+function FindProView({ center, setCenter, initialSearch, initialCategory, onClose, onStartJobSuccess, user }: {
+  center: LatLng
+  setCenter: (c: LatLng) => void
+  initialSearch: string
+  initialCategory: string
+  onClose: () => void
+  onStartJobSuccess: (data: { jobId: string; contractorId: string; contractorName: string; title: string; estimatedAmount: number; etaMinutes?: number }) => void
+  user: any
+}) {
+  const router = useRouter()
+  const [searchQuery, setSearchQuery] = React.useState(initialSearch)
+  const [activeCategory, setActiveCategory] = React.useState(initialCategory)
+  const [contractors, setContractors] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [radiusMiles] = React.useState(5)
+  const [selectedContractor, setSelectedContractor] = React.useState<any>(null)
+  const [contractorETA, setContractorETA] = React.useState<string | null>(null)
+  const [loadingContractorETA, setLoadingContractorETA] = React.useState(false)
+  const [enrichedContractorData, setEnrichedContractorData] = React.useState<any>(null)
+  const [loadingEnrichedData, setLoadingEnrichedData] = React.useState(false)
+  const [savedCard, setSavedCard] = React.useState<{ brand: string; last4: string } | null>(null)
+  const [bookingLoading, setBookingLoading] = React.useState(false)
+  const [paymentError, setPaymentError] = React.useState<string | null>(null)
+  const [jobDescription, setJobDescription] = React.useState('')
+  const [showAddCardAlert, setShowAddCardAlert] = React.useState(false)
+  const [showOfferModal, setShowOfferModal] = React.useState(false)
+  const [offerContractor, setOfferContractor] = React.useState<any>(null)
+  const [fetchingLocation, setFetchingLocation] = React.useState(false)
+  const [showContractorProfile, setShowContractorProfile] = React.useState(false)
+  const mapRef = useRef<FindProMapboxHandle>(null)
+
+  // Bottom sheet drag state — same as HomeTab
+  const [sheetExpanded, setSheetExpanded] = React.useState(false)
+  const [sheetMinimized, setSheetMinimized] = React.useState(false)
+  const [isDragging, setIsDragging] = React.useState(false)
+  const [startY, setStartY] = React.useState(0)
+  const [currentTranslate, setCurrentTranslate] = React.useState(0)
+
+  const handleTouchStart = (e: React.TouchEvent) => { setIsDragging(true); setStartY(e.touches[0].clientY) }
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging) return
+    const diff = startY - e.touches[0].clientY
+    const maxUp = 200, maxDown = 200
+    let clamped: number
+    if (sheetMinimized) clamped = Math.max(0, Math.min(maxUp, diff))
+    else if (sheetExpanded) clamped = Math.max(-maxDown, Math.min(0, diff))
+    else clamped = Math.max(-maxDown, Math.min(maxUp, diff))
+    setCurrentTranslate(clamped)
+  }
+  const handleTouchEnd = async () => {
+    setIsDragging(false)
+    const threshold = 60
+    if (sheetMinimized) { if (currentTranslate > threshold) { await triggerHaptic(); setSheetMinimized(false) } }
+    else if (sheetExpanded) { if (currentTranslate < -threshold) { await triggerHaptic(); setSheetExpanded(false) } }
+    else { if (currentTranslate > threshold) { await triggerHaptic(); setSheetExpanded(true) } else if (currentTranslate < -threshold) { await triggerHaptic(); setSheetMinimized(true) } }
+    setCurrentTranslate(0)
+  }
+
+  // Fetch saved payment method
+  React.useEffect(() => {
+    if (!user) return
+    fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.paymentMethods?.length > 0) {
+          const defaultPm = data.paymentMethods.find((pm: any) => pm.id === data.defaultPaymentMethodId) || data.paymentMethods[0]
+          if (defaultPm?.card) setSavedCard({ brand: defaultPm.card.brand, last4: defaultPm.card.last4 })
+        }
+      })
+      .catch(err => console.error('Error fetching payment methods:', err))
+  }, [user])
+
+  // Fetch ONLINE contractors based on category/search
+  React.useEffect(() => {
+    const fetchContractors = async () => {
+      setLoading(true)
+      try {
+        let query = supabase
+          .from('pro_contractors')
+          .select('*')
+          .eq('status', 'approved')
+          .not('latitude', 'is', null)
+          .not('longitude', 'is', null)
+
+        if (activeCategory) {
+          query = query.contains('categories', [activeCategory])
+        }
+
+        if (searchQuery) {
+          query = query.or(`name.ilike.%${searchQuery}%,business_name.ilike.%${searchQuery}%,categories.cs.{${searchQuery}}`)
+        }
+
+        const { data, error } = await query.limit(50)
+        if (error) throw error
+
+        // Filter by radius
+        const filtered = (data || []).filter(c => {
+          if (!c.latitude || !c.longitude) return false
+          const R = 3959
+          const dLat = (c.latitude - center[0]) * Math.PI / 180
+          const dLon = (c.longitude - center[1]) * Math.PI / 180
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(center[0] * Math.PI / 180) * Math.cos(c.latitude * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2)
+          const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+          return dist <= radiusMiles
+        })
+
+        setContractors(filtered)
+      } catch (err) {
+        console.error('Error fetching contractors:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchContractors()
+  }, [activeCategory, searchQuery, center, radiusMiles])
+
+  const handleContractorSelect = async (contractor: any) => {
+    await triggerHaptic()
+    setSelectedContractor(contractor)
+    setContractorETA(null)
+    setLoadingContractorETA(true)
+    setEnrichedContractorData(null)
+    setLoadingEnrichedData(true)
+    setShowContractorProfile(false)
+
+    // Draw green route line on map + hide radius circle
+    if (contractor.latitude && contractor.longitude) {
+      mapRef.current?.showRoute(contractor.latitude, contractor.longitude, center[0], center[1])
+      mapRef.current?.hideRadiusCircle()
+    }
+
+    const etaPromise = (async () => {
+      try {
+        if (contractor.latitude && contractor.longitude) {
+          const res = await fetch(
+            `https://api.mapbox.com/directions/v5/mapbox/driving/${contractor.longitude},${contractor.latitude};${center[1]},${center[0]}?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+          )
+          const data = await res.json()
+          if (data.routes?.[0]) {
+            const dist = (data.routes[0].distance / 1609.34).toFixed(1)
+            const dur = Math.round(data.routes[0].duration / 60)
+            setContractorETA(`${dist} mi • ${dur} min drive`)
+          }
+        }
+      } catch (err) {
+        console.error('ETA fetch error:', err)
+      } finally {
+        setLoadingContractorETA(false)
+      }
+    })()
+
+    const enrichPromise = (async () => {
+      try {
+        const { data } = await supabase
+          .from('pro_contractors')
+          .select('*, hourly_rate, visit_fee, diagnostic_fee, bio, years_experience, response_time_minutes, completed_jobs_count, off_peak_rate, peak_rate, surge_rate')
+          .eq('id', contractor.id)
+          .single()
+        setEnrichedContractorData(data)
+      } catch (err) {
+        console.error('Failed to fetch enriched data:', err)
+      } finally {
+        setLoadingEnrichedData(false)
+      }
+    })()
+
+    await Promise.all([etaPromise, enrichPromise])
+  }
+
+  const handleContactContractor = (contractor: any) => {
+    setOfferContractor(contractor)
+    setShowOfferModal(true)
+    setSelectedContractor(null)
+  }
+
+  const handleStartJob = async (contractor: any) => {
+    if (!user) { router.push('/sign-in'); return }
+    if (!savedCard) { setShowAddCardAlert(true); return }
+
+    setBookingLoading(true)
+    setPaymentError(null)
+
+    try {
+      const visitFee = enrichedContractorData?.visit_fee || 0
+      const diagnosticFee = enrichedContractorData?.diagnostic_fee || 0
+      const hourlyRate = enrichedContractorData?.hourly_rate || 65
+      const baseAmount = (visitFee + diagnosticFee) > 0 ? (visitFee + diagnosticFee) : (hourlyRate * 2)
+      const estimatedAmount = Math.max(baseAmount, hourlyRate)
+      const category = enrichedContractorData?.categories?.[0] || contractor?.services?.[0] || 'General'
+      const jobTitle = jobDescription || `${category} Service`
+
+      const { data: jobRecord, error: jobError } = await supabase
+        .from('homeowner_jobs')
+        .insert({
+          homeowner_id: user.id,
+          title: jobTitle,
+          description: jobDescription || `${category} service needed`,
+          category,
+          status: 'confirmed',
+          contractor_id: contractor.id,
+          estimated_cost: estimatedAmount,
+          latitude: center[0],
+          longitude: center[1],
+          source: 'mobile_find_pro'
+        })
+        .select()
+        .single()
+
+      if (jobError || !jobRecord) throw new Error(jobError?.message || 'Failed to create job')
+
+      const escrowResponse = await fetch('/api/stripe/escrow/create-hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          homeownerId: user.id,
+          contractorId: contractor.id,
+          amount: estimatedAmount,
+          jobDescription: jobTitle,
+          category,
+          bookingId: jobRecord.id
+        })
+      })
+
+      const escrowData = await escrowResponse.json()
+      if (!escrowResponse.ok || !escrowData.success) {
+        await supabase.from('homeowner_jobs').delete().eq('id', jobRecord.id)
+        throw new Error(escrowData.error || 'Payment authorization failed')
+      }
+
+      await triggerHaptic(ImpactStyle.Heavy)
+      setSelectedContractor(null)
+
+      let etaMins: number | undefined
+      if (contractorETA) {
+        const match = contractorETA.match(/(\d+)\s*min/)
+        if (match) etaMins = parseInt(match[1])
+      }
+
+      onClose()
+      onStartJobSuccess({
+        jobId: jobRecord.id,
+        contractorId: contractor.id,
+        contractorName: contractor.name || contractor.business_name || 'Contractor',
+        title: jobTitle,
+        estimatedAmount,
+        etaMinutes: etaMins
+      })
+    } catch (err: any) {
+      console.error('Error in Start Job flow:', err)
+      setPaymentError(err.message || 'Failed to process booking. Please try again.')
+    } finally {
+      setBookingLoading(false)
+    }
+  }
+
+  const handleLocation = async () => {
+    await triggerHaptic()
+    setFetchingLocation(true)
+    const nativeResult = await getNativeLocation()
+    if (nativeResult.success && nativeResult.coordinates) {
+      setCenter([nativeResult.coordinates.latitude, nativeResult.coordinates.longitude])
+      setFetchingLocation(false)
+      return
+    }
+    const browserOk = await new Promise<boolean>((resolve) => {
+      if (!navigator.geolocation) { resolve(false); return }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { setCenter([pos.coords.latitude, pos.coords.longitude]); resolve(true) },
+        () => resolve(false),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      )
+    })
+    if (browserOk) { setFetchingLocation(false); return }
+    try {
+      const res = await fetch('https://ipapi.co/json/')
+      const data = await res.json()
+      if (data.latitude && data.longitude) setCenter([data.latitude, data.longitude])
+    } catch (e) { /* all failed */ }
+    setFetchingLocation(false)
+  }
+
+  const handleCategorySelect = async (catKey: string) => {
+    await triggerHaptic()
+    setActiveCategory(activeCategory === catKey ? '' : catKey)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col"
+      style={{ paddingBottom: 'calc(65px + max(env(safe-area-inset-bottom, 20px), 20px))' }}
+    >
+      {/* Full-screen Map Background — identical to Home tab */}
+      <div className="ios-fullscreen-map z-0">
+        <FindProMapbox
+          ref={mapRef}
+          items={contractors}
+          radiusMiles={radiusMiles}
+          searchCenter={center}
+          userLocation={center}
+          onSearchHere={(c) => setCenter(c)}
+          onContractorSelect={handleContractorSelect}
+          category={activeCategory}
+          fullscreen={true}
+          hideSearchButton={true}
+          hideControls={true}
+        />
+      </div>
+
+      {/* Floating Search Bar — same position as Home tab but with back button */}
+      <div
+        className="fixed left-4 right-4 z-30"
+        style={{ top: 'max(calc(env(safe-area-inset-top, 59px) + 8px), 67px)' }}
+      >
+        <div
+          className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5"
+          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
+        >
+          {/* Back button */}
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center active:scale-95 transition-transform bg-gray-100"
+          >
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Find a pro..."
+            className="flex-1 text-[14px] text-gray-900 placeholder-gray-400 bg-transparent outline-none"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center"
+            >
+              <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Map Controls — same position as Home tab */}
+      <div
+        className="fixed right-4 z-30 flex flex-col gap-2"
+        style={{ top: 'max(calc(env(safe-area-inset-top, 59px) + 70px), 129px)' }}
+      >
+        <button
+          onClick={() => mapRef.current?.zoomIn()}
+          className="w-10 h-10 rounded-lg flex items-center justify-center active:scale-95 transition-transform"
+          style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
+        >
+          <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12m6-6H6" />
+          </svg>
+        </button>
+        <button
+          onClick={() => mapRef.current?.zoomOut()}
+          className="w-10 h-10 rounded-lg flex items-center justify-center active:scale-95 transition-transform"
+          style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
+        >
+          <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
+          </svg>
+        </button>
+        <button
+          onClick={handleLocation}
+          className="w-10 h-10 rounded-lg flex items-center justify-center active:scale-95 transition-transform"
+          style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
+        >
+          {fetchingLocation ? (
+            <div className="w-4 h-4 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+          ) : (
+            <svg className="w-5 h-5 text-emerald-600" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0013 3.06V1h-2v2.06A8.994 8.994 0 003.06 11H1v2h2.06A8.994 8.994 0 0011 20.94V23h2v-2.06A8.994 8.994 0 0020.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Bottom Sheet — draggable, identical layout to Home tab */}
+      <div
+        className={`fixed left-0 right-0 bg-white rounded-t-2xl z-20 flex flex-col ${!isDragging ? 'transition-all duration-300 ease-out' : ''}`}
+        style={{
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.15)',
+          height: sheetMinimized ? '80px' : sheetExpanded ? '70%' : '45%',
+          transform: `translateY(${-currentTranslate}px)`,
+          paddingBottom: sheetMinimized ? '0' : '16px',
+          bottom: 'calc(65px + env(safe-area-inset-bottom, 0px))'
+        }}
+      >
+        {/* Drag handle */}
+        <div
+          className="flex flex-col items-center cursor-grab active:cursor-grabbing flex-shrink-0 pt-3 pb-2"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onClick={async () => {
+            await triggerHaptic()
+            if (sheetMinimized) setSheetMinimized(false)
+            else if (sheetExpanded) setSheetExpanded(false)
+            else setSheetExpanded(true)
+          }}
+        >
+          <div className={`w-12 h-1.5 rounded-full transition-colors ${sheetMinimized ? 'bg-gray-400' : sheetExpanded ? 'bg-emerald-400' : 'bg-gray-300'}`} />
+        </div>
+
+        {/* Minimized preview */}
+        {sheetMinimized && (
+          <div className="px-4 flex items-center justify-between" onClick={async () => { await triggerHaptic(); setSheetMinimized(false) }}>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-[14px] text-gray-900">Find a Pro</h3>
+              <span className="text-[12px] text-emerald-600 font-medium">{contractors.length} online</span>
+            </div>
+            <div className="flex items-center gap-1 text-gray-400">
+              <span className="text-[12px]">Tap to expand</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+            </div>
+          </div>
+        )}
+
+        {/* Scrollable content */}
+        <div className={`flex-1 overflow-auto ${sheetMinimized ? 'hidden' : ''}`}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-[15px] text-gray-900">Find a Pro</h3>
+              <span className="px-2 py-0.5 bg-emerald-100 rounded-full text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                {contractors.length} online
+              </span>
+            </div>
+          </div>
+
+          {/* Category filter pills */}
+          <div className="px-4 pb-3">
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {CATEGORY_BUBBLES.map(cat => (
+                <button
+                  key={cat.key}
+                  onClick={() => handleCategorySelect(cat.key)}
+                  className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-medium active:scale-95 transition-all ${
+                    activeCategory === cat.key
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  <span className="text-[12px]">{cat.icon}</span>
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Contractor cards */}
+          <div className="px-4 pb-4">
+            {loading ? (
+              <div className="flex flex-col items-center py-6">
+                <div className="relative w-16 h-16 mb-3">
+                  <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
+                  <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
+                  <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-gray-600 font-medium text-[13px]">Searching for online pros...</p>
+              </div>
+            ) : contractors.length === 0 ? (
+              <div className="text-center py-6">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <p className="text-gray-600 text-[13px] font-medium">No online pros found</p>
+                <p className="text-gray-400 text-[11px] mt-0.5">Try a different category</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {contractors.map(contractor => {
+                  const distMi = (() => {
+                    if (!contractor.latitude || !contractor.longitude) return null
+                    const R = 3959
+                    const dLat = (contractor.latitude - center[0]) * Math.PI / 180
+                    const dLon = (contractor.longitude - center[1]) * Math.PI / 180
+                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(center[0] * Math.PI / 180) * Math.cos(contractor.latitude * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2)
+                    return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1)
+                  })()
+                  return (
+                    <button
+                      key={contractor.id}
+                      onClick={() => handleContractorSelect(contractor)}
+                      className="w-full flex items-center gap-3 p-3 bg-gray-50 rounded-xl active:scale-[0.98] transition-transform text-left"
+                      style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+                    >
+                      <div className="relative flex-shrink-0">
+                        <div className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                          {contractor.profile_image_url ? (
+                            <img src={contractor.profile_image_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-white font-bold text-[18px]">{(contractor.name || contractor.business_name || 'C')[0].toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-[14px] text-gray-900 truncate">{contractor.business_name || contractor.name}</p>
+                          {contractor.rating && (
+                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                              <span className="text-amber-400 text-[11px]">★</span>
+                              <span className="text-[11px] font-medium text-gray-600">{contractor.rating.toFixed(1)}</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {contractor.categories?.slice(0, 2).map((cat: string, i: number) => (
+                            <span key={i} className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">{cat}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        {contractor.hourly_rate && (
+                          <p className="text-[15px] font-bold text-gray-900">${contractor.hourly_rate}/hr</p>
+                        )}
+                        {distMi && (
+                          <p className="text-[11px] text-gray-500">{distMi} mi</p>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Contractor Bottom Sheet */}
+      {selectedContractor && !showContractorProfile && (
+        <ContractorBottomSheet
+          contractor={selectedContractor}
+          onClose={() => { setSelectedContractor(null); setContractorETA(null); setEnrichedContractorData(null); setPaymentError(null); setJobDescription(''); mapRef.current?.clearRoute(); mapRef.current?.showRadiusCircle() }}
+          onContact={handleContactContractor}
+          onStartJob={handleStartJob}
+          onViewProfile={() => setShowContractorProfile(true)}
+          eta={contractorETA}
+          loadingETA={loadingContractorETA}
+          bookingLoading={bookingLoading}
+          savedCard={savedCard}
+          enrichedData={enrichedContractorData}
+          loadingEnrichedData={loadingEnrichedData}
+          paymentError={paymentError}
+          jobDescription={jobDescription}
+          onJobDescriptionChange={setJobDescription}
+        />
+      )}
+
+      {/* Full Contractor Profile View */}
+      {selectedContractor && showContractorProfile && (
+        <ContractorProfileView
+          contractor={selectedContractor}
+          enrichedData={enrichedContractorData}
+          eta={contractorETA}
+          onClose={() => setShowContractorProfile(false)}
+          onStartJob={handleStartJob}
+          onContact={handleContactContractor}
+        />
+      )}
+
+      {/* Inline Add Card Modal */}
+      <AddCardModal
+        isOpen={showAddCardAlert}
+        userId={user?.id || ''}
+        onSuccess={(card) => { setSavedCard(card); setShowAddCardAlert(false) }}
+        onClose={() => setShowAddCardAlert(false)}
+      />
+
+      {/* Direct Offer Modal */}
+      {showOfferModal && offerContractor && (
+        <OfferJobModal
+          contractor={{
+            id: offerContractor.id,
+            name: offerContractor.name || offerContractor.business_name || 'Contractor',
+            services: offerContractor.services || offerContractor.categories || [],
+            city: offerContractor.city,
+            state: offerContractor.state,
+            rating: offerContractor.rating
+          }}
+          onClose={() => { setShowOfferModal(false); setOfferContractor(null) }}
+          onSuccess={() => { setShowOfferModal(false); setOfferContractor(null) }}
         />
       )}
     </div>
@@ -3518,6 +5504,17 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
   const [showTrackingView, setShowTrackingView] = useState(false)
   const [trackingJob, setTrackingJob] = useState<TrackingJob | null>(null)
 
+  // Find a Pro view state
+  const [showFindPro, setShowFindPro] = useState(false)
+  const [findProCategory, setFindProCategory] = useState('')
+  const [findProSearch, setFindProSearch] = useState('')
+
+  const handleFindPro = (search: string, category: string) => {
+    setFindProSearch(search)
+    setFindProCategory(category)
+    setShowFindPro(true)
+  }
+
   // Initialize native plugins
   useEffect(() => {
     const initNative = async () => {
@@ -3554,18 +5551,52 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
     initNative()
   }, [])
 
-  // Get user location on mount - uses native Capacitor Geolocation
-  // Only fetch once - prevent re-fetching when switching tabs
+  // Get user location on mount — native → browser → IP-based (guaranteed)
   useEffect(() => {
-    // Skip if already fetched
     if (locationFetchedRef.current) return
 
     const fetchLocation = async () => {
       setFetchingLocation(true)
-      const result = await getNativeLocation()
-      if (result.success && result.coordinates) {
-        setCenter([result.coordinates.latitude, result.coordinates.longitude])
+
+      // 1) Native Capacitor geolocation
+      const nativeResult = await getNativeLocation()
+      if (nativeResult.success && nativeResult.coordinates) {
+        console.log('[LOCATION] Native success:', nativeResult.coordinates)
+        setCenter([nativeResult.coordinates.latitude, nativeResult.coordinates.longitude])
         locationFetchedRef.current = true
+        setFetchingLocation(false)
+        return
+      }
+      console.warn('[LOCATION] Native failed:', nativeResult.error)
+
+      // 2) Browser geolocation
+      const browserOk = await new Promise<boolean>((resolve) => {
+        if (typeof navigator === 'undefined' || !navigator.geolocation) { resolve(false); return }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            console.log('[LOCATION] Browser success:', pos.coords.latitude, pos.coords.longitude)
+            setCenter([pos.coords.latitude, pos.coords.longitude])
+            locationFetchedRef.current = true
+            resolve(true)
+          },
+          () => resolve(false),
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        )
+      })
+      if (browserOk) { setFetchingLocation(false); return }
+      console.warn('[LOCATION] Browser geolocation failed')
+
+      // 3) IP-based geolocation — always works when online
+      try {
+        const res = await fetch('https://ipapi.co/json/')
+        const data = await res.json()
+        if (data.latitude && data.longitude) {
+          console.log('[LOCATION] IP geolocation:', data.city, data.latitude, data.longitude)
+          setCenter([data.latitude, data.longitude])
+          locationFetchedRef.current = true
+        }
+      } catch (e) {
+        console.error('[LOCATION] All methods failed')
       }
       setFetchingLocation(false)
     }
@@ -3765,6 +5796,35 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
     checkInProgressJobs()
   }, [jobs])
 
+  // Handler for successful Start Job from map contractor selection
+  const handleStartJobSuccess = async (data: { jobId: string; contractorId: string; contractorName: string; title: string; estimatedAmount: number; etaMinutes?: number }) => {
+    try {
+      const { data: contractorData } = await supabase
+        .from('pro_contractors')
+        .select('name, business_name, profile_image_url, latitude, longitude')
+        .eq('id', data.contractorId)
+        .single()
+
+      const newTrackingJob: TrackingJob = {
+        id: data.jobId,
+        title: data.title,
+        status: 'confirmed',
+        contractor_id: data.contractorId,
+        contractor_name: contractorData?.business_name || contractorData?.name || data.contractorName,
+        contractor_image: contractorData?.profile_image_url || null,
+        eta_minutes: data.etaMinutes,
+        contractor_latitude: contractorData?.latitude,
+        contractor_longitude: contractorData?.longitude,
+        estimated_cost: data.estimatedAmount
+      }
+
+      setTrackingJob(newTrackingJob)
+      setShowTrackingView(true)
+    } catch (err) {
+      console.error('Error setting up tracking:', err)
+    }
+  }
+
   // Handler to open tracking view
   const handleOpenTracking = () => {
     if (trackingJob) {
@@ -3954,7 +6014,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
 
         const d = distMiles(center, [lat, lng])
         ;(c as any).__distance = d
-        if (d > 25) return false
+        if (d > 5) return false
 
         return true
       })
@@ -3980,6 +6040,19 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
   // Main app view with bottom tabs
   return (
     <IOSErrorBoundary>
+      {/* Full-screen Find a Pro View */}
+      {showFindPro && (
+        <FindProView
+          center={center}
+          setCenter={setCenter}
+          initialSearch={findProSearch}
+          initialCategory={findProCategory}
+          onClose={() => setShowFindPro(false)}
+          onStartJobSuccess={handleStartJobSuccess}
+          user={user}
+        />
+      )}
+
       {/* Full-screen Contractor Tracking View - Shows when contractor is on the way */}
       {showTrackingView && trackingJob && (
         <ContractorTrackingView
@@ -4016,6 +6089,8 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
             user={user}
             trackingJob={trackingJob}
             onOpenTracking={handleOpenTracking}
+            onStartJobSuccess={handleStartJobSuccess}
+            onFindPro={handleFindPro}
           />
         )}
         {activeTab === 'jobs' && (

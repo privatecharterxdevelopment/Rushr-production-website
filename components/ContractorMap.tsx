@@ -67,6 +67,9 @@ export default function ContractorMap({
   const markersRef = useRef<{ [key: string]: mapboxgl.Marker }>({})
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const onRouteCalculatedRef = useRef(onRouteCalculated)
+  const lastFitContractorId = useRef<string | null>(null)
+  onRouteCalculatedRef.current = onRouteCalculated
 
   // Initialize map
   useEffect(() => {
@@ -255,8 +258,8 @@ export default function ContractorMap({
             ]
           }
         })
-        const etaMinutes = Math.ceil((selectedContractor.distance_miles / 25) * 60) + 5
-        onRouteCalculated?.(etaMinutes, selectedContractor.distance_miles)
+        const etaMinutes = Math.max(1, Math.ceil((selectedContractor.distance_miles / 30) * 60))
+        onRouteCalculatedRef.current?.(etaMinutes, selectedContractor.distance_miles)
         return
       }
 
@@ -280,7 +283,7 @@ export default function ContractorMap({
           const durationMinutes = Math.ceil(route.duration / 60)
           const distanceMiles = route.distance / 1609.34 // meters to miles
 
-          onRouteCalculated?.(durationMinutes, distanceMiles)
+          onRouteCalculatedRef.current?.(durationMinutes, distanceMiles)
         }
       } catch (err) {
         console.error('Error fetching route:', err)
@@ -301,17 +304,20 @@ export default function ContractorMap({
 
     fetchRoute()
 
-    // Fit bounds to show both points
-    const bounds = new mapboxgl.LngLatBounds()
-    bounds.extend([userLocation.lng, userLocation.lat])
-    bounds.extend([selectedContractor.longitude, selectedContractor.latitude])
+    // Only fit bounds when the selected contractor changes (not on every render)
+    if (selectedContractor.id !== lastFitContractorId.current) {
+      lastFitContractorId.current = selectedContractor.id
+      const bounds = new mapboxgl.LngLatBounds()
+      bounds.extend([userLocation.lng, userLocation.lat])
+      bounds.extend([selectedContractor.longitude, selectedContractor.latitude])
 
-    map.current.fitBounds(bounds, {
-      padding: { top: 100, bottom: 100, left: 400, right: 100 },
-      maxZoom: 15,
-      duration: 800
-    })
-  }, [selectedContractor, userLocation, mapLoaded, onRouteCalculated])
+      map.current.fitBounds(bounds, {
+        padding: { top: 100, bottom: 100, left: 400, right: 100 },
+        maxZoom: 15,
+        duration: 800
+      })
+    }
+  }, [selectedContractor, userLocation, mapLoaded])
 
   // Add/update user location marker
   useEffect(() => {

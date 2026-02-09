@@ -16,9 +16,10 @@ html, body {
   bottom: 0 !important;
 }
 
-/* Hide header and footer in native Capacitor app - applied via JS before React hydrates */
+/* Hide header, footer, and web homepage in native Capacitor app - applied via JS before React hydrates */
 html.native-app header,
-html.native-app footer {
+html.native-app footer,
+html.native-app #web-homepage {
   display: none !important;
 }
 
@@ -93,6 +94,15 @@ html.native-app .min-h-screen {
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
 
 /* Smooth page transitions */
 * {

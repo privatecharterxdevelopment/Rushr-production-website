@@ -83,7 +83,7 @@ export default function HomePage() {
 
   // Web version - with Instant Match Overlay
   return (
-    <div className="relative min-h-screen overflow-clip bg-gray-50">
+    <div id="web-homepage" className="relative min-h-screen overflow-clip bg-gray-50">
       <GradientMesh />
 
       {/* INSTANT MATCH OVERLAY - Uber-style contractor discovery */}

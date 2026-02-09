@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard, Navigation, AlertTriangle, Phone, MessageCircle, Shield, Users } from 'lucide-react'
@@ -101,9 +102,9 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c
 }
 
-// Calculate ETA based on distance (rough estimate)
+// Calculate ETA based on distance (rough estimate, ~30mph avg with 1min minimum)
 function calculateETA(distanceMiles: number): number {
-  return Math.ceil((distanceMiles / 25) * 60) + 5
+  return Math.max(1, Math.ceil((distanceMiles / 30) * 60))
 }
 
 export default function InstantMatchOverlay({
@@ -694,12 +695,20 @@ export default function InstantMatchOverlay({
     startCountdown()
   }
 
-  const handleConfirmConnection = async () => {
-    if (!connectedContractor) return
+  // Ref to hold the active contractor for booking (avoids stale state in async flows)
+  const activeContractorRef = useRef<Contractor | null>(null)
+
+  const handleConfirmConnection = async (overrideContractor?: Contractor) => {
+    const contractor = overrideContractor || connectedContractor
+    if (!contractor) return
+
+    // Set both state and ref so createBookingRequest always has the right contractor
+    setConnectedContractor(contractor)
+    activeContractorRef.current = contractor
 
     if (!user) {
       localStorage.setItem('rushr_pending_match', JSON.stringify({
-        contractorId: connectedContractor.id,
+        contractorId: contractor.id,
         category,
         searchQuery,
         userLocation,
@@ -725,7 +734,8 @@ export default function InstantMatchOverlay({
   }
 
   const createBookingRequest = async () => {
-    if (!connectedContractor || !user) return
+    const activeContractor = connectedContractor || activeContractorRef.current
+    if (!activeContractor || !user) return
 
     setBookingLoading(true)
     setPaymentError(null)
@@ -743,7 +753,7 @@ export default function InstantMatchOverlay({
           .from('job_bids')
           .select('id')
           .eq('job_id', jobId)
-          .eq('contractor_id', connectedContractor.id)
+          .eq('contractor_id', activeContractor.id)
           .single()
 
         const response = await fetch('/api/jobs/start-direct', {
@@ -751,7 +761,7 @@ export default function InstantMatchOverlay({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jobId,
-            contractorId: connectedContractor.id,
+            contractorId: activeContractor.id,
             bidId: bid?.id || null,
             amount: directAmount,
             homeownerId: user.id
@@ -771,15 +781,15 @@ export default function InstantMatchOverlay({
           paymentHoldId: data.paymentHoldId,
           bookingId: jobId,
           amount: directAmount,
-          etaMinutes: realEta ?? connectedContractor.eta_minutes,
+          etaMinutes: realEta ?? activeContractor.eta_minutes,
           contractorLocation: {
-            lat: connectedContractor.latitude,
-            lng: connectedContractor.longitude
+            lat: activeContractor.latitude,
+            lng: activeContractor.longitude
           },
           conversationId: data.conversationId || null
         })
 
-        setTrackingEtaCountdown((realEta ?? connectedContractor.eta_minutes) * 60)
+        setTrackingEtaCountdown((realEta ?? activeContractor.eta_minutes) * 60)
         setPhase('tracking')
         setBookingLoading(false)
         return
@@ -787,25 +797,25 @@ export default function InstantMatchOverlay({
 
       // REGULAR BOOKING FLOW (non-direct payment)
       // Calculate estimated amount (visit fee + 1 hour base, or 2 hour estimate)
-      const visitFee = connectedContractor.visit_fee || 0
-      const diagnosticFee = connectedContractor.diagnostic_fee || 0
-      const baseAmount = (visitFee + diagnosticFee) || (connectedContractor.hourly_rate * 2)
-      const estimatedAmount = Math.max(baseAmount, connectedContractor.hourly_rate)
+      const visitFee = activeContractor.visit_fee || 0
+      const diagnosticFee = activeContractor.diagnostic_fee || 0
+      const baseAmount = (visitFee + diagnosticFee) || (activeContractor.hourly_rate * 2)
+      const estimatedAmount = Math.max(baseAmount, activeContractor.hourly_rate)
 
       // Step 1: Create the booking first to get booking ID
       const bookingResponse = await fetch('/api/notify-contractor-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contractorId: connectedContractor.id,
-          contractorName: connectedContractor.business_name,
+          contractorId: activeContractor.id,
+          contractorName: activeContractor.business_name,
           category,
           jobDescription: jobDescription || `${category} service needed`,
           userLocation: currentLocation,
           locationName: locationName || searchZip,
           homeownerId: user.id,
           homeownerEmail: user.email,
-          hourlyRate: connectedContractor.hourly_rate,
+          hourlyRate: activeContractor.hourly_rate,
           estimatedAmount
         })
       })
@@ -822,7 +832,7 @@ export default function InstantMatchOverlay({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           homeownerId: user.id,
-          contractorId: connectedContractor.id,
+          contractorId: activeContractor.id,
           amount: estimatedAmount,
           jobDescription: jobDescription || `${category} service needed`,
           category,
@@ -845,16 +855,16 @@ export default function InstantMatchOverlay({
         paymentHoldId: escrowData.paymentHoldId,
         bookingId: bookingData.bookingId,
         amount: estimatedAmount,
-        etaMinutes: realEta ?? connectedContractor.eta_minutes,
+        etaMinutes: realEta ?? activeContractor.eta_minutes,
         contractorLocation: {
-          lat: connectedContractor.latitude,
-          lng: connectedContractor.longitude
+          lat: activeContractor.latitude,
+          lng: activeContractor.longitude
         },
         conversationId: escrowData.conversationId || null
       })
 
       // Start ETA countdown
-      setTrackingEtaCountdown((realEta ?? connectedContractor.eta_minutes) * 60)
+      setTrackingEtaCountdown((realEta ?? activeContractor.eta_minutes) * 60)
 
       // Transition to tracking phase
       setPhase('tracking')
@@ -1398,27 +1408,31 @@ export default function InstantMatchOverlay({
                 <div className="w-[320px] h-full flex flex-col">
                   {/* Contractor Tabs List */}
                   {phase === 'connected' && visibleContractors.length > 0 && (
-                    <div className="border-b border-slate-200 bg-white">
-                      <div className="p-2">
-                        <p className="text-xs text-slate-500 mb-2 px-1">{visibleContractors.length} pro{visibleContractors.length > 1 ? 's' : ''} available nearby</p>
-                        <div className="flex overflow-x-auto gap-2 scrollbar-hide">
+                    <div className="border-b border-slate-200 bg-white flex-shrink-0">
+                      <div className="px-3 py-2">
+                        <p className="text-[11px] text-slate-400 mb-1.5">{visibleContractors.length} pro{visibleContractors.length > 1 ? 's' : ''} nearby</p>
+                        <div className="flex overflow-x-auto gap-1.5 scrollbar-hide">
                           {visibleContractors.map((contractor) => (
                             <button
                               key={contractor.id}
                               onClick={() => handleSwitchContractor(contractor)}
-                              className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
+                              className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                                 selectedContractor?.id === contractor.id
-                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                                  : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50'
+                                  ? 'bg-emerald-600 text-white shadow-sm'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
                               }`}
                             >
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                                selectedContractor?.id === contractor.id ? 'bg-white/20' : 'bg-emerald-100 text-emerald-700'
-                              }`}>
-                                {contractor.business_name?.charAt(0) || 'P'}
-                              </div>
-                              <span>{contractor.business_name?.split(' ')[0] || 'Pro'}</span>
-                              <span className={`text-xs ${selectedContractor?.id === contractor.id ? 'text-emerald-100' : 'text-slate-400'}`}>
+                              {contractor.profile_image ? (
+                                <img src={contractor.profile_image} alt="" className="w-5 h-5 rounded-full object-cover flex-shrink-0" />
+                              ) : (
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                                  selectedContractor?.id === contractor.id ? 'bg-white/20' : 'bg-emerald-100 text-emerald-700'
+                                }`}>
+                                  {contractor.business_name?.charAt(0) || 'P'}
+                                </div>
+                              )}
+                              <span className="truncate max-w-[80px]">{contractor.business_name?.split(' ')[0] || 'Pro'}</span>
+                              <span className={`text-[10px] flex-shrink-0 ${selectedContractor?.id === contractor.id ? 'text-emerald-200' : 'text-slate-400'}`}>
                                 {contractor.eta_minutes}m
                               </span>
                             </button>
@@ -1612,7 +1626,7 @@ export default function InstantMatchOverlay({
                           </div>
                         )}
 
-                        {/* Book / Start Job Button */}
+                        {/* Start Job Button - triggers escrow + tracking */}
                         <button
                           onClick={handleConfirmConnection}
                           disabled={bookingLoading}
@@ -1625,20 +1639,26 @@ export default function InstantMatchOverlay({
                           {bookingLoading ? (
                             <>
                               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                              {isDirectPaymentJob ? 'Starting Job...' : 'Sending Request...'}
+                              Starting Job...
                             </>
-                          ) : isDirectPaymentJob ? (
+                          ) : (
                             <>
                               <Zap className="w-5 h-5" />
                               Start Job with {selectedContractor.business_name?.split(' ')[0]}
                             </>
-                          ) : (
-                            <>
-                              <CheckCircle className="w-5 h-5" />
-                              Book {selectedContractor.business_name?.split(' ')[0]}
-                            </>
                           )}
                         </button>
+
+                        {/* Send Direct Offer - alternative option */}
+                        {!isDirectPaymentJob && !bookingLoading && (
+                          <button
+                            onClick={() => setShowOfferModal(true)}
+                            className="w-full py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                            Send Direct Offer Instead
+                          </button>
+                        )}
 
                         <p className="text-center text-xs text-slate-500">
                           {bookingLoading ? (
@@ -1646,7 +1666,7 @@ export default function InstantMatchOverlay({
                           ) : isDirectPaymentJob ? (
                             <>Click to start this job • ${directAmount?.toFixed(0)} held in escrow</>
                           ) : (
-                            <>Auto-booking in <span className="font-semibold text-emerald-600">{countdown}s</span> • Click another pro to switch</>
+                            'Escrow payment held until job is complete'
                           )}
                         </p>
 
@@ -2092,45 +2112,60 @@ export default function InstantMatchOverlay({
 
                             <div className="flex-1 overflow-y-auto px-4 pb-2 space-y-2">
                               {nearbyContractors.map((c) => (
-                                <button
+                                <div
                                   key={c.id}
-                                  onClick={() => setSelectedContractor(c)}
                                   className="w-full bg-white rounded-xl p-3 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors text-left"
                                 >
-                                  <div className="flex items-center gap-3">
-                                    {c.profile_image ? (
-                                      <img src={c.profile_image} alt={c.business_name} className="w-11 h-11 rounded-xl object-cover flex-shrink-0" />
-                                    ) : (
-                                      <div className="w-11 h-11 rounded-xl bg-slate-500 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-white font-bold text-lg">{c.business_name?.charAt(0) || 'P'}</span>
-                                      </div>
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <h4 className="font-semibold text-slate-900 text-sm truncate">{c.business_name}</h4>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        <div className="flex items-center gap-0.5">
-                                          <Star className="w-3 h-3 text-amber-500 fill-current" />
-                                          <span className="text-xs font-medium text-slate-700">{c.rating.toFixed(1)}</span>
+                                  <button
+                                    onClick={() => setSelectedContractor(c)}
+                                    className="w-full text-left"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      {c.profile_image ? (
+                                        <img src={c.profile_image} alt={c.business_name} className="w-11 h-11 rounded-xl object-cover flex-shrink-0" />
+                                      ) : (
+                                        <div className="w-11 h-11 rounded-xl bg-slate-500 flex items-center justify-center flex-shrink-0">
+                                          <span className="text-white font-bold text-lg">{c.business_name?.charAt(0) || 'P'}</span>
                                         </div>
-                                        <span className="text-slate-300">·</span>
-                                        <span className="text-xs text-slate-500">{c.distance_miles.toFixed(1)} mi</span>
-                                        <span className="text-slate-300">·</span>
-                                        <span className="text-xs font-medium text-slate-600">${c.hourly_rate}/hr</span>
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <h4 className="font-semibold text-slate-900 text-sm truncate">{c.business_name}</h4>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                          <div className="flex items-center gap-0.5">
+                                            <Star className="w-3 h-3 text-amber-500 fill-current" />
+                                            <span className="text-xs font-medium text-slate-700">{c.rating.toFixed(1)}</span>
+                                          </div>
+                                          <span className="text-slate-300">·</span>
+                                          <span className="text-xs text-slate-500">{c.distance_miles.toFixed(1)} mi</span>
+                                          <span className="text-slate-300">·</span>
+                                          <span className="text-xs font-medium text-slate-600">${c.hourly_rate}/hr</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-1">
+                                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${c.availability === 'online' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                          <span className="text-[10px] text-slate-400 capitalize">{c.availability}</span>
+                                          {c.categories?.[0] && (
+                                            <>
+                                              <span className="text-slate-300">·</span>
+                                              <span className="text-[10px] text-slate-400">{c.categories[0]}</span>
+                                            </>
+                                          )}
+                                        </div>
                                       </div>
-                                      <div className="flex items-center gap-1.5 mt-1">
-                                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${c.availability === 'online' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                                        <span className="text-[10px] text-slate-400 capitalize">{c.availability}</span>
-                                        {c.categories?.[0] && (
-                                          <>
-                                            <span className="text-slate-300">·</span>
-                                            <span className="text-[10px] text-slate-400">{c.categories[0]}</span>
-                                          </>
-                                        )}
-                                      </div>
+                                      <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
                                     </div>
-                                    <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
-                                  </div>
-                                </button>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedContractor(c)
+                                      setShowOfferModal(true)
+                                    }}
+                                    className="w-full mt-2 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5"
+                                  >
+                                    <DollarSign className="w-3.5 h-3.5" />
+                                    Send Direct Offer
+                                  </button>
+                                </div>
                               ))}
                             </div>
 
@@ -2246,19 +2281,42 @@ export default function InstantMatchOverlay({
 
                             {/* Action Buttons */}
                             <div className="px-4 py-3 space-y-2 border-t border-slate-100">
+                              {/* Start Job - primary action: triggers escrow + booking */}
+                              <button
+                                onClick={() => handleConfirmConnection(selectedContractor)}
+                                disabled={bookingLoading}
+                                className={`w-full py-3.5 rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 shadow-lg ${
+                                  bookingLoading
+                                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/25'
+                                }`}
+                              >
+                                {bookingLoading ? (
+                                  <>
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    Starting Job...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Zap className="w-5 h-5" />
+                                    Start Job with {selectedContractor.business_name?.split(' ')[0]}
+                                  </>
+                                )}
+                              </button>
+                              {/* Send Direct Offer - secondary option */}
                               <button
                                 onClick={() => setShowOfferModal(true)}
-                                className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                                className="w-full py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                               >
-                                <DollarSign className="w-5 h-5" />
-                                Send Direct Offer
+                                <DollarSign className="w-4 h-4" />
+                                Send Direct Offer Instead
                               </button>
                               <button
                                 onClick={() => {
                                   onClose()
                                   router.push(`/post-job${category ? `?category=${encodeURIComponent(category)}` : ''}`)
                                 }}
-                                className="w-full py-2.5 text-slate-500 hover:text-slate-700 border border-slate-200 rounded-xl transition-colors text-sm"
+                                className="w-full py-2 text-slate-400 hover:text-slate-600 transition-colors text-xs"
                               >
                                 Post a Job Instead
                               </button>
@@ -2340,8 +2398,8 @@ export default function InstantMatchOverlay({
       </motion.div>
     </AnimatePresence>
 
-    {/* Direct Offer Modal */}
-    {showOfferModal && selectedContractor && (
+    {/* Direct Offer Modal - rendered via portal to escape stacking context */}
+    {showOfferModal && selectedContractor && typeof document !== 'undefined' && createPortal(
       <OfferJobModal
         contractor={{
           id: selectedContractor.id,
@@ -2355,7 +2413,8 @@ export default function InstantMatchOverlay({
           onClose()
           router.push('/dashboard/homeowner/offers')
         }}
-      />
+      />,
+      document.body
     )}
     </>
   )

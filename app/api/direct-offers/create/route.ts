@@ -10,14 +10,12 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get('authorization')
     const token = authHeader?.split(' ')[1] || request.cookies.get('rushr-auth-token')?.value
 
-    console.log('[DirectOffer] Auth header present:', !!authHeader)
-    console.log('[DirectOffer] Token present:', !!token)
-
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized - No token provided' }, { status: 401 })
     }
 
-    const supabase = createClient(
+    // Auth client to verify user identity
+    const authSupabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -31,7 +29,7 @@ export async function POST(request: NextRequest) {
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await authSupabase.auth.getUser()
 
     if (authError || !user) {
       console.error('[DirectOffer] Auth error:', authError)
@@ -39,6 +37,12 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[DirectOffer] Authenticated user:', user.id)
+
+    // Service role client for DB operations (bypasses RLS)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
 
     // Parse request body
     const body = await request.json()
@@ -69,89 +73,72 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify contractor exists and offers this service
+    // Verify contractor exists
     const { data: contractor, error: contractorError } = await supabase
       .from('pro_contractors')
-      .select('id, categories, specialties')
+      .select('id, categories, specialties, name, business_name, phone')
       .eq('id', contractor_id)
       .single()
 
     if (contractorError || !contractor) {
+      console.error('[DirectOffer] Contractor lookup error:', contractorError)
       return NextResponse.json(
         { error: 'Contractor not found' },
         { status: 404 }
       )
     }
 
-    // Validate that contractor offers this category/service
-    const contractorServices = contractor.categories || contractor.specialties || []
-    if (contractorServices.length > 0 && !contractorServices.includes(category)) {
-      console.log('[DirectOffer] Category mismatch:', { category, contractorServices })
-      return NextResponse.json(
-        { error: `This contractor does not offer ${category} services. They specialize in: ${contractorServices.join(', ')}` },
-        { status: 400 }
-      )
-    }
-
-    // Create the direct offer using the function
-    const { data: offerId, error: createError } = await supabase.rpc(
-      'create_direct_offer',
-      {
-        p_contractor_id: contractor_id,
-        p_title: title,
-        p_description: description,
-        p_category: category,
-        p_offered_amount: parseFloat(offered_amount),
-        p_priority: priority,
-        p_address: address || null,
-        p_city: city || null,
-        p_state: state || null,
-        p_zip: zip || null,
-        p_latitude: latitude ? parseFloat(latitude) : null,
-        p_longitude: longitude ? parseFloat(longitude) : null,
-        p_estimated_duration_hours: estimated_duration_hours
+    // Create the direct offer
+    const { data: offerData, error: createError } = await supabase
+      .from('direct_offers')
+      .insert({
+        homeowner_id: user.id,
+        contractor_id,
+        title,
+        description,
+        category,
+        priority,
+        offered_amount: parseFloat(offered_amount),
+        address: address || null,
+        city: city || null,
+        state: state || null,
+        zip: zip || null,
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
+        estimated_duration_hours: estimated_duration_hours
           ? parseInt(estimated_duration_hours)
           : null,
-        p_preferred_start_date: preferred_start_date || null,
-        p_homeowner_notes: homeowner_notes || null,
-      }
-    )
+        preferred_start_date: preferred_start_date || null,
+        homeowner_notes: homeowner_notes || null,
+      })
+      .select('id')
+      .single()
 
     if (createError) {
-      console.error('Error creating offer:', createError)
+      console.error('[DirectOffer] Insert error:', createError)
       return NextResponse.json(
         { error: createError.message || 'Failed to create offer' },
         { status: 500 }
       )
     }
 
-    // Notification is automatically created by database trigger
-    // (see notify_contractor_new_offer trigger)
+    const offerId = offerData?.id
+    console.log('[DirectOffer] Created offer:', offerId)
 
-    // Send email notification to contractor (non-blocking)
+    // Send notifications (non-blocking)
     try {
-      const serviceSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      )
+      const { data: contractorAuth } = await supabase.auth.admin.getUserById(contractor_id)
 
-      const { data: contractorAuth } = await serviceSupabase.auth.admin.getUserById(contractor_id)
-      const { data: contractorProfile } = await serviceSupabase
-        .from('pro_contractors')
-        .select('name, business_name')
-        .eq('id', contractor_id)
-        .single()
-
-      const { data: homeowner } = await serviceSupabase
+      const { data: homeowner } = await supabase
         .from('user_profiles')
         .select('name')
         .eq('id', user.id)
         .single()
 
-      const contractorName = contractorProfile?.business_name || contractorProfile?.name || 'Professional'
+      const contractorName = contractor.business_name || contractor.name || 'Professional'
 
       // Send email notification
-      if (contractorAuth?.user?.email && contractorProfile && homeowner) {
+      if (contractorAuth?.user?.email && homeowner) {
         await notifyCustomOffer({
           contractorEmail: contractorAuth.user.email,
           contractorName: contractorName,
@@ -164,24 +151,17 @@ export async function POST(request: NextRequest) {
       }
 
       // Send SMS notification
-      const { data: contractorWithPhone } = await serviceSupabase
-        .from('pro_contractors')
-        .select('phone')
-        .eq('id', contractor_id)
-        .single()
-
-      if (contractorWithPhone?.phone && homeowner) {
+      if (contractor.phone && homeowner) {
         await sendDirectOfferSMS({
-          contractorPhone: contractorWithPhone.phone,
+          contractorPhone: contractor.phone,
           contractorName: contractorName,
           homeownerName: homeowner.name,
           jobTitle: title,
           offeredAmount: parseFloat(offered_amount)
         })
       }
-    } catch (emailError) {
-      console.error('Failed to send custom offer notifications:', emailError)
-      // Don't fail the request if notifications fail
+    } catch (notifyError) {
+      console.error('[DirectOffer] Notification error (non-blocking):', notifyError)
     }
 
     return NextResponse.json(
@@ -193,7 +173,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
   } catch (error: any) {
-    console.error('Error in create direct offer:', error)
+    console.error('[DirectOffer] Unhandled error:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
