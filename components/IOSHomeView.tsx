@@ -5516,6 +5516,8 @@ function ProfileTab({
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string; id: string } | null>(null)
   const [loadingCard, setLoadingCard] = useState(false)
   const [showAddCardModal, setShowAddCardModal] = useState(false)
+  const [removingCard, setRemovingCard] = useState(false)
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
 
   // Fetch saved payment method
   useEffect(() => {
@@ -5537,6 +5539,25 @@ function ProfileTab({
       .catch(() => {})
       .finally(() => setLoadingCard(false))
   }, [user?.id, isContractor])
+
+  const handleRemoveCard = async () => {
+    if (!savedCard?.id || !user?.id) return
+    setRemovingCard(true)
+    try {
+      const res = await fetch(`/api/stripe/customer/save-card?paymentMethodId=${savedCard.id}&userId=${user.id}`, {
+        method: 'DELETE'
+      })
+      const data = await res.json()
+      if (data.success) {
+        setSavedCard(null)
+        setShowRemoveConfirm(false)
+      }
+    } catch (err) {
+      console.error('Error removing card:', err)
+    } finally {
+      setRemovingCard(false)
+    }
+  }
 
   const handleSignOut = async () => {
     await triggerHaptic(ImpactStyle.Medium)
@@ -5824,19 +5845,47 @@ function ProfileTab({
                 <div className="w-5 h-5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
               </div>
             ) : savedCard ? (
-              <div className="flex items-center gap-3 bg-emerald-50 rounded-lg p-3">
-                <div className="w-10 h-7 bg-white rounded-md border border-gray-200 flex items-center justify-center">
-                  <span className="text-[10px] font-bold text-gray-600 uppercase">{savedCard.brand}</span>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 bg-emerald-50 rounded-lg p-3">
+                  <div className="w-10 h-7 bg-white rounded-md border border-gray-200 flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-gray-600 uppercase">{savedCard.brand}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[14px] font-medium text-gray-900">
+                      {savedCard.brand.charAt(0).toUpperCase() + savedCard.brand.slice(1)} ending in {savedCard.last4}
+                    </p>
+                    <p className="text-[11px] text-emerald-600">Default payment method</p>
+                  </div>
+                  <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
                 </div>
-                <div className="flex-1">
-                  <p className="text-[14px] font-medium text-gray-900">
-                    {savedCard.brand.charAt(0).toUpperCase() + savedCard.brand.slice(1)} ending in {savedCard.last4}
-                  </p>
-                  <p className="text-[11px] text-emerald-600">Default payment method</p>
-                </div>
-                <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+                {showRemoveConfirm ? (
+                  <div className="flex items-center gap-2 bg-red-50 rounded-lg p-3 border border-red-200">
+                    <p className="flex-1 text-[12px] text-red-700">Remove this card?</p>
+                    <button
+                      onClick={() => setShowRemoveConfirm(false)}
+                      disabled={removingCard}
+                      className="px-3 py-1.5 text-[12px] font-medium text-gray-600 bg-white rounded-lg border border-gray-200 active:scale-95 transition-transform"
+                    >
+                      Keep
+                    </button>
+                    <button
+                      onClick={handleRemoveCard}
+                      disabled={removingCard}
+                      className="px-3 py-1.5 text-[12px] font-semibold text-white bg-red-500 rounded-lg active:scale-95 transition-transform disabled:opacity-50"
+                    >
+                      {removingCard ? 'Removing...' : 'Remove'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowRemoveConfirm(true)}
+                    className="text-[12px] text-red-400 font-medium pl-1"
+                  >
+                    Remove card
+                  </button>
+                )}
               </div>
             ) : (
               <button
@@ -5864,8 +5913,20 @@ function ProfileTab({
             isOpen={showAddCardModal}
             userId={user?.id || ''}
             onSuccess={(card) => {
-              setSavedCard({ brand: card.brand, last4: card.last4, id: '' })
+              // Refetch to get the actual payment method ID for delete support
+              fetch(`/api/stripe/customer/payment-methods?userId=${user?.id}`)
+                .then(r => r.json())
+                .then(data => {
+                  if (data.success && data.paymentMethods?.length > 0) {
+                    const pm = data.paymentMethods[0]
+                    setSavedCard({ brand: pm.card.brand, last4: pm.card.last4, id: pm.id })
+                  } else {
+                    setSavedCard({ brand: card.brand, last4: card.last4, id: '' })
+                  }
+                })
+                .catch(() => setSavedCard({ brand: card.brand, last4: card.last4, id: '' }))
               setShowAddCardModal(false)
+              setShowRemoveConfirm(false)
             }}
             onClose={() => setShowAddCardModal(false)}
           />

@@ -200,6 +200,8 @@ function BillingPageContent() {
   const [defaultPaymentMethodId, setDefaultPaymentMethodId] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
   const [showAddCard, setShowAddCard] = useState(false)
+  const [removingCardId, setRemovingCardId] = useState<string | null>(null)
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -243,6 +245,25 @@ function BillingPageContent() {
   const handlePaymentMethodAdded = () => {
     setShowAddCard(false)
     fetchPaymentMethods()
+  }
+
+  const handleRemoveCard = async (paymentMethodId: string) => {
+    if (!user) return
+    setRemovingCardId(paymentMethodId)
+    try {
+      const res = await fetch(`/api/stripe/customer/save-card?paymentMethodId=${paymentMethodId}&userId=${user.id}`, {
+        method: 'DELETE'
+      })
+      const data = await res.json()
+      if (data.success) {
+        setConfirmRemoveId(null)
+        fetchPaymentMethods()
+      }
+    } catch (err) {
+      console.error('Error removing card:', err)
+    } finally {
+      setRemovingCardId(null)
+    }
   }
 
   if (authLoading) {
@@ -347,29 +368,56 @@ function BillingPageContent() {
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {paymentMethods.map((pm) => (
-                <div
-                  key={pm.id}
-                  className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                >
-                  <div className="w-12 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 dark:from-slate-600 dark:to-slate-800 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[10px] font-bold text-white tracking-wider">
-                      {getBrandLabel(pm.card.brand).substring(0, 4).toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-900 dark:text-white text-sm">
-                      {getBrandLabel(pm.card.brand)} ending in {pm.card.last4}
+                <div key={pm.id}>
+                  <div className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <div className="w-12 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 dark:from-slate-600 dark:to-slate-800 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[10px] font-bold text-white tracking-wider">
+                        {getBrandLabel(pm.card.brand).substring(0, 4).toUpperCase()}
+                      </span>
                     </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Expires {String(pm.card.exp_month).padStart(2, '0')}/{pm.card.exp_year}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-slate-900 dark:text-white text-sm">
+                        {getBrandLabel(pm.card.brand)} ending in {pm.card.last4}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Expires {String(pm.card.exp_month).padStart(2, '0')}/{pm.card.exp_year}
+                      </div>
                     </div>
+                    {pm.id === defaultPaymentMethodId && (
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Default
+                      </span>
+                    )}
+                    {confirmRemoveId === pm.id ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setConfirmRemoveId(null)}
+                          disabled={removingCardId === pm.id}
+                          className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 transition-colors"
+                        >
+                          Keep
+                        </button>
+                        <button
+                          onClick={() => handleRemoveCard(pm.id)}
+                          disabled={removingCardId === pm.id}
+                          className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {removingCardId === pm.id ? (
+                            <><Loader2 className="h-3 w-3 animate-spin" /> Removing...</>
+                          ) : 'Remove'}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmRemoveId(pm.id)}
+                        className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                        title="Remove card"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
-                  {pm.id === defaultPaymentMethodId && (
-                    <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Default
-                    </span>
-                  )}
                 </div>
               ))}
             </div>
