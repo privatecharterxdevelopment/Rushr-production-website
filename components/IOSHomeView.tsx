@@ -27,6 +27,7 @@ import PaymentModal from './PaymentModal'
 import OfferJobModal from './OfferJobModal'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { RushrLoader } from './LoadingSpinner'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
@@ -102,12 +103,8 @@ const triggerHaptic = async (style: ImpactStyle = ImpactStyle.Light) => {
   }
 }
 
-// Simple loading spinner
-const LoadingLogo = () => (
-  <div className="flex flex-col items-center justify-center">
-    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-  </div>
-)
+// Loading logo — uses unified Rushr branding (logo + emerald spinner ring)
+const LoadingLogo = () => <RushrLoader size="lg" />
 
 // Native iOS List Item component
 const ListItem = ({
@@ -3533,6 +3530,71 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   <svg className="w-4 h-4 text-emerald-500 ml-auto" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
                   </svg>
+                </div>
+              )}
+
+              {/* Post a Job CTA — visible when scrolled / sheet expanded */}
+              <button
+                onClick={() => router.push('/post-job')}
+                className="w-full flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 active:scale-[0.98] transition-all text-left"
+              >
+                <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-[15px] text-gray-900">Post a Job</p>
+                  <p className="text-[12px] text-gray-500">Get matched with nearby pros instantly</p>
+                </div>
+                <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              {/* Nearby Online Pros — visible when expanded */}
+              {nearbyOnline.length > 0 && (
+                <div>
+                  <h4 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Pros Near You</h4>
+                  <div className="space-y-2">
+                    {nearbyOnline.slice(0, 5).map((contractor: any) => (
+                      <button
+                        key={contractor.id}
+                        onClick={() => handleContractorSelect(contractor)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-white active:scale-[0.98] transition-all text-left"
+                      >
+                        <div className="relative flex-shrink-0">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                            {contractor.profile_image_url ? (
+                              <img src={contractor.profile_image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-white font-bold text-[12px]">
+                                {(contractor.business_name || contractor.name || 'C').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-[14px] text-gray-900 truncate">{contractor.business_name || contractor.name || 'Contractor'}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {contractor.rating && (
+                              <span className="flex items-center gap-0.5">
+                                <span className="text-amber-400 text-[10px]">&#9733;</span>
+                                <span className="text-[11px] text-gray-500">{Number(contractor.rating).toFixed(1)}</span>
+                              </span>
+                            )}
+                            {Array.isArray(contractor.categories) && contractor.categories[0] && (
+                              <span className="text-[11px] text-gray-400">{contractor.categories[0]}</span>
+                            )}
+                          </div>
+                        </div>
+                        <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
