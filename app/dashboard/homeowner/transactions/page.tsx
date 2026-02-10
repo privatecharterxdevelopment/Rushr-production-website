@@ -61,8 +61,7 @@ export default function TransactionsPage() {
       }
 
       try {
-        // Fetch completed jobs first (much faster than Stripe API)
-        // Note: job_number will be null until migration is run
+        // Fetch all jobs that have a payment (completed, confirmed, in_progress, cancelled)
         const { data: jobs, error: jobsError } = await supabase
           .from('homeowner_jobs')
           .select(`
@@ -70,6 +69,7 @@ export default function TransactionsPage() {
             job_number,
             title,
             final_cost,
+            estimated_cost,
             status,
             completed_date,
             created_at,
@@ -77,85 +77,107 @@ export default function TransactionsPage() {
             stripe_payment_intent_id
           `)
           .eq('homeowner_id', user.id)
-          .eq('status', 'completed')
-          .not('final_cost', 'is', null)
-          .order('completed_date', { ascending: false })
+          .in('status', ['completed', 'confirmed', 'in_progress', 'cancelled'])
+          .order('created_at', { ascending: false })
           .limit(50)
 
         if (jobsError) {
-          console.error('Error fetching jobs:', {
-            message: jobsError.message,
-            code: jobsError.code,
-            details: jobsError.details,
-            hint: jobsError.hint
-          })
+          console.error('Error fetching jobs:', jobsError)
           setLoading(false)
           return
         }
+
+        // Also fetch payment holds for active escrows
+        const { data: holds } = await supabase
+          .from('payment_holds')
+          .select('job_id, status, amount')
+          .eq('homeowner_id', user.id)
+
+        const holdMap = new Map(
+          (holds || []).map(h => [h.job_id, h])
+        )
 
         // Get all unique contractor IDs
         const contractorIds = [...new Set((jobs || []).map(j => j.contractor_id).filter(Boolean))]
 
         // Fetch all contractors in one query
-        const { data: contractors } = await supabase
-          .from('pro_contractors')
-          .select('id, business_name, name')
-          .in('id', contractorIds)
+        let contractorMap = new Map()
+        if (contractorIds.length > 0) {
+          const { data: contractors } = await supabase
+            .from('pro_contractors')
+            .select('id, business_name, name')
+            .in('id', contractorIds)
 
-        const contractorMap = new Map(
-          (contractors || []).map(c => [c.id, c])
-        )
+          contractorMap = new Map(
+            (contractors || []).map(c => [c.id, c])
+          )
+        }
 
-        // Create transactions from completed jobs
-        const enrichedTransactions = (jobs || []).map((job: any) => {
-          const contractor = job.contractor_id ? contractorMap.get(job.contractor_id) : null
-          const contractorName = contractor?.business_name || contractor?.name || 'Contractor'
-
-          return {
-            id: job.id,
-            job_id: job.job_number || job.id, // Use job_number for cleaner URLs (will be UUID until migration runs)
-            job_title: job.title,
-            contractor_name: contractorName,
-            amount: job.final_cost || 0,
-            status: 'completed' as const,
-            payment_method: 'Credit Card',
-            created_at: job.created_at,
-            completed_at: job.completed_date,
-            stripe_payment_intent_id: job.stripe_payment_intent_id,
-            receipt_url: null
+        // Map job status to transaction status
+        const mapStatus = (job: any): Transaction['status'] => {
+          if (job.status === 'completed') return 'completed'
+          if (job.status === 'cancelled') {
+            const hold = holdMap.get(job.id)
+            return hold?.status === 'refunded' ? 'refunded' : 'failed'
           }
-        })
+          return 'pending' // confirmed or in_progress = escrow held
+        }
+
+        // Create transactions from jobs
+        const enrichedTransactions: Transaction[] = (jobs || [])
+          .filter((job: any) => {
+            // Only show jobs that have a cost or an active hold
+            return job.final_cost || job.estimated_cost || holdMap.has(job.id)
+          })
+          .map((job: any) => {
+            const contractor = job.contractor_id ? contractorMap.get(job.contractor_id) : null
+            const contractorName = contractor?.business_name || contractor?.name || 'Contractor'
+            const hold = holdMap.get(job.id)
+
+            return {
+              id: job.id,
+              job_id: job.job_number || job.id,
+              job_title: job.title,
+              contractor_name: contractorName,
+              amount: job.final_cost || hold?.amount || job.estimated_cost || 0,
+              status: mapStatus(job),
+              payment_method: 'Credit Card',
+              created_at: job.created_at,
+              completed_at: job.completed_date,
+              stripe_payment_intent_id: job.stripe_payment_intent_id,
+              receipt_url: null
+            }
+          })
 
         setTransactions(enrichedTransactions)
 
         // Fetch Stripe receipts in background (non-blocking)
-        if (enrichedTransactions.length > 0) {
-          fetch(`/api/stripe/transactions?userId=${user.id}`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.success && data.charges) {
-                // Update transactions with Stripe receipt URLs
-                const updatedTransactions = enrichedTransactions.map(tx => {
-                  const stripeCharge = data.charges.find((c: any) => c.payment_intent === tx.stripe_payment_intent_id)
-                  if (stripeCharge) {
-                    return {
-                      ...tx,
-                      receipt_url: stripeCharge.receipt_url,
-                      payment_method: stripeCharge.payment_method_details?.type === 'card'
-                        ? `${stripeCharge.payment_method_details.card.brand.toUpperCase()} •••• ${stripeCharge.payment_method_details.card.last4}`
-                        : tx.payment_method
-                    }
+        fetch(`/api/stripe/transactions?userId=${user.id}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.charges) {
+              const updatedTransactions = enrichedTransactions.map(tx => {
+                const stripeCharge = data.charges.find((c: any) =>
+                  c.payment_intent === tx.stripe_payment_intent_id ||
+                  (typeof c.payment_intent === 'object' && c.payment_intent?.id === tx.stripe_payment_intent_id)
+                )
+                if (stripeCharge) {
+                  return {
+                    ...tx,
+                    receipt_url: stripeCharge.receipt_url,
+                    payment_method: stripeCharge.payment_method_details?.type === 'card'
+                      ? `${stripeCharge.payment_method_details.card.brand.toUpperCase()} •••• ${stripeCharge.payment_method_details.card.last4}`
+                      : tx.payment_method
                   }
-                  return tx
-                })
-                setTransactions(updatedTransactions)
-              }
-            })
-            .catch(err => {
-              console.error('Failed to fetch Stripe data:', err)
-              // Keep showing transactions from database even if Stripe fails
-            })
-        }
+                }
+                return tx
+              })
+              setTransactions(updatedTransactions)
+            }
+          })
+          .catch(err => {
+            console.error('Failed to fetch Stripe data:', err)
+          })
       } catch (error) {
         console.error('Failed to fetch transactions:', error)
       } finally {
@@ -195,10 +217,10 @@ export default function TransactionsPage() {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'completed': return 'Completed'
-      case 'pending': return 'Pending'
+      case 'completed': return 'Paid'
+      case 'pending': return 'Held'
       case 'refunded': return 'Refunded'
-      case 'failed': return 'Failed'
+      case 'failed': return 'Cancelled'
       default: return status.charAt(0).toUpperCase() + status.slice(1)
     }
   }
@@ -264,18 +286,12 @@ export default function TransactionsPage() {
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
             <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-slate-900 dark:text-white">Recent Transactions</h3>
+                <h3 className="font-bold text-slate-900 dark:text-white">Transaction History</h3>
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Your most recent completed emergencies
+                  All payments and escrow holds
                 </p>
               </div>
-              <Link
-                href="/history"
-                className="flex items-center gap-1 text-sm text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 font-medium"
-              >
-                View All
-                <ChevronRight className="h-4 w-4" />
-              </Link>
+              <span className="text-sm text-slate-400">{transactions.length} total</span>
             </div>
 
             <div className="p-6">
@@ -289,7 +305,13 @@ export default function TransactionsPage() {
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
                           <div className="flex items-start gap-3">
-                            <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                            {transaction.status === 'completed' ? (
+                              <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                            ) : transaction.status === 'pending' ? (
+                              <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                            ) : (
+                              <DollarSign className="h-5 w-5 text-slate-400 flex-shrink-0 mt-0.5" />
+                            )}
                             <div className="flex-1 min-w-0">
                               <h4 className="font-semibold text-slate-900 dark:text-white mb-1">
                                 {transaction.job_title}

@@ -20,14 +20,14 @@ export async function GET(req: Request) {
       )
     }
 
-    // Get user's Stripe customer ID from database
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
+    // Get user's Stripe customer ID from stripe_customers table
+    const { data: customer, error: customerError } = await supabase
+      .from('stripe_customers')
       .select('stripe_customer_id')
-      .eq('id', userId)
+      .eq('user_id', userId)
       .single()
 
-    if (profileError || !profile?.stripe_customer_id) {
+    if (customerError || !customer?.stripe_customer_id) {
       return NextResponse.json({
         success: true,
         charges: []
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
 
     // Fetch all charges for this customer from Stripe
     const charges = await getStripe().charges.list({
-      customer: profile.stripe_customer_id,
+      customer: customer.stripe_customer_id,
       limit: 100,
       expand: ['data.payment_intent']
     })

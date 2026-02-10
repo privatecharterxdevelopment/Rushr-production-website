@@ -2385,7 +2385,7 @@ function formatCountdown(totalSeconds: number): string {
 }
 
 // Home Tab Content - Split view: Map on top half, Jobs with live bids below
-function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro, onPreviewTracking }: {
+function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro }: {
   center: LatLng
   setCenter: (c: LatLng) => void
   filtered: any[]
@@ -2405,7 +2405,6 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   onOpenTracking: () => void
   onStartJobSuccess: (data: { jobId: string; contractorId: string; contractorName: string; title: string; estimatedAmount: number; etaMinutes?: number }) => void
   onFindPro: (search: string, category: string) => void
-  onPreviewTracking: () => void
 }) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = React.useState('')
@@ -3537,17 +3536,6 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                 </div>
               )}
 
-              {/* DEBUG: Preview tracking view */}
-              <button
-                onClick={onPreviewTracking}
-                className="w-full py-3 rounded-xl font-semibold text-[13px] text-blue-600 bg-blue-50 border border-blue-200 active:scale-95 transition-transform flex items-center justify-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                Preview: Tracking View (Demo)
-              </button>
             </div>
           )}
 
@@ -5816,8 +5804,8 @@ function ProfileTab({
             <button onClick={() => handleNavigation('/dashboard/homeowner/billing')} className="w-full">
               <div className="flex items-center justify-between py-3 px-4 active:bg-gray-50">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                     </svg>
                   </div>
@@ -5832,8 +5820,8 @@ function ProfileTab({
             <button onClick={() => handleNavigation('/dashboard/homeowner/transactions')} className="w-full">
               <div className="flex items-center justify-between py-3 px-4 active:bg-gray-50">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
                     </svg>
                   </div>
@@ -5848,8 +5836,8 @@ function ProfileTab({
             <button onClick={() => handleNavigation('/contact')} className="w-full">
               <div className="flex items-center justify-between py-3 px-4 active:bg-gray-50">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
@@ -5915,26 +5903,6 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
   const [showTrackingView, setShowTrackingView] = useState(false)
   const [trackingJob, setTrackingJob] = useState<TrackingJob | null>(null)
 
-  // Debug: Preview tracking view with simulated data
-  const handlePreviewTracking = () => {
-    const mockJob: TrackingJob = {
-      id: 'preview-demo',
-      title: 'HVAC Repair - Emergency',
-      status: 'confirmed',
-      contractor_id: 'demo-contractor',
-      contractor_name: 'Mike\'s HVAC Services',
-      contractor_image: null,
-      eta_minutes: 8,
-      contractor_latitude: center[0] + 0.025,
-      contractor_longitude: center[1] - 0.018,
-      address: '123 Main Street',
-      estimated_cost: 150,
-      homeowner_confirmed_complete: false,
-      contractor_confirmed_complete: false
-    }
-    setTrackingJob(mockJob)
-    setShowTrackingView(true)
-  }
 
   // Find a Pro view state
   const [showFindPro, setShowFindPro] = useState(false)
@@ -6364,7 +6332,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
 
       if (jobError || !jobData) {
         console.error('Error fetching job for tracking:', jobError)
-        showGlobalToast('Could not load job details', 'error')
+        alert('Could not load job details')
         return
       }
 
@@ -6393,7 +6361,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
 
       if (!contractorId) {
         console.error('No contractor found for job:', jobId)
-        showGlobalToast('No contractor assigned to this job yet', 'error')
+        alert('No contractor assigned to this job yet')
         return
       }
 
@@ -6420,7 +6388,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
       setShowTrackingView(true)
     } catch (err) {
       console.error('Error opening tracking for job:', err)
-      showGlobalToast('Failed to open tracking', 'error')
+      alert('Failed to open tracking')
     }
   }
 
@@ -6596,7 +6564,6 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
             onOpenTracking={handleOpenTracking}
             onStartJobSuccess={handleStartJobSuccess}
             onFindPro={handleFindPro}
-            onPreviewTracking={handlePreviewTracking}
           />
         )}
         {activeTab === 'jobs' && (
