@@ -35,7 +35,7 @@ import {
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!, { locale: 'en' })
 
 const ProMap = dynamic(() => import('../../components/ProMap'), { ssr: false })
 const PostJobMultiStep = dynamic(() => import('../../components/PostJobMultiStep'), { ssr: false })

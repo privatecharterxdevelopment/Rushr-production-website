@@ -12,7 +12,7 @@ import LoadingSpinner, { FullScreenLoading } from '../../../../components/Loadin
 import { Capacitor } from '@capacitor/core'
 import { safeBack } from '../../../../lib/safeBack'
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!, { locale: 'en' })
 
 function useIsNative() {
   const [isNative, setIsNative] = useState(false)
@@ -262,13 +262,38 @@ function BillingPageContent() {
 
   return (
     <div
-      className="page-container section-spacing space-y-6"
+      className="min-h-screen bg-gray-50 dark:bg-slate-950"
       style={{
-        paddingTop: isNative ? 'env(safe-area-inset-top)' : undefined,
         paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom))' : undefined
       }}
     >
-      {/* Header */}
+      {/* iOS Native Header */}
+      {isNative && (
+        <div
+          className="sticky top-0 z-50"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+          }}
+        >
+          <div className="flex items-center px-4 py-3">
+            <button
+              onClick={() => safeBack(router, '/dashboard')}
+              className="flex items-center text-white active:opacity-60"
+            >
+              <ArrowLeft className="w-6 h-6" />
+              <span className="ml-1 font-medium">Back</span>
+            </button>
+            <h1 className="flex-1 text-center text-white font-semibold text-lg pr-12">
+              Payment Methods
+            </h1>
+          </div>
+        </div>
+      )}
+
+      <div className={isNative ? 'px-4 pt-4 space-y-6' : 'page-container section-spacing space-y-6'}>
+      {/* Web Header */}
+      {!isNative && (
       <div className="flex items-center gap-3">
         <Link
           href="/dashboard/homeowner"
@@ -281,6 +306,7 @@ function BillingPageContent() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Manage your saved cards</p>
         </div>
       </div>
+      )}
 
       {/* Cards list */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
@@ -368,6 +394,7 @@ function BillingPageContent() {
           onCancel={() => setShowAddCard(false)}
         />
       )}
+      </div>
     </div>
   )
 }

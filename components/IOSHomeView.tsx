@@ -29,7 +29,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { RushrLoader } from './LoadingSpinner'
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!, { locale: 'en' })
 
 // Error Boundary to catch render errors
 interface ErrorBoundaryProps {
@@ -2421,24 +2421,34 @@ function AddCardModal({ isOpen, userId, onSuccess, onClose }: { isOpen: boolean;
   if (!isOpen) return null
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
-      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[61] bg-white rounded-2xl shadow-xl overflow-hidden">
-        {/* Green header — app only */}
-        <div className="bg-emerald-600 px-4 py-4 flex items-center justify-between">
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={onClose} />
+      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[61] bg-white rounded-2xl shadow-xl overflow-hidden max-w-md mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-2">
           <div className="flex items-center gap-3">
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-            </svg>
-            <h3 className="text-[17px] font-semibold text-white">Add Payment Method</h3>
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Add Card</h3>
+              <p className="text-xs text-slate-500">Securely processed by Stripe</p>
+            </div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <div className="p-6">
-          <p className="text-gray-500 text-xs text-center mb-5">Your card will only be charged when a job starts.</p>
+        <div className="px-6 pb-6 pt-4">
+          <div className="flex items-center gap-2 text-xs text-slate-400 mb-5">
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>Your card details are encrypted and never stored on our servers</span>
+          </div>
           <Elements stripe={stripePromise}>
             <AddCardForm userId={userId} onSuccess={onSuccess} onCancel={onClose} />
           </Elements>
@@ -2493,7 +2503,7 @@ function formatCountdown(totalSeconds: number): string {
 }
 
 // Home Tab Content - Split view: Map on top half, Jobs with live bids below
-function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro }: {
+function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLocation, firstName, jobs, jobsLoading, activeJob, bids, bidsLoading, onAcceptBid, onDeclineBid, onCloseBidOverlay, user, trackingJob, onOpenTracking, onStartJobSuccess, onFindPro, isVisible }: {
   center: LatLng
   setCenter: (c: LatLng) => void
   filtered: any[]
@@ -2513,6 +2523,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   onOpenTracking: () => void
   onStartJobSuccess: (data: { jobId: string; contractorId: string; contractorName: string; title: string; estimatedAmount: number; etaMinutes?: number }) => void
   onFindPro: (search: string, category: string) => void
+  isVisible: boolean
 }) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = React.useState('')
@@ -2575,7 +2586,20 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   // Map ref for zoom controls
   const mapRef = useRef<FindProMapboxHandle>(null)
 
-  // Fetch online contractors within radius on mount (for showing as tabs before search)
+  // When home tab becomes visible again, resize map and ensure radius is shown (unless tracking)
+  React.useEffect(() => {
+    if (isVisible && mapRef.current) {
+      const t = setTimeout(() => {
+        mapRef.current?.resize()
+        if (!trackingJob) {
+          mapRef.current?.showRadiusCircle()
+        }
+      }, 100)
+      return () => clearTimeout(t)
+    }
+  }, [isVisible, trackingJob])
+
+  // Fetch online contractors within radius on mount (for showing as tabs when searching)
   const [nearbyOnline, setNearbyOnline] = React.useState<any[]>([])
   React.useEffect(() => {
     const fetchOnline = async () => {
@@ -2606,6 +2630,58 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       }
     }
     fetchOnline()
+  }, [center])
+
+  // Real-time: listen for contractor availability changes (online/offline/busy)
+  React.useEffect(() => {
+    const channel = supabase
+      .channel('contractor_availability')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'pro_contractors',
+        },
+        (payload) => {
+          const updated = payload.new as any
+          if (!updated?.id) return
+
+          setNearbyOnline(prev => {
+            const isInList = prev.some(c => c.id === updated.id)
+
+            // Contractor went offline/busy → remove from list
+            if (updated.availability !== 'online') {
+              return isInList ? prev.filter(c => c.id !== updated.id) : prev
+            }
+
+            // Contractor came online → add if within radius and approved
+            if (updated.availability === 'online' && updated.status === 'approved' && updated.latitude && updated.longitude) {
+              if (isInList) {
+                // Update existing entry
+                return prev.map(c => c.id === updated.id ? { ...c, ...updated } : c)
+              }
+              // Check if within 5mi radius
+              const R = 3959
+              const dLat = (updated.latitude - center[0]) * Math.PI / 180
+              const dLon = (updated.longitude - center[1]) * Math.PI / 180
+              const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(center[0] * Math.PI / 180) * Math.cos(updated.latitude * Math.PI / 180) *
+                Math.sin(dLon / 2) ** 2
+              const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+              if (dist <= 5) {
+                return [...prev, updated]
+              }
+            }
+            return prev
+          })
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [center])
 
   // Merge nearbyOnline (Supabase) with filtered (context) — ensures contractors always show
@@ -2978,11 +3054,14 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     return () => { if (trackingEatRef.current) clearInterval(trackingEatRef.current) }
   }, [trackingJob?.id, trackingEatSeconds > 0])
 
-  // Show route on map for tracking
+  // Show route on map for tracking, restore radius when tracking ends
   React.useEffect(() => {
     if (trackingContractorLoc && trackingJob && mapRef.current) {
       mapRef.current.showRoute(trackingContractorLoc.lat, trackingContractorLoc.lng, center[0], center[1])
       mapRef.current.hideRadiusCircle()
+    } else if (mapRef.current) {
+      mapRef.current.clearRoute()
+      mapRef.current.showRadiusCircle()
     }
   }, [trackingContractorLoc, trackingJob, center])
 
@@ -3297,11 +3376,13 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       const contractorLng = (selectedBid as any).contractor_longitude
       if (contractorLat && contractorLng && mapRef.current) {
         mapRef.current.showRoute(contractorLat, contractorLng, center[0], center[1])
+        mapRef.current.hideRadiusCircle()
       }
     } else {
-      // Clear route when bid is deselected
+      // Clear route and restore radius when bid is deselected
       if (mapRef.current) {
         mapRef.current.clearRoute()
+        mapRef.current.showRadiusCircle()
       }
     }
   }, [selectedBid, center])
@@ -3462,10 +3543,10 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       {/* Jobs Section - Draggable Bottom Sheet - Hidden when contractor sheet is open */}
       {!selectedContractor && (
       <div
-        className={`fixed left-0 right-0 bg-white rounded-t-2xl z-20 flex flex-col ${!isDragging ? 'transition-all duration-300 ease-out' : ''}`}
+        className={`fixed left-0 right-0 bg-white rounded-t-2xl z-20 flex flex-col ${!isDragging ? 'transition-[height,max-height,transform,padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]' : ''}`}
         style={{
           boxShadow: '0 -4px 20px rgba(0,0,0,0.15)',
-          height: sheetMinimized ? '80px' : sheetExpanded ? '50%' : (hasSearched || mostRecentPendingJob || trackingJob) ? '50%' : 'auto',
+          height: sheetMinimized ? '80px' : sheetExpanded ? '50%' : (hasSearched || mostRecentPendingJob || trackingJob) ? '50%' : '195px',
           maxHeight: sheetMinimized ? '80px' : '50%',
           transform: `translateY(${-currentTranslate}px)`,
           paddingBottom: sheetMinimized ? '0' : '16px',
@@ -3552,8 +3633,8 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           </div>
           )}
 
-          {/* Search + Badges + Post a Job — all visible, no expand needed */}
-          {!trackingJob && !mostRecentPendingJob && (
+          {/* Search + Badges + Post a Job — always visible (except during tracking) */}
+          {!trackingJob && (
             <div className="px-4 pb-3 space-y-3">
               {/* Search Bar */}
               <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 focus-within:border-emerald-400 focus-within:bg-white transition-colors">
@@ -3608,8 +3689,8 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                 ))}
               </div>
 
-              {/* Post a Job CTA — only visible when sheet expanded and NOT searching */}
-              {sheetExpanded && !hasSearched && (
+              {/* Post a Job CTA — only visible when sheet expanded, NOT searching, and no active bids job */}
+              {sheetExpanded && !hasSearched && !mostRecentPendingJob && (
                 <button
                   onClick={() => router.push('/post-job')}
                   className="w-full flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 active:scale-[0.98] transition-all text-left"
@@ -3634,7 +3715,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           {/* Job State Content — only render when there's an active job or tracking */}
           <div className={`px-4 ${(trackingJob || mostRecentPendingJob) ? 'pb-4' : ''}`}>
             {trackingJob ? (
-              /* ═══ TRACKING JOB — two phases ═══ */
+              /* ═══ TRACKING JOB — two phases (hides search bar above) ═══ */
               <div className="space-y-4">
                 {!trackingContractorLoc ? (
                   /* --- Phase 1: Waiting for contractor to accept & start tracking --- */
@@ -3775,27 +3856,29 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   </>
                 )}
               </div>
-            ) : mostRecentPendingJob ? (
-              /* ═══ ACTIVE JOB: loading timer + vertical bid cards ═══ */
-              <div className="space-y-3">
-                {/* Waiting for bids — loading timer */}
+            ) : (
+              <>
+              {/* ═══ ACTIVE JOB: bid cards below search/badges ═══ */}
+              {mostRecentPendingJob && (
+              <div className="space-y-3 mb-4">
+                {/* Waiting for bids — compact loading */}
                 {bids.length === 0 && (
-                  <div className="flex flex-col items-center py-6">
-                    <div className="relative w-16 h-16 mb-3">
-                      <div className="absolute inset-0 rounded-full bg-emerald-100 animate-ping opacity-25" />
-                      <div className="absolute inset-2 rounded-full bg-emerald-200 animate-ping opacity-25" style={{ animationDelay: '0.2s' }} />
-                      <div className="absolute inset-4 rounded-full bg-emerald-300 animate-ping opacity-25" style={{ animationDelay: '0.4s' }} />
+                  <div className="flex items-center gap-3 py-3 px-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <div className="relative w-10 h-10 flex-shrink-0">
+                      <div className="absolute inset-0 rounded-full bg-emerald-200 animate-ping opacity-25" />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
                       </div>
                     </div>
-                    <p className="text-gray-600 font-medium text-[13px]">Finding available pros...</p>
-                    <p className="text-emerald-600 text-[18px] font-mono font-bold mt-1">{formatCountdown(waitElapsed)}</p>
-                    <p className="text-gray-400 text-[11px] mt-1">Average response time: 4 minutes</p>
+                    <div className="flex-1">
+                      <p className="text-gray-900 font-semibold text-[14px]">Finding pros...</p>
+                      <p className="text-gray-500 text-[12px]">{mostRecentPendingJob.title}</p>
+                    </div>
+                    <p className="text-emerald-600 text-[16px] font-mono font-bold">{formatCountdown(waitElapsed)}</p>
                   </div>
                 )}
 
@@ -3862,8 +3945,10 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   </div>
                 )}
               </div>
-            ) : (
-              /* ═══ NO ACTIVE JOB: Search results ═══ */
+              )}
+
+              {/* ═══ Search results / Nearby pros ═══ */}
+              {!mostRecentPendingJob && (
               <div className="space-y-4">
                 {/* Search Loading / Countdown */}
                 {(searchLoading || (hasSearched && !searchLoading && searchResults.length === 0 && searchCountdown > 0)) && (
@@ -3960,6 +4045,8 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   </div>
                 )}
               </div>
+            )}
+              </>
             )}
           </div>
         </div>
@@ -5481,9 +5568,9 @@ function ProfileTab({
     return Math.round((doneWeight / totalWeight) * 100)
   }, [completeness])
 
-  // Get active jobs (not completed)
+  // Get active jobs (not completed or cancelled)
   const activeJobs = useMemo(() =>
-    jobs.filter(j => j.status !== 'completed').slice(0, 5),
+    jobs.filter(j => j.status !== 'completed' && j.status !== 'cancelled').slice(0, 5),
     [jobs]
   )
 
@@ -5635,10 +5722,11 @@ function ProfileTab({
                 </span>
               )}
             </div>
-            <p className="text-white/60 text-[12px] mt-1">
-              {userProfile?.subscription_type === 'free' ? 'Free Plan' : userProfile?.subscription_type || 'Free Plan'}
-              {completenessPct < 100 && ` • Profile ${completenessPct}%`}
-            </p>
+            {completenessPct < 100 && (
+              <p className="text-white/60 text-[12px] mt-1">
+                Profile {completenessPct}% complete
+              </p>
+            )}
           </div>
         </div>
 
@@ -6098,8 +6186,19 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
   const firstName = userProfile?.name?.split(' ')[0] || ''
   const email = userProfile?.email || user?.email || ''
 
-  // Location state - use ref to prevent re-fetching
-  const [center, setCenter] = useState<LatLng>([40.7128, -74.006])
+  // Location state - use cached location from localStorage to avoid NYC flash
+  const [center, setCenter] = useState<LatLng>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('rushr-user-location')
+        if (cached) {
+          const parsed = JSON.parse(cached)
+          if (Array.isArray(parsed) && parsed.length === 2) return parsed as LatLng
+        }
+      } catch {}
+    }
+    return [40.7128, -74.006]
+  })
   const [fetchingLocation, setFetchingLocation] = useState(false)
   const locationFetchedRef = useRef(false)
 
@@ -6249,11 +6348,18 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
     const fetchLocation = async () => {
       setFetchingLocation(true)
 
+      // Helper to cache location
+      const cacheLocation = (lat: number, lng: number) => {
+        try { localStorage.setItem('rushr-user-location', JSON.stringify([lat, lng])) } catch {}
+      }
+
       // 1) Native Capacitor geolocation
       const nativeResult = await getNativeLocation()
       if (nativeResult.success && nativeResult.coordinates) {
         console.log('[LOCATION] Native success:', nativeResult.coordinates)
-        setCenter([nativeResult.coordinates.latitude, nativeResult.coordinates.longitude])
+        const { latitude, longitude } = nativeResult.coordinates
+        setCenter([latitude, longitude])
+        cacheLocation(latitude, longitude)
         locationFetchedRef.current = true
         setFetchingLocation(false)
         return
@@ -6267,6 +6373,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
           (pos) => {
             console.log('[LOCATION] Browser success:', pos.coords.latitude, pos.coords.longitude)
             setCenter([pos.coords.latitude, pos.coords.longitude])
+            cacheLocation(pos.coords.latitude, pos.coords.longitude)
             locationFetchedRef.current = true
             resolve(true)
           },
@@ -6284,6 +6391,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
         if (data.latitude && data.longitude) {
           console.log('[LOCATION] IP geolocation:', data.city, data.latitude, data.longitude)
           setCenter([data.latitude, data.longitude])
+          cacheLocation(data.latitude, data.longitude)
           locationFetchedRef.current = true
         }
       } catch (e) {
@@ -6773,6 +6881,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
             onOpenTracking={handleOpenTracking}
             onStartJobSuccess={handleStartJobSuccess}
             onFindPro={handleFindPro}
+            isVisible={activeTab === 'home'}
           />
         </div>
         <div style={{ display: activeTab === 'jobs' ? 'contents' : 'none' }}>

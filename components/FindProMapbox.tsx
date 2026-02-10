@@ -58,6 +58,7 @@ export interface FindProMapboxHandle {
   flyToLocation: (lat: number, lng: number, zoom?: number) => void
   hideRadiusCircle: () => void
   showRadiusCircle: () => void
+  resize: () => void
 }
 
 const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
@@ -551,6 +552,10 @@ const FindProMapbox = forwardRef<FindProMapboxHandle, Props>(({
       if (!map || !mapReadyRef.current) return
       try { if (map.getLayer(radiusLayerId)) map.setLayoutProperty(radiusLayerId, 'visibility', 'visible') } catch {}
       try { if (map.getLayer(radiusLayerId + '-outline')) map.setLayoutProperty(radiusLayerId + '-outline', 'visibility', 'visible') } catch {}
+    },
+    resize: () => {
+      const map = mapObjRef.current
+      if (map) map.resize()
     }
   }), [])
 

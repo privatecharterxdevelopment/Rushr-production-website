@@ -50,52 +50,45 @@ export function useHomeownerStats() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Compute stats directly from jobs array (avoids dependency on homeowner_dashboard_stats view)
+  const computeStatsFromJobs = (jobsList: HomeownerJob[]): HomeownerStats => {
+    const active = jobsList.filter(j => ['pending', 'confirmed', 'in_progress'].includes(j.status)).length
+    const completed = jobsList.filter(j => j.status === 'completed').length
+    const totalSpent = jobsList
+      .filter(j => j.status === 'completed' && j.final_cost)
+      .reduce((sum, j) => sum + (j.final_cost || 0), 0)
+    return {
+      active_services: active,
+      completed_services: completed,
+      unread_messages: 0,
+      trusted_contractors: 0,
+      total_spent: totalSpent,
+      first_job_completed: completed > 0,
+      member_since: new Date().toISOString()
+    }
+  }
+
   const fetchStats = async () => {
     if (!user) return
 
     try {
-      // Fetch stats and jobs in parallel
-      const [statsResult, jobsResult] = await Promise.all([
-        supabase
-          .from('homeowner_dashboard_stats')
-          .select('*')
-          .eq('homeowner_id', user.id)
-          .single(),
-        supabase
-          .from('homeowner_jobs')
-          .select('*')
-          .eq('homeowner_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(10)
-      ])
+      // Fetch all jobs (not just 10) so stats are accurate
+      const { data: jobsData, error: jobsError } = await supabase
+        .from('homeowner_jobs')
+        .select('*')
+        .eq('homeowner_id', user.id)
+        .order('created_at', { ascending: false })
 
-      // Handle stats
-      if (statsResult.error) {
-        console.error('Error fetching homeowner stats:', statsResult.error.message || JSON.stringify(statsResult.error))
-        // If no stats exist yet, use defaults
-        setStats({
-          active_services: 0,
-          completed_services: 0,
-          unread_messages: 0,
-          trusted_contractors: 0,
-          total_spent: 0,
-          first_job_completed: false,
-          member_since: new Date().toISOString()
-        })
-      } else {
-        setStats(statsResult.data)
-      }
-
-      // Handle jobs
-      if (jobsResult.error) {
-        console.error('Error fetching homeowner jobs:', jobsResult.error.message || JSON.stringify(jobsResult.error))
+      if (jobsError) {
+        console.error('Error fetching homeowner jobs:', jobsError.message || JSON.stringify(jobsError))
         setJobs([])
+        setStats(computeStatsFromJobs([]))
       } else {
-        setJobs(jobsResult.data || [])
+        const allJobs = jobsData || []
+        setJobs(allJobs)
+        setStats(computeStatsFromJobs(allJobs))
       }
-
     } catch (err: any) {
-      // Suppress transient network errors (Failed to fetch, AbortError, etc.)
       const isNetworkError = err?.message?.includes('Failed to fetch') ||
                              err?.message?.includes('Load failed') ||
                              err?.name === 'AbortError'
@@ -165,51 +158,25 @@ export function useHomeownerStats() {
       if (!userId || !isMounted) return
 
       try {
-        // Fetch stats and jobs in parallel
-        const [statsResult, jobsResult] = await Promise.all([
-          supabase
-            .from('homeowner_dashboard_stats')
-            .select('*')
-            .eq('homeowner_id', userId)
-            .single(),
-          supabase
-            .from('homeowner_jobs')
-            .select('*')
-            .eq('homeowner_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(10)
-        ])
+        // Fetch all jobs (compute stats from jobs, no dependency on view)
+        const { data: jobsData, error: jobsError } = await supabase
+          .from('homeowner_jobs')
+          .select('*')
+          .eq('homeowner_id', userId)
+          .order('created_at', { ascending: false })
 
         if (!isMounted) return
 
-        // Handle stats - silently use defaults if no row exists (PGRST116 = no rows returned)
-        if (statsResult.error) {
-          // Only log non-expected errors (not "no rows" which is expected for new users)
-          if (statsResult.error.code !== 'PGRST116') {
-            console.warn('Homeowner stats not available:', statsResult.error.code)
-          }
-          setStats({
-            active_services: 0,
-            completed_services: 0,
-            unread_messages: 0,
-            trusted_contractors: 0,
-            total_spent: 0,
-            first_job_completed: false,
-            member_since: new Date().toISOString()
-          })
-        } else {
-          setStats(statsResult.data)
-        }
-
-        // Handle jobs
-        if (jobsResult.error) {
-          console.warn('Could not load homeowner jobs:', jobsResult.error.code)
+        if (jobsError) {
+          console.warn('Could not load homeowner jobs:', jobsError.code, jobsError.message)
           setJobs([])
+          setStats(computeStatsFromJobs([]))
         } else {
-          setJobs(jobsResult.data || [])
+          const allJobs = jobsData || []
+          setJobs(allJobs)
+          setStats(computeStatsFromJobs(allJobs))
         }
       } catch (err: any) {
-        // Silently handle network errors (Load failed, AbortError, etc.) - these are transient
         const isNetworkError = err?.message?.includes('Load failed') ||
                                err?.message?.includes('AbortError') ||
                                err?.message?.includes('network') ||
@@ -220,17 +187,8 @@ export function useHomeownerStats() {
           setError('Failed to load dashboard data')
         }
 
-        // Still set defaults so the UI doesn't break
         if (isMounted) {
-          setStats({
-            active_services: 0,
-            completed_services: 0,
-            unread_messages: 0,
-            trusted_contractors: 0,
-            total_spent: 0,
-            first_job_completed: false,
-            member_since: new Date().toISOString()
-          })
+          setStats(computeStatsFromJobs([]))
           setJobs([])
         }
       } finally {

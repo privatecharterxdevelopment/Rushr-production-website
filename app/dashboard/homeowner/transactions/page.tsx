@@ -41,13 +41,15 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true)
   const [showLoadingScreen, setShowLoadingScreen] = useState(false)
 
-  // Only show loading screen if loading takes longer than 500ms
+  // Only show loading screen if loading takes longer than 500ms, with 8s safety timeout
   useEffect(() => {
     if (authLoading || loading) {
-      const timer = setTimeout(() => {
-        setShowLoadingScreen(true)
-      }, 500)
-      return () => clearTimeout(timer)
+      const showTimer = setTimeout(() => setShowLoadingScreen(true), 500)
+      const safetyTimer = setTimeout(() => {
+        setLoading(false)
+        setShowLoadingScreen(false)
+      }, 8000)
+      return () => { clearTimeout(showTimer); clearTimeout(safetyTimer) }
     } else {
       setShowLoadingScreen(false)
     }
@@ -151,8 +153,10 @@ export default function TransactionsPage() {
 
         setTransactions(enrichedTransactions)
 
-        // Fetch Stripe receipts in background (non-blocking)
-        fetch(`/api/stripe/transactions?userId=${user.id}`)
+        // Fetch Stripe receipts in background (non-blocking, 10s timeout)
+        const controller = new AbortController()
+        const stripeTimeout = setTimeout(() => controller.abort(), 10000)
+        fetch(`/api/stripe/transactions?userId=${user.id}`, { signal: controller.signal })
           .then(res => res.json())
           .then(data => {
             if (data.success && data.charges) {
@@ -176,8 +180,9 @@ export default function TransactionsPage() {
             }
           })
           .catch(err => {
-            console.error('Failed to fetch Stripe data:', err)
+            if (err.name !== 'AbortError') console.error('Failed to fetch Stripe data:', err)
           })
+          .finally(() => clearTimeout(stripeTimeout))
       } catch (error) {
         console.error('Failed to fetch transactions:', error)
       } finally {
