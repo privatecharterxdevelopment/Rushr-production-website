@@ -1097,6 +1097,16 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
       const autoTitle = emergencyTypeLabels[emergencyType] || 'Home Emergency'
 
       // Prepare job data (escrow is created later when HO clicks "Start Job")
+      const parsedAmount = paymentType === 'direct' ? parseFloat(directAmount) : null
+      const safeAmount = parsedAmount && !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : null
+
+      // Ensure direct payment has a valid amount
+      if (paymentType === 'direct' && !safeAmount) {
+        setErrorPopup('Please enter a valid amount for direct payment.')
+        setSending(false)
+        return
+      }
+
       const jobData: any = {
         title: autoTitle,
         description: details || autoTitle,
@@ -1115,7 +1125,7 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
         requested_contractor_name: !sendAll && selectedContractor ? selectedContractor.name : null,
         // Direct payment fields
         payment_type: paymentType,
-        direct_amount: paymentType === 'direct' ? parseFloat(directAmount) : null,
+        direct_amount: safeAmount,
       }
 
       console.log('[SUBMIT] Job data prepared:', jobData)
@@ -1128,8 +1138,8 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
         .single()
 
       if (error) {
-        console.error('[SUBMIT] Error creating job:', error)
-        setErrorPopup('Failed to submit emergency request. Please try again.')
+        console.error('[SUBMIT] Error creating job:', error.message, error.details, error.code)
+        setErrorPopup(`Failed to post job: ${error.message || 'Unknown error'}. Please try again.`)
         setSending(false)
         return
       }

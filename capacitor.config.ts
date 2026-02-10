@@ -14,7 +14,7 @@ const config: CapacitorConfig = {
     cleartext: true
   } : {
     // Production - loads from Vercel
-    url: 'https://staging-rushr.vercel.app/?native=ios',
+    url: 'https://rushr-production-website.vercel.app/?native=ios',
     cleartext: false
   },
   ios: {

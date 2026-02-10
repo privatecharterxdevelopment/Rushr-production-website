@@ -589,13 +589,14 @@ interface VerificationBannerProps {
   stripeConnectStatus: { hasAccount: boolean; payoutsEnabled: boolean; chargesEnabled: boolean } | null
   loadingStripe: boolean
   onCompleteStripe: () => void
+  onStartVerification: () => void
 }
 
-function VerificationBanner({ contractorProfile, stripeConnectStatus, loadingStripe, onCompleteStripe }: VerificationBannerProps) {
+function VerificationBanner({ contractorProfile, stripeConnectStatus, loadingStripe, onCompleteStripe, onStartVerification }: VerificationBannerProps) {
   const kycStatus = contractorProfile.kyc_status
   const status = contractorProfile.status
 
-  // 1. KYC Not Started - Need to complete wizard
+  // 1. KYC Not Started - Need to complete verification
   if (kycStatus === 'not_started' || !kycStatus) {
     return (
       <div className="mx-4 mb-4 p-4 bg-blue-50 rounded-2xl border border-blue-200">
@@ -611,7 +612,7 @@ function VerificationBanner({ contractorProfile, stripeConnectStatus, loadingStr
               Complete identity verification to start accepting jobs.
             </p>
             <button
-              onClick={() => window.open('https://www.userushr.com/pro/wizard', '_blank')}
+              onClick={onStartVerification}
               className="mt-3 px-4 py-2 bg-blue-600 text-white text-[14px] font-medium rounded-xl active:scale-[0.98] transition-transform"
             >
               Start Verification
@@ -715,9 +716,13 @@ function HomeTab({
   myBids,
   stats,
   onBidJob,
+  onViewJob,
+  directOffers,
+  onViewOffer,
   stripeConnectStatus,
   loadingStripe,
-  onCompleteStripe
+  onCompleteStripe,
+  onStartVerification
 }: {
   contractorProfile: ContractorProfile
   jobs: Job[]
@@ -725,11 +730,15 @@ function HomeTab({
   myBids: Bid[]
   stats: any
   onBidJob: (job: Job) => void
+  onViewJob: (job: Job) => void
+  directOffers: DirectOffer[]
+  onViewOffer: (offer: DirectOffer) => void
   stripeConnectStatus: { hasAccount: boolean; payoutsEnabled: boolean; chargesEnabled: boolean } | null
   loadingStripe: boolean
   onCompleteStripe: () => void
+  onStartVerification: () => void
 }) {
-  const router = useRouter()
+  const mapRef = useRef<FindProMapboxHandle>(null)
   const [sheetExpanded, setSheetExpanded] = useState(false)
   const [sheetMinimized, setSheetMinimized] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -804,6 +813,30 @@ function HomeTab({
   // Check if functionality should be disabled
   const isDisabled = !isFullyVerified
 
+  // Build map items from available jobs
+  const mapItems = useMemo(() => {
+    return jobs
+      .filter(j => j.latitude && j.longitude)
+      .map(j => ({
+        id: j.id,
+        name: j.title,
+        latitude: j.latitude!,
+        longitude: j.longitude!,
+        services: [j.category],
+      }))
+  }, [jobs])
+
+  // Map center: contractor's location or first job
+  const mapCenter = useMemo<[number, number]>(() => {
+    if (contractorProfile.latitude && contractorProfile.longitude) {
+      return [contractorProfile.latitude, contractorProfile.longitude]
+    }
+    if (jobs.length > 0 && jobs[0].latitude && jobs[0].longitude) {
+      return [jobs[0].latitude, jobs[0].longitude]
+    }
+    return [39.8283, -98.5795] // US center fallback
+  }, [contractorProfile.latitude, contractorProfile.longitude, jobs])
+
   // Sheet height calculation
   let sheetHeight = '45%'
   if (sheetExpanded) sheetHeight = '70%'
@@ -811,17 +844,17 @@ function HomeTab({
 
   return (
     <div className="absolute inset-0 flex flex-col">
-      {/* Map Background */}
-      <div className="absolute inset-0 bg-gray-100">
-        {/* Jobs on map would go here - for now show placeholder */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center text-gray-400">
-            <svg className="w-16 h-16 mx-auto mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-            </svg>
-            <p className="text-sm">Jobs in your area</p>
-          </div>
-        </div>
+      {/* Map Background - Real Mapbox with job pins */}
+      <div className="absolute inset-0">
+        <FindProMapbox
+          ref={mapRef}
+          items={mapItems}
+          radiusMiles={contractorProfile.radius_miles || 25}
+          searchCenter={mapCenter}
+          fullscreen={true}
+          hideSearchButton={true}
+          hideControls={true}
+        />
       </div>
 
       {/* Blue Header - matching homeowner green header */}
@@ -862,6 +895,7 @@ function HomeTab({
         stripeConnectStatus={stripeConnectStatus}
         loadingStripe={loadingStripe}
         onCompleteStripe={onCompleteStripe}
+        onStartVerification={onStartVerification}
       />
 
       {/* Bottom Sheet - matching homeowner structure */}
@@ -903,6 +937,43 @@ function HomeTab({
             </div>
           </div>
 
+          {/* Direct Offers Section */}
+          {directOffers.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-[17px] font-semibold text-gray-900">Direct Offers</h2>
+                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[12px] font-semibold">{directOffers.length} new</span>
+              </div>
+              <div className="space-y-3">
+                {directOffers.map((offer) => (
+                  <IOSCard key={offer.id} className="p-4 border-l-4 border-purple-500">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-[11px] font-semibold">DIRECT</span>
+                        </div>
+                        <h3 className="text-[16px] font-semibold text-gray-900">{offer.title}</h3>
+                        <p className="text-[13px] text-gray-500">{offer.category}</p>
+                      </div>
+                      <p className="text-[18px] font-bold text-green-600">${offer.offered_amount}</p>
+                    </div>
+                    {offer.homeowner_name && (
+                      <p className="text-[13px] text-gray-500 mb-2">From {offer.homeowner_name}</p>
+                    )}
+                    <p className="text-[13px] text-gray-500 mb-3">{offer.address}, {offer.city}</p>
+                    <button
+                      onClick={() => onViewOffer(offer)}
+                      className="w-full py-2.5 rounded-xl text-[14px] font-semibold text-white active:scale-[0.98] transition-transform"
+                      style={{ background: 'linear-gradient(135deg, #9333ea, #7c3aed)' }}
+                    >
+                      View Offer
+                    </button>
+                  </IOSCard>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Available Jobs Section */}
           <div className="mb-4">
             <div className="flex items-center justify-between mb-3">
@@ -927,7 +998,7 @@ function HomeTab({
             ) : (
               <div className="space-y-3">
                 {jobs.slice(0, 5).map((job) => (
-                  <JobCard key={job.id} job={job} onBid={onBidJob} />
+                  <JobCard key={job.id} job={job} onBid={onBidJob} onView={onViewJob} />
                 ))}
               </div>
             )}
@@ -939,8 +1010,7 @@ function HomeTab({
 }
 
 // Job Card Component
-function JobCard({ job, onBid }: { job: Job; onBid: (job: Job) => void }) {
-  const router = useRouter()
+function JobCard({ job, onBid, onView }: { job: Job; onBid: (job: Job) => void; onView: (job: Job) => void }) {
 
   const timeAgo = useMemo(() => {
     const now = new Date()
@@ -984,7 +1054,7 @@ function JobCard({ job, onBid }: { job: Job; onBid: (job: Job) => void }) {
 
       <div className="flex gap-2">
         <button
-          onClick={() => router.push(`/dashboard/contractor/jobs/${job.id}`)}
+          onClick={() => onView(job)}
           className="flex-1 py-2.5 rounded-xl text-[14px] font-medium bg-gray-100 text-gray-700 active:bg-gray-200 transition-colors"
         >
           View Details
@@ -1002,7 +1072,7 @@ function JobCard({ job, onBid }: { job: Job; onBid: (job: Job) => void }) {
 }
 
 // ============= JOBS TAB =============
-function JobsTab({ jobs, loading, onBidJob }: { jobs: Job[]; loading: boolean; onBidJob: (job: Job) => void }) {
+function JobsTab({ jobs, loading, onBidJob, onViewJob }: { jobs: Job[]; loading: boolean; onBidJob: (job: Job) => void; onViewJob: (job: Job) => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col bg-gray-50"
@@ -1041,7 +1111,7 @@ function JobsTab({ jobs, loading, onBidJob }: { jobs: Job[]; loading: boolean; o
         ) : (
           <div className="space-y-3">
             {jobs.map((job) => (
-              <JobCard key={job.id} job={job} onBid={onBidJob} />
+              <JobCard key={job.id} job={job} onBid={onBidJob} onView={onViewJob} />
             ))}
           </div>
         )}
@@ -1202,21 +1272,16 @@ function ProfileTab({
   user,
   stats,
   onSignOut,
-  onSwitchToHomeowner
+  onSwitchToHomeowner,
+  onOpenSubView
 }: {
   contractorProfile: ContractorProfile
   user: any
   stats: any
   onSignOut: () => void
   onSwitchToHomeowner?: () => void
+  onOpenSubView: (view: string) => void
 }) {
-  const router = useRouter()
-
-  const handleNavigation = async (href: string) => {
-    await triggerHaptic()
-    router.push(href)
-  }
-
   const handleSignOut = async () => {
     await triggerHaptic(ImpactStyle.Medium)
     onSignOut()
@@ -1279,20 +1344,20 @@ function ProfileTab({
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
             title="Settings"
             subtitle="Profile, service area, rates"
-            href="/dashboard/contractor/settings"
+            onClick={() => onOpenSubView('settings')}
           />
           <Divider />
           <ListItem
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>}
             title="Billing"
             subtitle="Payment history, payouts"
-            href="/dashboard/contractor/billing"
+            onClick={() => onOpenSubView('billing')}
           />
           <Divider />
           <ListItem
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             title="Help & Support"
-            href="/help"
+            onClick={() => onOpenSubView('help')}
           />
         </IOSCard>
 
@@ -1318,6 +1383,475 @@ function ProfileTab({
         )}
       </div>
     </div>
+  )
+}
+
+// ============= NATIVE SUB-VIEW WRAPPER =============
+function NativeSubView({ title, onBack, children }: { title: string; onBack: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-gray-50 z-50 flex flex-col">
+      {/* Blue Header with back button */}
+      <div
+        style={{
+          background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+          paddingTop: 'max(env(safe-area-inset-top, 59px), 59px)'
+        }}
+      >
+        <div className="px-4 pb-4 flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <h1 className="text-white text-[20px] font-bold">{title}</h1>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ============= SETTINGS SUB-VIEW =============
+function SettingsSubView({ contractorProfile, onBack }: { contractorProfile: ContractorProfile; onBack: () => void }) {
+  return (
+    <NativeSubView title="Settings" onBack={onBack}>
+      <div className="p-4 space-y-4">
+        {/* Profile Info */}
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3">Profile</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Name</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.name || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Business</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.business_name || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Phone</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.phone || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Email</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.email}</span></div>
+            </div>
+          </div>
+        </IOSCard>
+
+        {/* Service Area */}
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3">Service Area</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Base ZIP</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.base_zip || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Radius</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.radius_miles || contractorProfile.service_radius_miles || 25} miles</span></div>
+              {contractorProfile.categories && contractorProfile.categories.length > 0 && (
+                <div>
+                  <p className="text-gray-500 text-[14px] mb-2">Categories</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {contractorProfile.categories.map((cat: string) => (
+                      <span key={cat} className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-[12px] font-medium">{cat}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </IOSCard>
+
+        {/* Credentials */}
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3">Credentials</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">License</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.license_number || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">State</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.license_state || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500 text-[14px]">Insurance</span><span className="text-gray-900 text-[14px] font-medium">{contractorProfile.insurance_carrier || '—'}</span></div>
+            </div>
+          </div>
+        </IOSCard>
+      </div>
+    </NativeSubView>
+  )
+}
+
+// ============= BILLING SUB-VIEW =============
+function BillingSubView({ stats, onBack }: { stats: any; onBack: () => void }) {
+  return (
+    <NativeSubView title="Billing" onBack={onBack}>
+      <div className="p-4 space-y-4">
+        {/* Earnings Summary */}
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3">Earnings Summary</h3>
+            <div className="text-center py-4">
+              <p className="text-[36px] font-bold text-green-600">${stats?.earnings?.toFixed(2) || '0.00'}</p>
+              <p className="text-gray-500 text-[14px] mt-1">Total Earnings</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-[20px] font-bold text-gray-900">{stats?.completed_jobs || 0}</p>
+                <p className="text-[11px] text-gray-500">Jobs Completed</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-[20px] font-bold text-gray-900">{stats?.rating || '5.0'}</p>
+                <p className="text-[11px] text-gray-500">Rating</p>
+              </div>
+            </div>
+          </div>
+        </IOSCard>
+
+        <IOSCard>
+          <div className="p-4 text-center">
+            <p className="text-gray-500 text-[14px]">Payouts are processed through Stripe Connect. Check your Stripe dashboard for detailed transaction history.</p>
+          </div>
+        </IOSCard>
+      </div>
+    </NativeSubView>
+  )
+}
+
+// ============= HELP SUB-VIEW =============
+function HelpSubView({ onBack }: { onBack: () => void }) {
+  return (
+    <NativeSubView title="Help & Support" onBack={onBack}>
+      <div className="p-4 space-y-4">
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[15px] font-semibold text-gray-900 mb-3">How It Works</h3>
+            <div className="space-y-3 text-[14px] text-gray-600 leading-relaxed">
+              <p>1. Browse available jobs in your service area</p>
+              <p>2. Place competitive bids on jobs you want</p>
+              <p>3. Get selected by homeowners and start working</p>
+              <p>4. Complete the job and get paid through Stripe</p>
+            </div>
+          </div>
+        </IOSCard>
+
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[15px] font-semibold text-gray-900 mb-3">Direct Offers</h3>
+            <p className="text-[14px] text-gray-600 leading-relaxed">
+              Homeowners can send you direct job offers. You can accept, decline, or counter-bid with different terms. Once agreed, the job starts and you navigate to the location.
+            </p>
+          </div>
+        </IOSCard>
+
+        <IOSCard>
+          <div className="p-4">
+            <h3 className="text-[15px] font-semibold text-gray-900 mb-3">Contact Support</h3>
+            <p className="text-[14px] text-gray-600">Email: support@userushr.com</p>
+          </div>
+        </IOSCard>
+      </div>
+    </NativeSubView>
+  )
+}
+
+// ============= DIRECT OFFER INTERFACE =============
+interface DirectOffer {
+  id: string
+  homeowner_id: string
+  contractor_id: string
+  title: string
+  description: string
+  category: string
+  priority: string
+  offered_amount: number
+  estimated_duration_hours: number
+  address: string
+  city: string
+  state: string
+  zip: string
+  latitude?: number
+  longitude?: number
+  status: string
+  contractor_response: string
+  counter_bid_amount?: number
+  counter_bid_message?: string
+  created_at: string
+  homeowner_name?: string
+}
+
+// ============= DIRECT OFFER DETAIL MODAL =============
+function DirectOfferModal({
+  offer,
+  onClose,
+  onRespond
+}: {
+  offer: DirectOffer | null
+  onClose: () => void
+  onRespond: (offerId: string, action: 'accepted' | 'rejected' | 'counter_bid', counterAmount?: number, counterMessage?: string) => Promise<void>
+}) {
+  const [action, setAction] = useState<'view' | 'counter'>('view')
+  const [counterAmount, setCounterAmount] = useState('')
+  const [counterMessage, setCounterMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  if (!offer) return null
+
+  const handleRespond = async (responseAction: 'accepted' | 'rejected' | 'counter_bid') => {
+    setLoading(true)
+    try {
+      await onRespond(
+        offer.id,
+        responseAction,
+        responseAction === 'counter_bid' ? parseFloat(counterAmount) : undefined,
+        responseAction === 'counter_bid' ? counterMessage : undefined
+      )
+      await triggerNotification(NotificationType.Success)
+      onClose()
+    } catch (err: any) {
+      showGlobalToast(err.message || 'Failed to respond', 'error')
+      await triggerNotification(NotificationType.Error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[90vh] overflow-y-auto"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 16px)' }}
+      >
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+
+        <div className="px-6 pb-4">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-1 bg-purple-100 text-purple-700 rounded-lg text-[12px] font-semibold">DIRECT OFFER</span>
+              </div>
+              <h2 className="text-[22px] font-bold text-gray-900">{offer.title}</h2>
+              <p className="text-blue-600 text-[15px] font-medium mt-1">{offer.category}</p>
+            </div>
+            <button onClick={onClose} className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Offered Amount */}
+          <div className="bg-green-50 rounded-xl p-4 mb-4">
+            <p className="text-green-700 text-[13px] font-medium">Offered Amount</p>
+            <p className="text-green-800 text-[28px] font-bold">${offer.offered_amount}</p>
+            {offer.estimated_duration_hours > 0 && (
+              <p className="text-green-600 text-[13px]">Est. {offer.estimated_duration_hours}h duration</p>
+            )}
+          </div>
+
+          {/* Description */}
+          <div className="mb-4">
+            <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Description</h3>
+            <p className="text-[15px] text-gray-700 leading-relaxed">{offer.description}</p>
+          </div>
+
+          {/* Location */}
+          <div className="bg-gray-50 rounded-xl p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <div>
+                <p className="text-[15px] font-semibold text-gray-900">{offer.address}</p>
+                <p className="text-[13px] text-gray-500">{offer.city}, {offer.state} {offer.zip}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* From Homeowner */}
+          {offer.homeowner_name && (
+            <div className="bg-blue-50 rounded-xl p-4 mb-6">
+              <p className="text-blue-600 text-[13px] font-medium">From</p>
+              <p className="text-blue-900 text-[16px] font-semibold">{offer.homeowner_name}</p>
+            </div>
+          )}
+
+          {/* Counter Bid Form */}
+          {action === 'counter' ? (
+            <div className="space-y-4 mb-4">
+              <div>
+                <label className="block text-gray-600 text-[13px] font-medium mb-2">Your Counter Amount ($)</label>
+                <input
+                  type="number"
+                  value={counterAmount}
+                  onChange={(e) => setCounterAmount(e.target.value)}
+                  placeholder="Enter amount"
+                  inputMode="decimal"
+                  className="w-full px-4 py-4 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-600 text-[13px] font-medium mb-2">Message (optional)</label>
+                <textarea
+                  value={counterMessage}
+                  onChange={(e) => setCounterMessage(e.target.value)}
+                  placeholder="Explain your counter offer..."
+                  rows={2}
+                  className="w-full px-4 py-4 bg-gray-50 rounded-xl text-gray-900 text-[16px] placeholder-gray-400 border-0 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setAction('view')} className="flex-1 py-3.5 rounded-xl font-medium text-gray-700 bg-gray-100">
+                  Back
+                </button>
+                <button
+                  onClick={() => handleRespond('counter_bid')}
+                  disabled={loading || !counterAmount}
+                  className="flex-1 py-3.5 rounded-xl font-semibold text-white bg-purple-600 disabled:opacity-50"
+                >
+                  {loading ? 'Sending...' : 'Send Counter'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Action Buttons */
+            <div className="space-y-3">
+              <button
+                onClick={() => handleRespond('accepted')}
+                disabled={loading}
+                className="w-full py-4 rounded-xl font-bold text-[16px] text-white active:scale-[0.98] transition-transform disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+              >
+                {loading ? 'Accepting...' : `Accept Offer - $${offer.offered_amount}`}
+              </button>
+              <button
+                onClick={() => setAction('counter')}
+                className="w-full py-4 rounded-xl font-bold text-[16px] text-purple-700 bg-purple-50 active:bg-purple-100 transition-colors"
+              >
+                Counter Bid
+              </button>
+              <button
+                onClick={() => handleRespond('rejected')}
+                disabled={loading}
+                className="w-full py-3 rounded-xl font-medium text-[14px] text-red-600 active:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Declining...' : 'Decline Offer'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ============= JOB DETAIL MODAL =============
+function JobDetailModal({
+  job,
+  onClose,
+  onBid
+}: {
+  job: Job | null
+  onClose: () => void
+  onBid: (job: Job) => void
+}) {
+  if (!job) return null
+
+  const timeAgo = (() => {
+    const now = new Date()
+    const created = new Date(job.created_at)
+    const diff = Math.floor((now.getTime() - created.getTime()) / 1000 / 60)
+    if (diff < 60) return `${diff}m ago`
+    if (diff < 1440) return `${Math.floor(diff / 60)}h ago`
+    return `${Math.floor(diff / 1440)}d ago`
+  })()
+
+  const priorityColors: Record<string, { bg: string; text: string }> = {
+    emergency: { bg: 'bg-red-100', text: 'text-red-700' },
+    urgent: { bg: 'bg-orange-100', text: 'text-orange-700' },
+    normal: { bg: 'bg-gray-100', text: 'text-gray-700' }
+  }
+  const priority = priorityColors[job.priority] || priorityColors.normal
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[85vh] overflow-y-auto"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 20px) + 16px)' }}
+      >
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+
+        <div className="px-6 pb-4">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`px-2.5 py-1 rounded-lg text-[12px] font-semibold ${priority.bg} ${priority.text}`}>
+                  {job.priority?.toUpperCase() || 'NORMAL'}
+                </span>
+                <span className="text-gray-400 text-[13px]">{timeAgo}</span>
+              </div>
+              <h2 className="text-[22px] font-bold text-gray-900">{job.title}</h2>
+              <p className="text-blue-600 text-[15px] font-medium mt-1">{job.category}</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center"
+            >
+              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Description */}
+          <div className="mb-4">
+            <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Description</h3>
+            <p className="text-[15px] text-gray-700 leading-relaxed">{job.description}</p>
+          </div>
+
+          {/* Location */}
+          <div className="bg-gray-50 rounded-xl p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <div>
+                <p className="text-[15px] font-semibold text-gray-900">{job.address}</p>
+                <p className="text-[13px] text-gray-500">{job.city}, {job.state} {job.zip_code}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Budget */}
+          {(job.budget_min || job.budget_max) && (
+            <div className="bg-green-50 rounded-xl p-4 mb-4">
+              <div className="flex items-center gap-3">
+                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-[13px] text-green-700 font-medium">Budget Range</p>
+                  <p className="text-[18px] font-bold text-green-800">
+                    ${job.budget_min || 0} - ${job.budget_max || '?'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Action Button */}
+          <button
+            onClick={() => {
+              onClose()
+              onBid(job)
+            }}
+            className="w-full py-4 rounded-xl font-bold text-[16px] text-white active:scale-[0.98] transition-transform"
+            style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
+          >
+            Place Bid
+          </button>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1442,6 +1976,12 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
   const [loadingConversations, setLoadingConversations] = useState(false)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showBidModal, setShowBidModal] = useState(false)
+  const [showJobDetail, setShowJobDetail] = useState(false)
+  const [selectedDetailJob, setSelectedDetailJob] = useState<Job | null>(null)
+  const [directOffers, setDirectOffers] = useState<DirectOffer[]>([])
+  const [selectedOffer, setSelectedOffer] = useState<DirectOffer | null>(null)
+  const [showOfferModal, setShowOfferModal] = useState(false)
+  const [subView, setSubView] = useState<string | null>(null)
   const [stats, setStats] = useState({
     earnings: 0,
     completed_jobs: 0,
@@ -1457,12 +1997,12 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null)
   const [showJobTracking, setShowJobTracking] = useState(false)
 
-  // Fetch active job (accepted bid with in_progress or confirmed status)
+  // Fetch active job (accepted bid OR directly assigned contractor_id)
   const fetchActiveJob = useCallback(async () => {
     if (!user) return
 
     try {
-      // Find jobs where this contractor's bid was accepted and job is active
+      // 1. Check via accepted bids
       const { data: acceptedBids, error: bidError } = await supabase
         .from('job_bids')
         .select(`
@@ -1485,19 +2025,16 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
 
       if (bidError) {
         console.error('Error fetching accepted bids:', bidError)
-        return
       }
 
-      // Find an active job (confirmed or in_progress)
-      const activeJobData = acceptedBids?.find(bid => {
+      // Find an active job from bids (confirmed or in_progress)
+      const activeJobFromBid = acceptedBids?.find(bid => {
         const job = bid.homeowner_jobs as any
         return job && (job.status === 'confirmed' || job.status === 'in_progress')
       })
 
-      if (activeJobData) {
-        const jobData = activeJobData.homeowner_jobs as any
-
-        // Fetch homeowner name
+      if (activeJobFromBid) {
+        const jobData = activeJobFromBid.homeowner_jobs as any
         const { data: homeowner } = await supabase
           .from('user_profiles')
           .select('name, phone')
@@ -1514,33 +2051,86 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
           homeowner_id: jobData.homeowner_id,
           homeowner_name: homeowner?.name,
           homeowner_phone: homeowner?.phone,
-          final_cost: jobData.final_cost || activeJobData.bid_amount,
-          accepted_bid_id: activeJobData.id
+          final_cost: jobData.final_cost || activeJobFromBid.bid_amount,
+          accepted_bid_id: activeJobFromBid.id
         })
-      } else {
-        setActiveJob(null)
-        setShowJobTracking(false)
+        return
       }
+
+      // 2. Fallback: check jobs assigned directly via contractor_id (no bid)
+      const { data: directJobs, error: directError } = await supabase
+        .from('homeowner_jobs')
+        .select('id, title, status, address, latitude, longitude, homeowner_id, final_cost')
+        .eq('contractor_id', user.id)
+        .in('status', ['confirmed', 'in_progress'])
+        .limit(1)
+        .single()
+
+      if (!directError && directJobs) {
+        const { data: homeowner } = await supabase
+          .from('user_profiles')
+          .select('name, phone')
+          .eq('id', directJobs.homeowner_id)
+          .single()
+
+        setActiveJob({
+          id: directJobs.id,
+          title: directJobs.title,
+          status: directJobs.status,
+          address: directJobs.address,
+          latitude: directJobs.latitude,
+          longitude: directJobs.longitude,
+          homeowner_id: directJobs.homeowner_id,
+          homeowner_name: homeowner?.name,
+          homeowner_phone: homeowner?.phone,
+          final_cost: directJobs.final_cost
+        })
+        return
+      }
+
+      // No active job found
+      setActiveJob(null)
+      setShowJobTracking(false)
     } catch (err) {
       console.error('Failed to fetch active job:', err)
     }
   }, [user])
 
-  // Fetch available jobs
+  // Fetch available jobs - use location bounding box when possible, fallback to ZIP
   const fetchJobs = useCallback(async () => {
     if (!contractorProfile) return
     setLoadingJobs(true)
     try {
-      const serviceZips = contractorProfile.service_area_zips || [contractorProfile.base_zip]
+      const lat = contractorProfile.latitude
+      const lng = contractorProfile.longitude
+      const radiusMiles = contractorProfile.radius_miles || contractorProfile.service_radius_miles || 25
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('homeowner_jobs')
         .select('*')
-        .in('zip_code', serviceZips.filter(Boolean))
         .in('status', ['pending', 'bidding'])
         .order('created_at', { ascending: false })
         .limit(50)
 
+      if (lat && lng) {
+        // Bounding box: ~69 mi/deg lat, ~55 mi/deg lng at mid-latitudes
+        const latDelta = radiusMiles / 69
+        const lngDelta = radiusMiles / 55
+        query = query
+          .gte('latitude', lat - latDelta)
+          .lte('latitude', lat + latDelta)
+          .gte('longitude', lng - lngDelta)
+          .lte('longitude', lng + lngDelta)
+      } else {
+        // Fallback to ZIP-based
+        const serviceZips = contractorProfile.service_area_zips || [contractorProfile.base_zip]
+        const validZips = serviceZips.filter(Boolean) as string[]
+        if (validZips.length > 0) {
+          query = query.in('zip_code', validZips)
+        }
+      }
+
+      const { data, error } = await query
       if (!error) setJobs(data || [])
     } catch (err) {
       console.error('Failed to fetch jobs:', err)
@@ -1565,14 +2155,98 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
     }
   }, [user])
 
+  // Fetch conversations for this contractor
+  const fetchConversations = useCallback(async () => {
+    if (!user) return
+    setLoadingConversations(true)
+    try {
+      // Get conversations where this contractor is a participant
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .or(`participant_1.eq.${user.id},participant_2.eq.${user.id}`)
+        .order('updated_at', { ascending: false })
+
+      if (!error && data) {
+        // Enrich with other user's name and last message
+        const enriched = await Promise.all(data.map(async (conv: any) => {
+          const otherUserId = conv.participant_1 === user.id ? conv.participant_2 : conv.participant_1
+          // Get other user name
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('name')
+            .eq('id', otherUserId)
+            .single()
+          // Get last message
+          const { data: lastMsg } = await supabase
+            .from('messages')
+            .select('content, created_at')
+            .eq('conversation_id', conv.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+          // Get unread count
+          const { count } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+            .neq('sender_id', user.id)
+            .eq('is_read', false)
+
+          return {
+            ...conv,
+            other_user_name: profile?.name || 'Homeowner',
+            last_message: lastMsg?.content || 'Start a conversation',
+            unread_count: count || 0
+          }
+        }))
+        setConversations(enriched)
+      }
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err)
+    } finally {
+      setLoadingConversations(false)
+    }
+  }, [user])
+
+  // Fetch direct offers for this contractor
+  const fetchDirectOffers = useCallback(async () => {
+    if (!user) return
+    try {
+      const { data, error } = await supabase
+        .from('direct_offers')
+        .select('*')
+        .eq('contractor_id', user.id)
+        .in('status', ['pending', 'counter_bid'])
+        .order('created_at', { ascending: false })
+
+      if (!error && data) {
+        // Enrich with homeowner names
+        const enriched = await Promise.all(data.map(async (offer: any) => {
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('name')
+            .eq('id', offer.homeowner_id)
+            .single()
+          return { ...offer, homeowner_name: profile?.name || 'Homeowner' }
+        }))
+        setDirectOffers(enriched)
+      }
+    } catch (err) {
+      console.error('Failed to fetch direct offers:', err)
+    }
+  }, [user])
+
   // Initial load
   useEffect(() => {
     if (user && contractorProfile) {
       fetchJobs()
       fetchMyBids()
       fetchActiveJob()
+      fetchConversations()
+      fetchDirectOffers()
     }
-  }, [user, contractorProfile, fetchJobs, fetchMyBids, fetchActiveJob])
+  }, [user, contractorProfile, fetchJobs, fetchMyBids, fetchActiveJob, fetchConversations, fetchDirectOffers])
 
   // Auto-show tracking view when there's an active job
   useEffect(() => {
@@ -1691,6 +2365,81 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
     }
   }, [user])
 
+  // Real-time subscription for new jobs (INSERT + UPDATE on homeowner_jobs)
+  useEffect(() => {
+    if (!user || !contractorProfile) return
+
+    const channel = supabase
+      .channel('contractor-new-jobs')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'homeowner_jobs'
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            // Re-fetch jobs to pick up new/updated listings
+            fetchJobs()
+            // If a job was assigned to this contractor, refresh active job
+            const newJob = payload.new as any
+            if (newJob?.contractor_id === user.id) {
+              fetchActiveJob()
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user, contractorProfile, fetchJobs, fetchActiveJob])
+
+  // Real-time subscription for messages (new messages refresh conversations list)
+  useEffect(() => {
+    if (!user) return
+
+    const channel = supabase
+      .channel('contractor-messages-rt')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => { fetchConversations() }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [user, fetchConversations])
+
+  // Real-time subscription for direct offers
+  useEffect(() => {
+    if (!user) return
+
+    const channel = supabase
+      .channel('contractor-direct-offers-rt')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'direct_offers',
+          filter: `contractor_id=eq.${user.id}`
+        },
+        (payload) => {
+          fetchDirectOffers()
+          if (payload.eventType === 'INSERT') {
+            triggerNotification(NotificationType.Success)
+            showGlobalToast('New direct offer received!', 'success')
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [user, fetchDirectOffers])
+
   // Handle Stripe Connect setup
   const handleCompleteStripeSetup = async () => {
     if (!user) return
@@ -1744,6 +2493,55 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
   const handleBidJob = (job: Job) => {
     setSelectedJob(job)
     setShowBidModal(true)
+  }
+
+  const handleViewJob = (job: Job) => {
+    setSelectedDetailJob(job)
+    setShowJobDetail(true)
+  }
+
+  // Handle direct offer response (accept/reject/counter)
+  const handleRespondToOffer = async (offerId: string, action: 'accepted' | 'rejected' | 'counter_bid', counterAmount?: number, counterMessage?: string) => {
+    const response = await fetch('/api/direct-offers/respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        offerId,
+        contractorId: user!.id,
+        action,
+        counter_amount: counterAmount,
+        counter_message: counterMessage
+      })
+    })
+
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to respond')
+
+    await fetchDirectOffers()
+
+    // If accepted, refresh active job (offer may convert to job)
+    if (action === 'accepted') {
+      showGlobalToast('Offer accepted! Job will start soon.', 'success')
+      setTimeout(() => {
+        fetchActiveJob()
+        fetchJobs()
+      }, 1500)
+    }
+  }
+
+  // Handle KYC verification start (native - update status)
+  const handleStartVerification = async () => {
+    if (!user) return
+    try {
+      await supabase
+        .from('pro_contractors')
+        .update({ kyc_status: 'in_progress' })
+        .eq('id', user.id)
+      await refreshProfile()
+      showGlobalToast('Verification submitted! We\'ll review your profile within 1-2 business days.', 'success', 5000)
+    } catch (err) {
+      showGlobalToast('Failed to start verification', 'error')
+    }
   }
 
   // Show loading state
@@ -1810,13 +2608,20 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
             myBids={myBids}
             stats={stats}
             onBidJob={handleBidJob}
+            onViewJob={handleViewJob}
+            directOffers={directOffers}
+            onViewOffer={(offer) => {
+              setSelectedOffer(offer)
+              setShowOfferModal(true)
+            }}
             stripeConnectStatus={stripeConnectStatus}
             loadingStripe={loadingStripe}
             onCompleteStripe={handleCompleteStripeSetup}
+            onStartVerification={handleStartVerification}
           />
         )}
         {activeTab === 'jobs' && (
-          <JobsTab jobs={jobs} loading={loadingJobs} onBidJob={handleBidJob} />
+          <JobsTab jobs={jobs} loading={loadingJobs} onBidJob={handleBidJob} onViewJob={handleViewJob} />
         )}
         {activeTab === 'messages' && (
           <MessagesTab conversations={conversations} loading={loadingConversations} />
@@ -1831,6 +2636,7 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
             stats={stats}
             onSignOut={signOut}
             onSwitchToHomeowner={onSwitchToHomeowner}
+            onOpenSubView={setSubView}
           />
         )}
 
@@ -1838,9 +2644,44 @@ export default function IOSContractorHomeView({ onSwitchToHomeowner }: Props) {
         <IOSContractorTabBar
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          unreadMessages={0}
-          newJobs={jobs.length}
+          unreadMessages={conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0)}
+          newJobs={jobs.length + directOffers.length}
         />
+
+        {/* Native Sub-Views (Settings, Billing, Help) */}
+        {subView === 'settings' && (
+          <SettingsSubView contractorProfile={contractorProfile} onBack={() => setSubView(null)} />
+        )}
+        {subView === 'billing' && (
+          <BillingSubView stats={stats} onBack={() => setSubView(null)} />
+        )}
+        {subView === 'help' && (
+          <HelpSubView onBack={() => setSubView(null)} />
+        )}
+
+        {/* Job Detail Modal */}
+        {showJobDetail && (
+          <JobDetailModal
+            job={selectedDetailJob}
+            onClose={() => {
+              setShowJobDetail(false)
+              setSelectedDetailJob(null)
+            }}
+            onBid={handleBidJob}
+          />
+        )}
+
+        {/* Direct Offer Modal */}
+        {showOfferModal && (
+          <DirectOfferModal
+            offer={selectedOffer}
+            onClose={() => {
+              setShowOfferModal(false)
+              setSelectedOffer(null)
+            }}
+            onRespond={handleRespondToOffer}
+          />
+        )}
 
         {/* Bid Modal */}
         {showBidModal && (

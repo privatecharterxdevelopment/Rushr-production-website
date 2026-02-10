@@ -302,22 +302,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // iOS native: User is already logged in after signUp, set state immediately
       if (isNative && data.user && data.session) {
         profileLoadedBySignIn.current = true
+        // Set profile BEFORE user so that firstName is available on first render
+        if (role === 'homeowner') {
+          setUserProfile({
+            id: data.user.id,
+            email: data.user.email!,
+            name,
+            role: 'homeowner',
+            subscription_type: 'free',
+            created_at: new Date().toISOString()
+          })
+        }
         setUser(data.user)
         setSession(data.session)
+        // Fetch full profile in background to get complete data (non-blocking)
         if (role === 'homeowner') {
-          await new Promise(resolve => setTimeout(resolve, 500))
-          await fetchUserProfile(data.user.id)
-
-          if (!userProfile?.name) {
-            setUserProfile({
-              id: data.user.id,
-              email: data.user.email!,
-              name,
-              role: 'homeowner',
-              subscription_type: 'free',
-              created_at: new Date().toISOString()
-            })
-          }
+          fetchUserProfile(data.user.id)
         }
       }
 

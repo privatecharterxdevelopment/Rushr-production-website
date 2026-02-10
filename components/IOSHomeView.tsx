@@ -2630,7 +2630,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       }
     }
     fetchOnline()
-  }, [center])
+  }, [center, user?.id])
 
   // Real-time: listen for contractor availability changes (online/offline/busy)
   React.useEffect(() => {
@@ -2818,6 +2818,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     handleBottomSheetSearch(label)
     setSearchQuery('')
     setSheetMinimized(false)
+    setSheetExpanded(true)
   }
 
   const handleLocation = async () => {
@@ -2890,8 +2891,8 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         )
       }
 
-      // Filter by 5-mile radius
-      const radiusFiltered = categoryFiltered.filter((c: any) => {
+      // Filter by 5-mile radius helper
+      const filterByRadius = (contractors: any[]) => contractors.filter((c: any) => {
         if (!c.latitude || !c.longitude) return false
         const R = 3959
         const dLat = (c.latitude - center[0]) * Math.PI / 180
@@ -2902,6 +2903,13 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         return dist <= 5
       })
+
+      let radiusFiltered = filterByRadius(categoryFiltered)
+
+      // Fallback: if no contractors match the category, show ALL nearby online contractors
+      if (radiusFiltered.length === 0 && (data || []).length > 0) {
+        radiusFiltered = filterByRadius(data || [])
+      }
 
       // Enrich with Mapbox EAT
       const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN

@@ -21,6 +21,10 @@ export interface ContractorProfile {
   service_area_zips?: string[]
   base_zip?: string
   service_radius_miles?: number
+  latitude?: number
+  longitude?: number
+  radius_miles?: number
+  categories?: string[]
   created_at: string
   profile_approved_at?: string
   kyc_completed_at?: string
@@ -44,11 +48,44 @@ interface ContractorSignupData {
   name: string
   businessName: string
   phone: string
-  licenseNumber: string
-  licenseState: string
-  insuranceCarrier: string
-  categories: string[]
+  // Basics (optional)
+  website?: string
+  yearsInBusiness?: string
+  teamSize?: string
+  about?: string
+  logo?: File | null
+  // Service Area
+  address?: string
+  latitude?: number | null
+  longitude?: number | null
+  radiusMiles?: number
+  extraZips?: string[]
   baseZip: string
+  categories: string[]
+  specialties?: string[]
+  // Credentials
+  licenseNumber: string
+  licenseType?: string
+  licenseState: string
+  licensedStates?: string
+  licenseExpires?: string
+  insuranceCarrier: string
+  insurancePolicy?: string
+  insuranceExpires?: string
+  licenseProof?: File | null
+  insuranceProof?: File | null
+  // Pricing
+  rateType?: string
+  hourlyRate?: string
+  peakRate?: string
+  offPeakRate?: string
+  surgeRate?: string
+  flatMin?: string
+  visitFee?: string
+  diagnosticFee?: string
+  freeEstimates?: boolean
+  // Availability
+  businessHours?: Record<string, { enabled: boolean; open: string; close: string }>
 }
 
 const ProAuthContext = createContext<ProAuthContextType | undefined>(undefined)
@@ -408,7 +445,9 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
     if (authData.user) {
       console.log('[SIGNUP] Creating contractor profile for user:', authData.user.id)
 
-      // Create contractor profile - use minimal fields to avoid ambiguous column errors
+      // Create contractor profile with all fields (matching website wizard)
+      const parseRate = (v?: string) => v ? parseFloat(v.replace(/[^0-9.]/g, '')) || null : null
+
       const { error: profileError } = await supabase
         .from('pro_contractors')
         .insert([{
@@ -417,11 +456,41 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
           name: contractorData.name,
           business_name: contractorData.businessName,
           phone: contractorData.phone || '',
-          license_number: contractorData.licenseNumber || 'pending',
-          license_state: contractorData.licenseState || 'pending',
-          insurance_carrier: contractorData.insuranceCarrier || 'pending',
-          categories: contractorData.categories || ['General'],
+          website: contractorData.website || null,
+          years_in_business: contractorData.yearsInBusiness ? parseInt(contractorData.yearsInBusiness) : null,
+          team_size: contractorData.teamSize ? parseInt(contractorData.teamSize) : null,
+          about: contractorData.about || null,
+          // Service Area
+          address: contractorData.address || null,
+          latitude: contractorData.latitude || null,
+          longitude: contractorData.longitude || null,
+          radius_miles: contractorData.radiusMiles || 10,
           base_zip: contractorData.baseZip || '00000',
+          service_area_zips: [contractorData.baseZip, ...(contractorData.extraZips || [])],
+          categories: contractorData.categories || ['General'],
+          specialties: contractorData.specialties || [],
+          // Credentials
+          license_number: contractorData.licenseNumber || 'pending',
+          license_type: contractorData.licenseType || null,
+          license_state: contractorData.licenseState || 'pending',
+          licensed_states: contractorData.licensedStates || null,
+          license_expires: contractorData.licenseExpires || null,
+          insurance_carrier: contractorData.insuranceCarrier || 'pending',
+          insurance_policy: contractorData.insurancePolicy || null,
+          insurance_expires: contractorData.insuranceExpires || null,
+          // Pricing
+          rate_type: contractorData.rateType || 'Hourly',
+          hourly_rate: parseRate(contractorData.hourlyRate),
+          peak_rate: parseRate(contractorData.peakRate),
+          off_peak_rate: parseRate(contractorData.offPeakRate),
+          surge_rate: parseRate(contractorData.surgeRate),
+          flat_rate_min: parseRate(contractorData.flatMin),
+          visit_fee: parseRate(contractorData.visitFee),
+          diagnostic_fee: parseRate(contractorData.diagnosticFee),
+          free_estimates: contractorData.freeEstimates ?? true,
+          // Availability
+          business_hours: contractorData.businessHours || null,
+          // Status
           status: 'pending',
           kyc_status: 'not_started'
         }])
@@ -433,6 +502,23 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log('[SIGNUP] Contractor profile created successfully')
+
+      // Create user_profiles entry for Stripe Connect FK compatibility
+      const { error: userProfileError } = await supabase
+        .from('user_profiles')
+        .upsert({
+          id: authData.user.id,
+          email: email,
+          name: contractorData.name,
+          phone: contractorData.phone || '',
+          role: 'contractor',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' })
+
+      if (userProfileError) {
+        console.warn('[SIGNUP] user_profiles upsert warning (non-fatal):', userProfileError.message)
+      }
 
       // Auto-approve for now and require KYC
       const { error: approveError } = await supabase
@@ -447,6 +533,37 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
         console.error('[SIGNUP] Error approving contractor:', approveError)
       } else {
         console.log('[SIGNUP] Contractor auto-approved')
+      }
+
+      // Upload files if provided (logo, license proof, insurance proof)
+      const uploadFile = async (file: File, folder: string) => {
+        try {
+          const fileExt = file.name.split('.').pop()
+          const fileName = `${authData.user!.id}-${Date.now()}.${fileExt}`
+          const filePath = `${folder}/${fileName}`
+          const { error: uploadError } = await supabase.storage
+            .from('contractor-logos')
+            .upload(filePath, file, { cacheControl: '3600', upsert: true })
+          if (uploadError) {
+            console.error(`[SIGNUP] ${folder} upload error:`, uploadError)
+            return null
+          }
+          const { data: { publicUrl } } = supabase.storage
+            .from('contractor-logos')
+            .getPublicUrl(filePath)
+          return publicUrl
+        } catch (err) {
+          console.error(`[SIGNUP] ${folder} upload failed:`, err)
+          return null
+        }
+      }
+
+      if (contractorData.logo) {
+        const logoUrl = await uploadFile(contractorData.logo, 'contractor-logos')
+        if (logoUrl) {
+          await supabase.from('pro_contractors').update({ logo_url: logoUrl }).eq('id', authData.user.id)
+          console.log('[SIGNUP] Logo uploaded:', logoUrl)
+        }
       }
 
       // Fetch the created profile to set it in context
