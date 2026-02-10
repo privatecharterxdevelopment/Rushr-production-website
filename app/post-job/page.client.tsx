@@ -1418,28 +1418,26 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
 
         {/* Contact Details Banner */}
         <div className="card p-4 mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-slate-500" />
-                <span className="text-sm text-slate-600">Location:</span>
-                <button
-                  onClick={() => setShowLocationModal(true)}
-                  className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium truncate max-w-[200px]"
-                >
-                  {address || 'Set location'}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Phone className="h-4 w-4 text-slate-500" />
-                <span className="text-sm text-slate-600">Phone:</span>
-                <button
-                  onClick={() => setShowPhoneModal(true)}
-                  className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium"
-                >
-                  {phone || 'Set phone'}
-                </button>
-              </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
+            <div className="flex items-center gap-2 min-w-0">
+              <MapPin className="h-4 w-4 text-slate-500 flex-shrink-0" />
+              <span className="text-sm text-slate-600 flex-shrink-0">Location:</span>
+              <button
+                onClick={() => setShowLocationModal(true)}
+                className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium truncate"
+              >
+                {address || 'Set location'}
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Phone className="h-4 w-4 text-slate-500 flex-shrink-0" />
+              <span className="text-sm text-slate-600 flex-shrink-0">Phone:</span>
+              <button
+                onClick={() => setShowPhoneModal(true)}
+                className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium"
+              >
+                {phone || 'Set phone'}
+              </button>
             </div>
           </div>
         </div>
@@ -1669,28 +1667,26 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
 
         {/* Contact Details Banner */}
         <div className="card p-4 mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-slate-500" />
-                <span className="text-sm text-slate-600">Location:</span>
-                <button
-                  onClick={() => setShowLocationModal(true)}
-                  className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium truncate max-w-[200px]"
-                >
-                  {address || 'Set location'}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Phone className="h-4 w-4 text-slate-500" />
-                <span className="text-sm text-slate-600">Phone:</span>
-                <button
-                  onClick={() => setShowPhoneModal(true)}
-                  className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium"
-                >
-                  {phone || 'Set phone'}
-                </button>
-              </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
+            <div className="flex items-center gap-2 min-w-0">
+              <MapPin className="h-4 w-4 text-slate-500 flex-shrink-0" />
+              <span className="text-sm text-slate-600 flex-shrink-0">Location:</span>
+              <button
+                onClick={() => setShowLocationModal(true)}
+                className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium truncate"
+              >
+                {address || 'Set location'}
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Phone className="h-4 w-4 text-slate-500 flex-shrink-0" />
+              <span className="text-sm text-slate-600 flex-shrink-0">Phone:</span>
+              <button
+                onClick={() => setShowPhoneModal(true)}
+                className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium"
+              >
+                {phone || 'Set phone'}
+              </button>
             </div>
           </div>
         </div>

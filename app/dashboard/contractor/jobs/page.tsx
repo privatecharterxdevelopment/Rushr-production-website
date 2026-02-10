@@ -891,6 +891,35 @@ export default function ContractorJobsPage() {
       {/* My Jobs Tab */}
       {activeTab === 'my-jobs' && (
         <>
+          {/* Earnings Summary */}
+          {myJobs.length > 0 && (() => {
+            const completedJobs = myJobs.filter((j: any) => j.status === 'completed')
+            const totalEarned = completedJobs.reduce((sum: number, j: any) => {
+              const payout = (j.final_price || j.final_cost || j.direct_amount || j.bid_amount || 0) * 0.9
+              return sum + payout
+            }, 0)
+            return (
+              <div className="bg-gradient-to-r from-emerald-50 to-blue-50 border border-emerald-200 rounded-lg p-4 mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Total Earned</p>
+                    <p className="text-2xl font-bold text-emerald-700">${totalEarned.toFixed(2)}</p>
+                  </div>
+                  <div className="w-px h-10 bg-emerald-200" />
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Completed</p>
+                    <p className="text-2xl font-bold text-slate-900">{completedJobs.length}</p>
+                  </div>
+                  <div className="w-px h-10 bg-emerald-200" />
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Active</p>
+                    <p className="text-2xl font-bold text-blue-600">{myJobs.filter((j: any) => j.status === 'in_progress' || j.status === 'confirmed').length}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           {myJobs.length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-lg">
               <ListChecks className="h-12 w-12 text-slate-400 mx-auto mb-3" />
@@ -970,6 +999,28 @@ export default function ContractorJobsPage() {
                       </>
                     )}
                   </div>
+
+                  {/* Final Price — shown for completed or pending-completion jobs */}
+                  {((job as any).final_price || (job as any).status === 'completed') && (
+                    <div className="mb-4 pb-4 border-b border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs text-slate-500">Final Price</span>
+                          <p className="text-lg font-bold text-emerald-700">
+                            ${Number((job as any).final_price || (job as any).final_cost || (job as any).direct_amount || (job as any).bid_amount || 0).toFixed(2)}
+                          </p>
+                        </div>
+                        {(job as any).status === 'completed' && (
+                          <div>
+                            <span className="text-xs text-slate-500">Your Payout (90%)</span>
+                            <p className="text-lg font-bold text-blue-600">
+                              ${(Number((job as any).final_price || (job as any).final_cost || (job as any).direct_amount || (job as any).bid_amount || 0) * 0.9).toFixed(2)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Job Details */}
                   <div className="flex items-center justify-between">

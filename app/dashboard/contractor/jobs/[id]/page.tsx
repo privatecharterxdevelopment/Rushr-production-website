@@ -30,6 +30,11 @@ export default function ContractorJobDetailsPage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
 
+  // Final price state
+  const [finalPriceInput, setFinalPriceInput] = useState('')
+  const [finalPriceReason, setFinalPriceReason] = useState('')
+  const [showFinalPriceForm, setShowFinalPriceForm] = useState(false)
+
   // Dispute state
   const [showDisputeModal, setShowDisputeModal] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
@@ -141,38 +146,46 @@ export default function ContractorJobDetailsPage() {
   const markJobAsComplete = async () => {
     if (!user || !jobId) return
 
-    if (!confirm('Are you sure you want to mark this job as complete? This will notify the homeowner and trigger payment once they approve.')) {
+    const finalPrice = parseFloat(finalPriceInput)
+    if (!finalPrice || finalPrice <= 0) {
+      setSuccessMessage('Please enter a valid final price.')
+      setShowSuccessModal(true)
+      return
+    }
+
+    if (!confirm(`Confirm final price of $${finalPrice.toFixed(2)}? The homeowner will be notified to approve.`)) {
       return
     }
 
     setMarkingComplete(true)
 
     try {
-      const response = await fetch('/api/payments/confirm-complete', {
+      const response = await fetch('/api/jobs/propose-final-price', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId,
-          userId: user.id,
-          userType: 'contractor'
+          contractorId: user.id,
+          finalPrice,
+          reason: finalPriceReason || undefined
         })
       })
 
       const data = await response.json()
 
       if (response.ok && data.success) {
-        setSuccessMessage(data.message || 'Job marked as complete! The homeowner will review and release payment.')
+        setSuccessMessage(data.message || 'Final price submitted! The homeowner will review and approve.')
         setShowSuccessModal(true)
         setTimeout(() => {
           window.location.reload()
         }, 2000)
       } else {
-        setSuccessMessage(data.error || 'Failed to mark job as complete. Please try again.')
+        setSuccessMessage(data.error || 'Failed to submit final price. Please try again.')
         setShowSuccessModal(true)
       }
     } catch (err) {
-      console.error('Error marking job as complete:', err)
-      setSuccessMessage('Failed to mark job as complete. Please try again.')
+      console.error('Error submitting final price:', err)
+      setSuccessMessage('Failed to submit final price. Please try again.')
       setShowSuccessModal(true)
     } finally {
       setMarkingComplete(false)
@@ -614,46 +627,112 @@ export default function ContractorJobDetailsPage() {
         </div>
       )}
 
-      {/* Mark Job as Complete Button */}
+      {/* Complete Job with Final Price */}
       {job.status === 'in_progress' && !job.contractor_marked_complete && (
         <div className="bg-gradient-to-r from-emerald-50 to-blue-50 rounded-lg border-2 border-emerald-200 p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <h3 className="font-semibold text-slate-900 mb-1 flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-emerald-600" />
-                Ready to Complete?
-              </h3>
-              <p className="text-sm text-slate-600">
-                Once you mark this job as complete, the homeowner will review your work and release the payment.
-              </p>
-              {job.final_cost && (
-                <p className="text-sm font-medium text-emerald-700 mt-2">
-                  💰 Payment: ${job.final_cost.toFixed(2)}
-                </p>
-              )}
-            </div>
+          <h3 className="font-semibold text-slate-900 mb-1 flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-emerald-600" />
+            Ready to Complete?
+          </h3>
+          <p className="text-sm text-slate-600 mb-4">
+            Enter the final price for this job. If it differs from the original amount, the homeowner will need to approve.
+          </p>
+
+          {job.direct_amount && (
+            <p className="text-sm text-slate-500 mb-3">
+              Original agreed price: <span className="font-semibold text-slate-700">${Number(job.direct_amount).toFixed(2)}</span>
+            </p>
+          )}
+
+          {!showFinalPriceForm ? (
             <button
-              onClick={markJobAsComplete}
-              disabled={markingComplete}
-              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+              onClick={() => {
+                setFinalPriceInput(job.direct_amount ? String(job.direct_amount) : job.final_cost ? String(job.final_cost) : '')
+                setShowFinalPriceForm(true)
+              }}
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
             >
               <CheckCircle className="h-5 w-5" />
-              {markingComplete ? 'Marking...' : 'Mark as Complete'}
+              Complete Job
             </button>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Final Price ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={finalPriceInput}
+                  onChange={(e) => setFinalPriceInput(e.target.value)}
+                  placeholder="Enter final price"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-lg font-semibold"
+                />
+              </div>
+              {finalPriceInput && job.direct_amount && Math.abs(parseFloat(finalPriceInput) - Number(job.direct_amount)) >= 0.01 && (
+                <>
+                  <div className={`text-sm font-medium px-3 py-2 rounded-lg ${
+                    parseFloat(finalPriceInput) > Number(job.direct_amount)
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : 'bg-blue-50 text-blue-700 border border-blue-200'
+                  }`}>
+                    {parseFloat(finalPriceInput) > Number(job.direct_amount)
+                      ? `+$${(parseFloat(finalPriceInput) - Number(job.direct_amount)).toFixed(2)} more than original — homeowner approval required`
+                      : `-$${(Number(job.direct_amount) - parseFloat(finalPriceInput)).toFixed(2)} less than original`
+                    }
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Reason for price change (optional)</label>
+                    <input
+                      type="text"
+                      value={finalPriceReason}
+                      onChange={(e) => setFinalPriceReason(e.target.value)}
+                      placeholder="e.g. Job took longer than expected"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
+                    />
+                  </div>
+                </>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={markJobAsComplete}
+                  disabled={markingComplete || !finalPriceInput}
+                  className="flex-1 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <DollarSign className="h-5 w-5" />
+                  {markingComplete ? 'Submitting...' : 'Submit & Complete'}
+                </button>
+                <button
+                  onClick={() => setShowFinalPriceForm(false)}
+                  className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Job Already Marked Complete */}
+      {/* Job Already Marked Complete — Waiting for HO */}
       {job.contractor_marked_complete && job.status !== 'completed' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
           <div className="flex items-center gap-3">
             <Clock className="h-6 w-6 text-amber-600" />
             <div>
-              <h3 className="font-semibold text-amber-900 mb-1">⏳ Waiting for Homeowner Approval</h3>
-              <p className="text-sm text-amber-800">
-                You've marked this job as complete. The homeowner will review your work and release payment shortly.
-              </p>
+              <h3 className="font-semibold text-amber-900 mb-1">Waiting for Homeowner Approval</h3>
+              {job.final_price ? (
+                <p className="text-sm text-amber-800">
+                  You proposed a final price of <span className="font-semibold">${Number(job.final_price).toFixed(2)}</span>.
+                  {job.final_price_accepted
+                    ? ' Price accepted — waiting for completion confirmation.'
+                    : ' Waiting for homeowner to accept the price.'}
+                </p>
+              ) : (
+                <p className="text-sm text-amber-800">
+                  You've marked this job as complete. The homeowner will review your work and release payment shortly.
+                </p>
+              )}
             </div>
           </div>
         </div>

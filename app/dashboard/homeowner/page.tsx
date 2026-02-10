@@ -174,6 +174,7 @@ export default function HomeownerDashboardPage() {
 
   // Confirm completion state
   const [confirmingJobId, setConfirmingJobId] = useState<string | null>(null)
+  const [acceptingPriceJobId, setAcceptingPriceJobId] = useState<string | null>(null)
 
   // Move all useMemo hooks to the top to avoid React hooks error
   const completeness: CompletenessField[] = useMemo(() => {
@@ -222,7 +223,11 @@ export default function HomeownerDashboardPage() {
       contractor_marked_complete: job.contractor_marked_complete || false,
       payment_hold_id: job.payment_hold_id || null,
       contractor_id: job.contractor_id || null,
-      direct_amount: job.direct_amount || null
+      direct_amount: job.direct_amount || null,
+      final_price: job.final_price || null,
+      final_price_proposed_by: job.final_price_proposed_by || null,
+      final_price_accepted: job.final_price_accepted || false,
+      final_price_reason: job.final_price_reason || null
     }))
 
     // Sort jobs: Emergency jobs first, then by creation date (newest first)
@@ -514,6 +519,46 @@ export default function HomeownerDashboardPage() {
       alert('Failed to confirm completion. Please try again.')
     } finally {
       setConfirmingJobId(null)
+    }
+  }
+
+  // Handle homeowner accepting or declining the contractor's proposed final price
+  const handleFinalPriceResponse = async (jobUuid: string, accepted: boolean) => {
+    if (!user) return
+
+    if (accepted && !confirm('Accept this final price? Any additional amount will be charged to your card.')) return
+    if (!accepted && !confirm('Decline this price? The contractor will be asked to propose a new price.')) return
+
+    setAcceptingPriceJobId(jobUuid)
+
+    try {
+      const response = await fetch('/api/jobs/accept-final-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: jobUuid,
+          homeownerId: user.id,
+          accepted
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        if (accepted) {
+          alert(data.message || 'Final price accepted! Now confirm completion to release payment.')
+        } else {
+          alert('Price declined. The contractor has been notified.')
+        }
+        refreshStats()
+      } else {
+        alert(data.error || 'Failed to respond to final price. Please try again.')
+      }
+    } catch (err) {
+      console.error('Error responding to final price:', err)
+      alert('Failed to respond to final price. Please try again.')
+    } finally {
+      setAcceptingPriceJobId(null)
     }
   }
 
@@ -897,11 +942,47 @@ export default function HomeownerDashboardPage() {
                               </p>
                             )}
                             {job.contractor_marked_complete && job.status !== 'Completed' && (
-                              <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                                <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                                <span className="text-sm font-medium text-emerald-800">
-                                  Contractor marked this job as complete — please confirm to release payment
-                                </span>
+                              <div className="mt-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                                  <span className="text-sm font-medium text-emerald-800">
+                                    Contractor marked this job as complete
+                                  </span>
+                                </div>
+                                {job.final_price && !job.final_price_accepted && (
+                                  <div className="bg-white rounded-lg p-3 border border-amber-200">
+                                    <p className="text-sm font-medium text-slate-900">
+                                      Proposed final price: <span className="text-lg font-bold text-emerald-700">${Number(job.final_price).toFixed(2)}</span>
+                                    </p>
+                                    {job.direct_amount && Math.abs(Number(job.final_price) - Number(job.direct_amount)) >= 0.01 && (
+                                      <p className="text-xs text-slate-500 mt-1">
+                                        Original: ${Number(job.direct_amount).toFixed(2)} — Difference: {Number(job.final_price) > Number(job.direct_amount) ? '+' : ''}${(Number(job.final_price) - Number(job.direct_amount)).toFixed(2)}
+                                      </p>
+                                    )}
+                                    {job.final_price_reason && (
+                                      <p className="text-xs text-slate-600 mt-1 italic">Reason: {job.final_price_reason}</p>
+                                    )}
+                                    <div className="flex gap-2 mt-2">
+                                      <button
+                                        onClick={() => handleFinalPriceResponse(job.uuid, true)}
+                                        disabled={acceptingPriceJobId === job.uuid}
+                                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-2 rounded-lg font-medium transition-colors text-sm"
+                                      >
+                                        {acceptingPriceJobId === job.uuid ? 'Processing...' : 'Accept Price'}
+                                      </button>
+                                      <button
+                                        onClick={() => handleFinalPriceResponse(job.uuid, false)}
+                                        disabled={acceptingPriceJobId === job.uuid}
+                                        className="flex-1 bg-red-100 hover:bg-red-200 disabled:bg-slate-100 text-red-700 px-3 py-2 rounded-lg font-medium transition-colors text-sm"
+                                      >
+                                        Decline
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                                {(!job.final_price || job.final_price_accepted) && (
+                                  <p className="text-xs text-emerald-700">Please confirm completion to release payment.</p>
+                                )}
                               </div>
                             )}
 
@@ -957,7 +1038,7 @@ export default function HomeownerDashboardPage() {
                             <div className="text-xs text-gray-500">ETA: 5-15 min</div>
                           </div>
                         )}
-                        {job.contractor_marked_complete && job.status !== 'Completed' && (
+                        {job.contractor_marked_complete && job.status !== 'Completed' && (!job.final_price || job.final_price_accepted) && (
                           <button
                             onClick={() => handleConfirmCompletion(job.uuid)}
                             disabled={confirmingJobId === job.uuid}

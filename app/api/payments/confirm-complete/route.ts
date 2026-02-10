@@ -86,6 +86,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 1b. If homeowner is confirming, check if there's a pending final price that needs acceptance first
+    if (userType === 'homeowner' && paymentHold.job_id) {
+      const { data: job } = await supabase
+        .from('homeowner_jobs')
+        .select('final_price, final_price_proposed_by, final_price_accepted')
+        .eq('id', paymentHold.job_id)
+        .single()
+
+      if (job?.final_price && job.final_price_proposed_by && !job.final_price_accepted) {
+        return NextResponse.json(
+          { error: 'Please accept or decline the proposed final price before confirming completion', needsPriceAcceptance: true, finalPrice: job.final_price },
+          { status: 400 }
+        )
+      }
+    }
+
     // 2. Update confirmation status
     const updateFields: any = {}
 

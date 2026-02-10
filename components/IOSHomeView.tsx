@@ -1025,6 +1025,12 @@ interface TrackingJob {
   estimated_cost?: number | null
   homeowner_confirmed_complete?: boolean
   contractor_confirmed_complete?: boolean
+  final_price?: number | null
+  final_price_proposed_by?: string | null
+  final_price_accepted?: boolean
+  final_price_reason?: string | null
+  direct_amount?: number | null
+  contractor_marked_complete?: boolean
 }
 
 interface ContractorTrackingViewProps {
@@ -1059,6 +1065,8 @@ function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: Co
   const [cancelReason, setCancelReason] = useState('')
   const [cancelReasonOther, setCancelReasonOther] = useState('')
   const [trackingCard, setTrackingCard] = useState<{ brand: string; last4: string } | null>(null)
+  const [pendingFinalPrice, setPendingFinalPrice] = useState<number | null>(job.final_price && !job.final_price_accepted ? job.final_price : null)
+  const [acceptingPrice, setAcceptingPrice] = useState(false)
 
   // Fetch homeowner's saved card
   useEffect(() => {
@@ -1168,6 +1176,14 @@ function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: Co
             setJobStatus(updatedJob.status)
             setHomeownerConfirmed(updatedJob.homeowner_confirmed_complete || false)
             setContractorConfirmed(updatedJob.contractor_confirmed_complete || false)
+
+            // Check for new final price proposal
+            if (updatedJob.final_price && !updatedJob.final_price_accepted) {
+              setPendingFinalPrice(updatedJob.final_price)
+              triggerHaptic(ImpactStyle.Heavy)
+            } else {
+              setPendingFinalPrice(null)
+            }
 
             // If contractor confirmed arrival
             if (updatedJob.status === 'in_progress' && jobStatus === 'confirmed') {
@@ -1280,6 +1296,40 @@ function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: Co
       console.error('Error confirming completion:', err)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // Handle accepting/declining final price
+  const handleFinalPriceResponse = async (accepted: boolean) => {
+    setAcceptingPrice(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const response = await fetch('/api/jobs/accept-final-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: job.id,
+          homeownerId: user.id,
+          accepted
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        await triggerHaptic(ImpactStyle.Medium)
+        if (accepted) {
+          setPendingFinalPrice(null)
+          // Now they can proceed to confirm completion
+        } else {
+          setPendingFinalPrice(null)
+        }
+      }
+    } catch (err) {
+      console.error('Error responding to final price:', err)
+    } finally {
+      setAcceptingPrice(false)
     }
   }
 
@@ -1525,8 +1575,43 @@ function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: Co
 
           {/* Action Buttons based on status */}
           <div className="space-y-3">
-            {/* Job Done button - visible when in_progress */}
-            {jobStatus === 'in_progress' && !homeownerConfirmed && (
+            {/* Final Price Proposal — contractor proposed a different price */}
+            {pendingFinalPrice && jobStatus === 'in_progress' && (
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 space-y-3">
+                <div className="text-center">
+                  <p className="text-[13px] text-amber-700 font-medium">Contractor proposed a final price</p>
+                  <p className="text-[28px] font-bold text-gray-900 mt-1">${Number(pendingFinalPrice).toFixed(2)}</p>
+                  {job.direct_amount && Math.abs(Number(pendingFinalPrice) - Number(job.direct_amount)) >= 0.01 && (
+                    <p className="text-[12px] text-gray-500 mt-1">
+                      Original: ${Number(job.direct_amount).toFixed(2)} — {Number(pendingFinalPrice) > Number(job.direct_amount) ? '+' : ''}${(Number(pendingFinalPrice) - Number(job.direct_amount)).toFixed(2)}
+                    </p>
+                  )}
+                  {job.final_price_reason && (
+                    <p className="text-[11px] text-gray-400 mt-1 italic">{job.final_price_reason}</p>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => handleFinalPriceResponse(false)}
+                    disabled={acceptingPrice}
+                    className="flex-1 py-3 rounded-xl font-semibold text-[14px] text-red-700 bg-red-50 border border-red-200 active:scale-[0.98] transition-transform disabled:opacity-50"
+                  >
+                    Decline
+                  </button>
+                  <button
+                    onClick={() => handleFinalPriceResponse(true)}
+                    disabled={acceptingPrice}
+                    className="flex-1 py-3 rounded-xl font-semibold text-[14px] text-white active:scale-[0.98] transition-transform disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                  >
+                    {acceptingPrice ? 'Processing...' : 'Accept'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Job Done button - visible when in_progress and no pending price */}
+            {jobStatus === 'in_progress' && !homeownerConfirmed && !pendingFinalPrice && (
               <button
                 onClick={() => setShowCompleteModal(true)}
                 className="w-full py-4 rounded-xl font-bold text-[16px] text-white active:scale-[0.98] transition-transform"
@@ -2211,7 +2296,10 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
   const [error, setError] = useState<string | null>(null)
 
   const handleSave = async () => {
-    if (!stripe || !elements) return
+    if (!stripe || !elements) {
+      setError('Payment system not ready. Please wait a moment and try again.')
+      return
+    }
     setSaving(true)
     setError(null)
 
@@ -2227,6 +2315,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, email: userEmail, name: userName })
       })
+      if (!custRes.ok) throw new Error('Failed to create customer')
       const custData = await custRes.json()
       if (!custData.success) throw new Error(custData.error || 'Failed to create customer')
 
@@ -2236,16 +2325,24 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId: custData.customerId })
       })
+      if (!siRes.ok) throw new Error('Failed to create setup intent')
       const siData = await siRes.json()
-      if (!siData.success) throw new Error(siData.error || 'Failed to create setup intent')
+      if (!siData.success || !siData.clientSecret) throw new Error(siData.error || 'Failed to create setup intent')
 
-      // 4. Confirm with card element
+      // 4. Confirm with card element (with timeout for WKWebView)
       const cardElement = elements.getElement(CardElement)
-      if (!cardElement) throw new Error('Card element not found')
+      if (!cardElement) throw new Error('Card element not found. Please reload and try again.')
 
-      const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(siData.clientSecret, {
+      const confirmPromise = stripe.confirmCardSetup(siData.clientSecret, {
         payment_method: { card: cardElement }
       })
+
+      // Timeout after 30s to prevent infinite hang in WKWebView
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Card verification timed out. Please try again.')), 30000)
+      )
+
+      const { error: stripeError, setupIntent } = await Promise.race([confirmPromise, timeoutPromise])
 
       if (stripeError) throw new Error(stripeError.message || 'Card verification failed')
       if (!setupIntent?.payment_method) throw new Error('No payment method returned')
@@ -2257,6 +2354,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, paymentMethodId: pmId, setAsDefault: true })
       })
+      if (!saveRes.ok) throw new Error('Failed to save card')
       const saveData = await saveRes.json()
       if (!saveData.success) throw new Error(saveData.error || 'Failed to save card')
 
@@ -2272,7 +2370,8 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       }
       onSuccess({ brand: 'card', last4: '••••' })
     } catch (err: any) {
-      setError(err.message || 'Something went wrong')
+      console.error('[AddCardForm] Error:', err)
+      setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -2358,7 +2457,6 @@ const CATEGORY_BUBBLES = [
   { key: 'water-damage', label: 'Water', icon: '💧' },
   { key: 'locksmith', label: 'Locksmith', icon: '🔐' },
   { key: 'appliance', label: 'Appliance', icon: '🔧' },
-  { key: 'other', label: 'Other', icon: '🔨' },
 ]
 
 // Keyword-to-category detection — keys MUST match pro_contractors.categories values from wizard
@@ -2510,9 +2608,9 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     fetchOnline()
   }, [center])
 
-  // Contractor tabs: EMPTY until user searches a category, then filtered by that category
+  // Contractor tabs: show ALL nearby online contractors by default, filtered when user searches
   const mapCategoryContractors = React.useMemo(() => {
-    if (!hasSearched || !bottomSheetSearch) return []
+    if (!hasSearched || !bottomSheetSearch) return nearbyOnline
     const detectedCategory = detectCategoryFromSearch(bottomSheetSearch)
     if (detectedCategory) {
       return nearbyOnline.filter((c: any) =>
@@ -2673,7 +2771,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   const handleBottomSheetSearch = React.useCallback(async (query: string) => {
     setSearchLoading(true)
     setHasSearched(true)
-    setSearchCountdown(15)
+    setSearchCountdown(5)
     try {
       const detectedCategory = detectCategoryFromSearch(query)
 
@@ -2763,9 +2861,13 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     return () => { if (waitTimerRef.current) clearInterval(waitTimerRef.current) }
   }, [mostRecentPendingJob?.id, bids.length])
 
-  // Search countdown: 15s timer, if no results when it hits 0 → show "Post a Job Instead"
+  // Search countdown: 5s timer, if no results when it hits 0 → stop all loading, show "Post a Job Instead"
   React.useEffect(() => {
-    if (searchCountdown <= 0) return
+    if (searchCountdown <= 0) {
+      // Force stop loading when countdown expires
+      setSearchLoading(false)
+      return
+    }
     const timer = setTimeout(() => setSearchCountdown(prev => prev - 1), 1000)
     return () => clearTimeout(timer)
   }, [searchCountdown])
@@ -3278,7 +3380,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           searchCenter={center}
           userLocation={center}
           onSearchHere={(c) => setCenter(c)}
-          onContractorSelect={(c: any) => { if (hasSearched) handleContractorSelect(c) }}
+          onContractorSelect={(c: any) => { handleContractorSelect(c) }}
           fullscreen={true}
           hideSearchButton={true}
           hideControls={true}
@@ -3493,8 +3595,8 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                 ))}
               </div>
 
-              {/* Post a Job CTA — only visible when sheet expanded */}
-              {sheetExpanded && (
+              {/* Post a Job CTA — only visible when sheet expanded and NOT searching */}
+              {sheetExpanded && !hasSearched && (
                 <button
                   onClick={() => router.push('/post-job')}
                   className="w-full flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 active:scale-[0.98] transition-all text-left"
@@ -4582,6 +4684,16 @@ function JobsTab({ jobs, loading, onOpenTracking }: {
 }) {
   const router = useRouter()
 
+  // Calculate total spent on completed jobs
+  const totalSpent = React.useMemo(() => {
+    return jobs
+      .filter(j => j.status === 'completed')
+      .reduce((sum, j) => sum + (j.final_price || j.final_cost || j.direct_amount || 0), 0)
+  }, [jobs])
+
+  const completedCount = jobs.filter(j => j.status === 'completed').length
+  const activeCount = jobs.filter(j => j.status === 'in_progress' || j.status === 'confirmed' || j.status === 'pending').length
+
   const handleJobPress = async (job: HomeownerJob) => {
     await triggerHaptic()
     // For in_progress or confirmed jobs, open tracking view
@@ -4632,6 +4744,34 @@ function JobsTab({ jobs, loading, onOpenTracking }: {
           </Link>
         </div>
       </div>
+
+      {/* Spending Summary */}
+      {!loading && jobs.length > 0 && (
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div>
+                <p className="text-[11px] text-gray-500 uppercase tracking-wide">Total Spent</p>
+                <p className="text-[18px] font-bold text-gray-900">${totalSpent.toFixed(2)}</p>
+              </div>
+              <div className="w-px h-8 bg-gray-200" />
+              <div>
+                <p className="text-[11px] text-gray-500 uppercase tracking-wide">Completed</p>
+                <p className="text-[18px] font-bold text-emerald-600">{completedCount}</p>
+              </div>
+              {activeCount > 0 && (
+                <>
+                  <div className="w-px h-8 bg-gray-200" />
+                  <div>
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wide">Active</p>
+                    <p className="text-[18px] font-bold text-blue-600">{activeCount}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Loading State */}
       {loading ? (
@@ -4746,16 +4886,23 @@ function JobsTab({ jobs, loading, onOpenTracking }: {
                           {job.bids_count} bid{job.bids_count > 1 ? 's' : ''}
                         </span>
                       )}
-                      {job.estimated_cost && (
+                      {job.final_price ? (
+                        <span className="text-[13px] font-bold text-emerald-600">
+                          ${Number(job.final_price).toFixed(2)}
+                        </span>
+                      ) : job.final_cost ? (
+                        <span className="text-[13px] font-bold text-emerald-600">
+                          ${Number(job.final_cost).toFixed(2)}
+                        </span>
+                      ) : job.direct_amount ? (
+                        <span className="text-[13px] font-semibold text-gray-700">
+                          ${Number(job.direct_amount).toFixed(2)}
+                        </span>
+                      ) : job.estimated_cost ? (
                         <span className="text-[13px] font-semibold text-gray-700">
                           Est. ${job.estimated_cost}
                         </span>
-                      )}
-                      {job.final_cost && (
-                        <span className="text-[13px] font-bold text-emerald-600">
-                          ${job.final_cost}
-                        </span>
-                      )}
+                      ) : null}
                     </div>
                     {isTrackable ? (
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 rounded-full">
@@ -5265,6 +5412,32 @@ function ProfileTab({
   const router = useRouter()
   const isContractor = userRole === 'contractor' || userRole === 'pro'
 
+  // Payment method state
+  const [savedCard, setSavedCard] = useState<{ brand: string; last4: string; id: string } | null>(null)
+  const [loadingCard, setLoadingCard] = useState(false)
+  const [showAddCardModal, setShowAddCardModal] = useState(false)
+
+  // Fetch saved payment method
+  useEffect(() => {
+    if (!user?.id || isContractor) return
+    setLoadingCard(true)
+    fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.paymentMethods?.length > 0) {
+          const defaultPm = data.defaultPaymentMethodId
+            ? data.paymentMethods.find((pm: any) => pm.id === data.defaultPaymentMethodId)
+            : data.paymentMethods[0]
+          const pm = defaultPm || data.paymentMethods[0]
+          if (pm?.card) {
+            setSavedCard({ brand: pm.card.brand, last4: pm.card.last4, id: pm.id })
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCard(false))
+  }, [user?.id, isContractor])
+
   const handleSignOut = async () => {
     await triggerHaptic(ImpactStyle.Medium)
     onSignOut()
@@ -5533,6 +5706,68 @@ function ProfileTab({
               <p className="text-[11px] text-gray-500">contractors saved</p>
             </div>
           </div>
+
+          {/* Payment Method Section */}
+          <div className="bg-white rounded-xl p-4 border border-gray-100" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-semibold text-gray-900 text-[14px]">Payment Method</p>
+              <button
+                onClick={() => setShowAddCardModal(true)}
+                className="text-emerald-600 text-[12px] font-medium"
+              >
+                {savedCard ? 'Change' : 'Add Card'}
+              </button>
+            </div>
+            {loadingCard ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="w-5 h-5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+              </div>
+            ) : savedCard ? (
+              <div className="flex items-center gap-3 bg-emerald-50 rounded-lg p-3">
+                <div className="w-10 h-7 bg-white rounded-md border border-gray-200 flex items-center justify-center">
+                  <span className="text-[10px] font-bold text-gray-600 uppercase">{savedCard.brand}</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[14px] font-medium text-gray-900">
+                    {savedCard.brand.charAt(0).toUpperCase() + savedCard.brand.slice(1)} ending in {savedCard.last4}
+                  </p>
+                  <p className="text-[11px] text-emerald-600">Default payment method</p>
+                </div>
+                <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAddCardModal(true)}
+                className="w-full flex items-center gap-3 bg-gray-50 rounded-lg p-3 active:bg-gray-100 transition-colors"
+              >
+                <div className="w-10 h-7 bg-gray-200 rounded-md flex items-center justify-center">
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-[14px] font-medium text-gray-700">No card on file</p>
+                  <p className="text-[11px] text-gray-500">Add a card to post jobs</p>
+                </div>
+                <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Add Card Modal for Profile */}
+          <AddCardModal
+            isOpen={showAddCardModal}
+            userId={user?.id || ''}
+            onSuccess={(card) => {
+              setSavedCard({ brand: card.brand, last4: card.last4, id: '' })
+              setShowAddCardModal(false)
+            }}
+            onClose={() => setShowAddCardModal(false)}
+          />
 
           {/* Active Emergencies Section */}
           <div className="bg-white rounded-xl overflow-hidden border border-red-100" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
@@ -6455,7 +6690,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
       })
 
     items.sort((a, b) => (a.__distance ?? 1e9) - (b.__distance ?? 1e9))
-    return items.slice(0, 10)
+    return items
   }, [allContractors, center])
 
   // Show registration/login screen if not authenticated
@@ -6503,8 +6738,8 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
       )}
 
       <div className="fixed inset-0 bg-gray-50 flex flex-col">
-        {/* Tab Content */}
-        {activeTab === 'home' && (
+        {/* Tab Content — use display:none to keep tabs mounted and preserve state */}
+        <div style={{ display: activeTab === 'home' ? 'contents' : 'none' }}>
           <HomeTab
             center={center}
             setCenter={setCenter}
@@ -6526,23 +6761,25 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
             onStartJobSuccess={handleStartJobSuccess}
             onFindPro={handleFindPro}
           />
-        )}
-        {activeTab === 'jobs' && (
+        </div>
+        <div style={{ display: activeTab === 'jobs' ? 'contents' : 'none' }}>
           <JobsTab
             jobs={jobs}
             loading={jobsLoading}
             onOpenTracking={handleOpenTrackingForJob}
           />
-        )}
-        {activeTab === 'messages' && (
+        </div>
+        <div style={{ display: activeTab === 'messages' ? 'contents' : 'none' }}>
           <MessagesTab
             conversations={conversations}
             loading={conversationsLoading}
             unreadCount={conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0)}
           />
-        )}
-        {activeTab === 'notifications' && <NotificationsTab userId={user?.id || ''} />}
-        {activeTab === 'profile' && (
+        </div>
+        <div style={{ display: activeTab === 'notifications' ? 'contents' : 'none' }}>
+          <NotificationsTab userId={user?.id || ''} />
+        </div>
+        <div style={{ display: activeTab === 'profile' ? 'contents' : 'none' }}>
           <ProfileTab
             firstName={firstName}
             email={email}
@@ -6554,7 +6791,7 @@ export default function IOSHomeView({ onSwitchToContractor }: IOSHomeViewProps =
             jobsLoading={jobsLoading}
             onSignOut={signOut}
           />
-        )}
+        </div>
 
         {/* Bottom Tab Bar */}
         <IOSTabBar

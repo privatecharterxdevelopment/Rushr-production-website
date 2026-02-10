@@ -31,6 +31,15 @@ export interface HomeownerJob {
   requested_contractor_id?: string | null
   requested_contractor_name?: string | null
   bids_count?: number
+  direct_amount?: number | null
+  final_price?: number | null
+  final_price_proposed_by?: string | null
+  final_price_accepted?: boolean
+  final_price_reason?: string | null
+  contractor_marked_complete?: boolean
+  payment_hold_id?: string | null
+  homeowner_confirmed_complete?: boolean
+  contractor_confirmed_complete?: boolean
 }
 
 export function useHomeownerStats() {
