@@ -306,10 +306,14 @@ function CardInputForm({
         throw new Error('Card element not found')
       }
 
-      // Confirm card setup
-      const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(clientSecret, {
+      // Confirm card setup (with timeout for WKWebView)
+      const confirmPromise = stripe.confirmCardSetup(clientSecret, {
         payment_method: { card: cardElement }
       })
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Card verification timed out. Please try again.')), 30000)
+      )
+      const { error: stripeError, setupIntent } = await Promise.race([confirmPromise, timeoutPromise])
 
       if (stripeError) {
         setError(stripeError.message || 'Failed to save card')
@@ -317,20 +321,22 @@ function CardInputForm({
         return
       }
 
-      // Save as default payment method (also makes it available on dashboard/billing)
-      if (setupIntent?.payment_method) {
-        const { error: updateError } = await supabase
-          .from('stripe_customers')
-          .update({
-            default_payment_method_id: setupIntent.payment_method,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', userId)
-          .select()
+      if (!setupIntent?.payment_method) {
+        throw new Error('No payment method returned from Stripe')
+      }
 
-        if (updateError) {
-          console.error('Failed to save default payment method:', updateError)
-        }
+      // Save card via server API (uses service role key, bypasses RLS)
+      const pmId = typeof setupIntent.payment_method === 'string'
+        ? setupIntent.payment_method
+        : setupIntent.payment_method.id
+      const saveRes = await fetch('/api/stripe/customer/save-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, paymentMethodId: pmId, setAsDefault: true })
+      })
+      const saveData = await saveRes.json()
+      if (!saveRes.ok || !saveData.success) {
+        throw new Error(saveData.error || 'Failed to save card to account')
       }
 
       showGlobalToast('Card saved successfully!', 'success')

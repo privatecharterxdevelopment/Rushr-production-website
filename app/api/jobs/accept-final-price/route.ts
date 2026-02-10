@@ -128,20 +128,42 @@ export async function POST(request: NextRequest) {
         .eq('user_id', homeownerId)
         .single()
 
-      if (!stripeCustomer?.default_payment_method_id) {
+      if (!stripeCustomer?.stripe_customer_id) {
         return NextResponse.json(
           { error: 'No payment method found. Please add a card first.', needsCard: true },
           { status: 400 }
         )
       }
 
-      // Create and immediately capture the additional charge
+      // Resolve payment method: DB first, then Stripe fallback
       const stripe = getStripe()
+      let pmId = stripeCustomer.default_payment_method_id
+      if (!pmId) {
+        const methods = await stripe.paymentMethods.list({
+          customer: stripeCustomer.stripe_customer_id,
+          type: 'card',
+          limit: 1
+        })
+        if (methods.data.length > 0) {
+          pmId = methods.data[0].id
+          await supabase
+            .from('stripe_customers')
+            .update({ default_payment_method_id: pmId })
+            .eq('user_id', homeownerId)
+        } else {
+          return NextResponse.json(
+            { error: 'No payment method found. Please add a card first.', needsCard: true },
+            { status: 400 }
+          )
+        }
+      }
+
+      // Create and immediately capture the additional charge
       const additionalPI = await stripe.paymentIntents.create({
         amount: Math.round(difference * 100),
         currency: 'usd',
         customer: stripeCustomer.stripe_customer_id,
-        payment_method: stripeCustomer.default_payment_method_id,
+        payment_method: pmId,
         confirm: true,
         off_session: true,
         description: `Rushr Additional Charge: Price adjustment for job ${jobId}`,

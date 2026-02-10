@@ -54,11 +54,35 @@ export async function POST(request: NextRequest) {
       .eq('user_id', homeownerId)
       .single()
 
-    if (customerError || !stripeCustomer?.default_payment_method_id) {
+    if (customerError || !stripeCustomer?.stripe_customer_id) {
       return NextResponse.json(
         { error: 'No payment method found. Please add a card first.', needsCard: true },
         { status: 400 }
       )
+    }
+
+    // Fallback: if default_payment_method_id is null in DB, fetch from Stripe directly
+    let paymentMethodId = stripeCustomer.default_payment_method_id
+    if (!paymentMethodId) {
+      const stripe = getStripe()
+      const methods = await stripe.paymentMethods.list({
+        customer: stripeCustomer.stripe_customer_id,
+        type: 'card',
+        limit: 1
+      })
+      if (methods.data.length > 0) {
+        paymentMethodId = methods.data[0].id
+        // Backfill the DB so future requests don't need this fallback
+        await supabase
+          .from('stripe_customers')
+          .update({ default_payment_method_id: paymentMethodId })
+          .eq('user_id', homeownerId)
+      } else {
+        return NextResponse.json(
+          { error: 'No payment method found. Please add a card first.', needsCard: true },
+          { status: 400 }
+        )
+      }
     }
 
     // 3. Calculate fees and create Stripe PaymentIntent (escrow hold)
@@ -72,7 +96,7 @@ export async function POST(request: NextRequest) {
       amount: amountCents,
       currency: 'usd',
       customer: stripeCustomer.stripe_customer_id,
-      payment_method: stripeCustomer.default_payment_method_id,
+      payment_method: paymentMethodId,
       capture_method: 'manual',
       confirm: true,
       off_session: true,
