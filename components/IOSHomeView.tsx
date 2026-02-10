@@ -2608,6 +2608,19 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
     fetchOnline()
   }, [center])
 
+  // Merge nearbyOnline (Supabase) with filtered (context) — ensures contractors always show
+  const mapContractors = React.useMemo(() => {
+    if (nearbyOnline.length === 0) return filtered
+    if (filtered.length === 0) return nearbyOnline
+    // Merge: use nearbyOnline as base, add any from filtered not already present
+    const ids = new Set(nearbyOnline.map((c: any) => c.id))
+    const merged = [...nearbyOnline]
+    for (const c of filtered) {
+      if (!ids.has(c.id)) merged.push(c)
+    }
+    return merged
+  }, [nearbyOnline, filtered])
+
   // Contractor tabs: show ALL nearby online contractors by default, filtered when user searches
   const mapCategoryContractors = React.useMemo(() => {
     if (!hasSearched || !bottomSheetSearch) return nearbyOnline
@@ -3375,7 +3388,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
       <div className="ios-fullscreen-map z-0">
         <FindProMapbox
           ref={mapRef}
-          items={filtered}
+          items={mapContractors}
           radiusMiles={5}
           searchCenter={center}
           userLocation={center}

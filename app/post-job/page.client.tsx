@@ -1574,6 +1574,7 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
             selectedContractor={selectedContractor}
             getCurrentLocation={fetchCurrentLocation}
             onSubmit={submit}
+            onAddCard={() => setShowAddCardModal(true)}
             photos={photos}
             setPhotos={setPhotos}
             onUpload={onUpload}
@@ -1823,6 +1824,7 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
             selectedContractor={selectedContractor}
             getCurrentLocation={fetchCurrentLocation}
             onSubmit={submit}
+            onAddCard={() => setShowAddCardModal(true)}
             photos={photos}
             setPhotos={setPhotos}
             onUpload={onUpload}

@@ -43,6 +43,7 @@ interface PostJobMultiStepProps {
   // Actions
   getCurrentLocation: () => void
   onSubmit: () => void
+  onAddCard?: () => void
 
   // Photos
   photos: File[]
@@ -135,7 +136,7 @@ export default function PostJobMultiStep(props: PostJobMultiStepProps) {
               ) : (
                 <div className="flex-1 flex items-center justify-between">
                   <span className="text-amber-700">No card on file</span>
-                  <a href="/dashboard/homeowner/billing" className="font-medium text-emerald-600 hover:underline">Add Card</a>
+                  <button type="button" onClick={props.onAddCard} className="font-medium text-emerald-600 hover:underline">Add Card</button>
                 </div>
               )}
             </div>
