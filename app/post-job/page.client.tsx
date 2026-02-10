@@ -40,6 +40,7 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 const ProMap = dynamic(() => import('../../components/ProMap'), { ssr: false })
 const PostJobMultiStep = dynamic(() => import('../../components/PostJobMultiStep'), { ssr: false })
 const InstantMatchOverlay = dynamic(() => import('../../components/InstantMatchOverlay'), { ssr: false })
+const BidsWaitingOverlay = dynamic(() => import('../../components/BidsWaitingOverlay'), { ssr: false })
 
 type Props = { userId: string | null; initialPhone?: string }
 
@@ -729,6 +730,8 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
   const [hasSavedCard, setHasSavedCard] = useState(false)
   const [checkingCard, setCheckingCard] = useState(false)
   const [showInstantMatch, setShowInstantMatch] = useState(false)
+  const [showBidsOverlay, setShowBidsOverlay] = useState(false)
+  const [createdJobTitle, setCreatedJobTitle] = useState('')
   const [showAddCardModal, setShowAddCardModal] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
   const [paymentHoldId, setPaymentHoldId] = useState<string | null>(null)
@@ -1201,11 +1204,12 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
         return
       }
 
-      // For Bids: Redirect to job success page with real-time bid notifications
-      // Don't set sending to false before redirect - keep the loading state
-      const jobId = insertedJob.job_number || insertedJob.id
-      console.log('[SUBMIT] Redirecting to:', `/jobs/${jobId}/success`)
-      router.push(`/jobs/${jobId}/success`)
+      // For Bids: Show real-time bids overlay with 5-minute timer
+      console.log('[SUBMIT] Bids mode - opening BidsWaitingOverlay')
+      setCreatedJobId(insertedJob.id)
+      setCreatedJobTitle(insertedJob.title || autoTitle)
+      setSending(false)
+      setShowBidsOverlay(true)
 
     } catch (err) {
       console.error('[SUBMIT] Error submitting job:', err)
@@ -1330,6 +1334,25 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
           paymentHoldId={paymentHoldId || undefined}
           onSwitchToBids={handleSwitchToBids}
         />
+
+        {/* BidsWaitingOverlay for Bids-mode Jobs */}
+        {createdJobId && userId && (
+          <BidsWaitingOverlay
+            isOpen={showBidsOverlay}
+            onClose={() => {
+              setShowBidsOverlay(false)
+              setCreatedJobId(null)
+            }}
+            jobId={createdJobId}
+            jobTitle={createdJobTitle}
+            homeownerId={userId}
+            onBidAccepted={(bid) => {
+              setShowBidsOverlay(false)
+              showGlobalToast(`Bid accepted! ${bid.contractor?.business_name || bid.contractor?.name || 'Contractor'} is on the way.`, 'success')
+              router.push(`/jobs/${createdJobId}`)
+            }}
+          />
+        )}
 
         {/* Full-screen sending overlay - Same style as splash */}
         {sending && (
@@ -1641,6 +1664,25 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
         paymentHoldId={paymentHoldId || undefined}
         onSwitchToBids={handleSwitchToBids}
       />
+
+      {/* BidsWaitingOverlay for Bids-mode Jobs */}
+      {createdJobId && userId && (
+        <BidsWaitingOverlay
+          isOpen={showBidsOverlay}
+          onClose={() => {
+            setShowBidsOverlay(false)
+            setCreatedJobId(null)
+          }}
+          jobId={createdJobId}
+          jobTitle={createdJobTitle}
+          homeownerId={userId}
+          onBidAccepted={(bid) => {
+            setShowBidsOverlay(false)
+            showGlobalToast(`Bid accepted! ${bid.contractor?.business_name || bid.contractor?.name || 'Contractor'} is on the way.`, 'success')
+            router.push(`/jobs/${createdJobId}`)
+          }}
+        />
+      )}
 
       <div className="container-max section">
         <ConfirmModal
