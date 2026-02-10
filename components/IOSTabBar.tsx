@@ -104,7 +104,7 @@ export default function IOSTabBar({
         boxShadow: '0 -1px 10px rgba(0,0,0,0.03)'
       }}
     >
-      <div className="flex items-center justify-around pt-2 pb-1">
+      <div className="flex items-center justify-around pt-3 pb-4">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id
           const badge = tab.id === 'messages' ? unreadMessages : tab.id === 'notifications' ? unreadNotifications : 0
@@ -129,11 +129,7 @@ export default function IOSTabBar({
                   </div>
                 )}
               </div>
-              <span
-                className={`text-[10px] mt-0.5 font-medium transition-colors duration-200 ${isActive ? 'text-emerald-600' : 'text-gray-400'}`}
-              >
-                {tab.label}
-              </span>
+              {/* Labels hidden — icons only */}
             </button>
           )
         })}

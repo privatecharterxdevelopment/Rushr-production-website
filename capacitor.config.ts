@@ -1,12 +1,20 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-// Production - Load from Vercel deployment
+// For development: set to true to load from localhost
+// For TestFlight/App Store: set to false to load from production
+const USE_LOCAL_DEV = false; // Production - TestFlight
+
 const config: CapacitorConfig = {
   appId: 'com.userushr.app',
   appName: 'Rushr',
   webDir: 'out',
-  server: {
-    url: 'https://rushr-production-website.vercel.app',
+  server: USE_LOCAL_DEV ? {
+    // Local development - loads from dev server
+    url: 'http://172.16.1.114:3000/?native=ios',
+    cleartext: true
+  } : {
+    // Production - loads from Vercel
+    url: 'https://staging-rushr.vercel.app/?native=ios',
     cleartext: false
   },
   ios: {

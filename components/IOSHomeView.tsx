@@ -3337,13 +3337,14 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
         className={`fixed left-0 right-0 bg-white rounded-t-2xl z-20 flex flex-col ${!isDragging ? 'transition-all duration-300 ease-out' : ''}`}
         style={{
           boxShadow: '0 -4px 20px rgba(0,0,0,0.15)',
-          height: sheetMinimized ? '80px' : sheetExpanded ? '70%' : (hasSearched || mostRecentPendingJob || trackingJob) ? '50%' : '25%',
+          height: sheetMinimized ? '80px' : sheetExpanded ? '50%' : (hasSearched || mostRecentPendingJob || trackingJob) ? '50%' : 'auto',
+          maxHeight: sheetMinimized ? '80px' : '50%',
           transform: `translateY(${-currentTranslate}px)`,
           paddingBottom: sheetMinimized ? '0' : '16px',
           bottom: 'calc(65px + env(safe-area-inset-bottom, 0px))'
         }}
       >
-        {/* Pull handle - draggable area */}
+        {/* Pull handle - always draggable */}
         <div
           className="flex flex-col items-center cursor-grab active:cursor-grabbing flex-shrink-0 pt-3 pb-2"
           onTouchStart={handleTouchStart}
@@ -3423,9 +3424,10 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           </div>
           )}
 
-          {/* Search Bar + Category Pills — always visible (quarter-height default) */}
+          {/* Search + Badges + Post a Job — all visible, no expand needed */}
           {!trackingJob && !mostRecentPendingJob && (
             <div className="px-4 pb-3 space-y-3">
+              {/* Search Bar */}
               <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 focus-within:border-emerald-400 focus-within:bg-white transition-colors">
                 <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -3463,6 +3465,8 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   )}
                 </button>
               </div>
+
+              {/* Category Badges */}
               <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
                 {CATEGORY_BUBBLES.map(cat => (
                   <button
@@ -3476,144 +3480,32 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                 ))}
               </div>
 
-              {/* Contractor tabs — only shown after user searches a category */}
-              {mapCategoryContractors.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-                  {mapCategoryContractors.map((c: any) => (
-                    <button
-                      key={c.id}
-                      onClick={() => handleContractorSelect(c)}
-                      className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 active:scale-95 transition-all"
-                      style={{ minWidth: '140px' }}
-                    >
-                      <div className="relative w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-                        {c.profile_image_url ? (
-                          <img src={c.profile_image_url} alt="" className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          <span className="text-white font-bold text-[11px]">
-                            {(c.business_name || c.name || 'C').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
-                          </span>
-                        )}
-                        {/* Online indicator */}
-                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-white" />
-                      </div>
-                      <div className="min-w-0 text-left">
-                        <p className="text-[12px] font-semibold text-gray-900 truncate">{c.business_name || c.name || 'Contractor'}</p>
-                        <div className="flex items-center gap-1">
-                          {c.rating && (
-                            <span className="flex items-center gap-0.5">
-                              <span className="text-amber-400 text-[9px]">&#9733;</span>
-                              <span className="text-[10px] text-gray-500">{Number(c.rating).toFixed(1)}</span>
-                            </span>
-                          )}
-                          {Array.isArray(c.categories) && c.categories[0] && (
-                            <span className="text-[10px] text-gray-400">{c.categories[0]}</span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Saved card preview */}
-              {savedCard && (
-                <div className="flex items-center gap-2.5 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                  <div className="w-8 h-5 rounded bg-gradient-to-r from-gray-700 to-gray-500 flex items-center justify-center">
-                    <svg className="w-4 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
+              {/* Post a Job CTA — only visible when sheet expanded */}
+              {sheetExpanded && (
+                <button
+                  onClick={() => router.push('/post-job')}
+                  className="w-full flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 active:scale-[0.98] transition-all text-left"
+                >
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
                   </div>
-                  <span className="text-[13px] text-gray-700 capitalize font-medium">{savedCard.brand}</span>
-                  <span className="text-[13px] text-gray-400">····</span>
-                  <span className="text-[13px] text-gray-700 font-semibold">{savedCard.last4}</span>
-                  <svg className="w-4 h-4 text-emerald-500 ml-auto" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
-                  </svg>
-                </div>
-              )}
-
-              {/* Post a Job CTA — visible when scrolled / sheet expanded */}
-              <button
-                onClick={() => router.push('/post-job')}
-                className="w-full flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 active:scale-[0.98] transition-all text-left"
-              >
-                <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-[15px] text-gray-900">Post a Job</p>
-                  <p className="text-[12px] text-gray-500">Get matched with nearby pros instantly</p>
-                </div>
-                <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-
-              {/* Nearby Online Pros — visible when expanded */}
-              {nearbyOnline.length > 0 && (
-                <div>
-                  <h4 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Pros Near You</h4>
-                  <div className="space-y-2">
-                    {nearbyOnline.slice(0, 5).map((contractor: any) => (
-                      <button
-                        key={contractor.id}
-                        onClick={() => handleContractorSelect(contractor)}
-                        className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-white active:scale-[0.98] transition-all text-left"
-                      >
-                        <div className="relative flex-shrink-0">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-                            {contractor.profile_image_url ? (
-                              <img src={contractor.profile_image_url} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-white font-bold text-[12px]">
-                                {(contractor.business_name || contractor.name || 'C').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-[14px] text-gray-900 truncate">{contractor.business_name || contractor.name || 'Contractor'}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {contractor.rating && (
-                              <span className="flex items-center gap-0.5">
-                                <span className="text-amber-400 text-[10px]">&#9733;</span>
-                                <span className="text-[11px] text-gray-500">{Number(contractor.rating).toFixed(1)}</span>
-                              </span>
-                            )}
-                            {Array.isArray(contractor.categories) && contractor.categories[0] && (
-                              <span className="text-[11px] text-gray-400">{contractor.categories[0]}</span>
-                            )}
-                          </div>
-                        </div>
-                        <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    ))}
+                  <div className="flex-1">
+                    <p className="font-semibold text-[15px] text-gray-900">Post a Job</p>
+                    <p className="text-[12px] text-gray-500">Get matched with nearby pros instantly</p>
                   </div>
-                </div>
+                  <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
               )}
-
             </div>
           )}
 
-          {/* Job State Content */}
-          <div className={`px-4 ${(jobsLoading || trackingJob || mostRecentPendingJob) ? 'pb-4' : ''}`}>
-            {jobsLoading ? (
-              <div className="bg-gray-50 rounded-xl p-4 animate-pulse">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-gray-200 rounded-full" />
-                  <div className="flex-1">
-                    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-                    <div className="h-3 bg-gray-200 rounded w-1/2" />
-                  </div>
-                </div>
-              </div>
-            ) : trackingJob ? (
+          {/* Job State Content — only render when there's an active job or tracking */}
+          <div className={`px-4 ${(trackingJob || mostRecentPendingJob) ? 'pb-4' : ''}`}>
+            {trackingJob ? (
               /* ═══ TRACKING JOB — two phases ═══ */
               <div className="space-y-4">
                 {!trackingContractorLoc ? (
@@ -3863,23 +3755,10 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                   </div>
                 )}
 
-                {/* No results — shown after countdown expires */}
+                {/* No results — after countdown hits 0 */}
                 {hasSearched && !searchLoading && searchResults.length === 0 && searchCountdown <= 0 && (
                   <div className="text-center py-6">
-                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <p className="text-gray-600 text-[13px] font-medium">No pros found nearby</p>
-                    <p className="text-gray-400 text-[11px] mt-0.5">Try a different service or post a job</p>
-                    <button
-                      onClick={() => router.push('/post-job')}
-                      className="mt-3 px-5 py-2 rounded-xl font-semibold text-[13px] text-white active:scale-95 transition-transform"
-                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-                    >
-                      Post a Job Instead
-                    </button>
+                    <p className="text-gray-500 text-[14px] font-medium">No available contractors found.</p>
                   </div>
                 )}
 

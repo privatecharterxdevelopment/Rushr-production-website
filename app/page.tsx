@@ -70,8 +70,10 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    // Check if native platform - if true, component will re-render with iOS view
-    if (Capacitor.isNativePlatform()) {
+    // Detect native app: Capacitor bridge OR ?native=ios URL param (set in capacitor.config.ts)
+    const isNative = Capacitor.isNativePlatform() ||
+      new URLSearchParams(window.location.search).get('native') === 'ios'
+    if (isNative) {
       setIsNativeApp(true)
     }
   }, [])

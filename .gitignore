@@ -3,6 +3,7 @@ node_modules
 .vercel
 .env.local
 .env
+certificates/
 package-lock.json
 .env.production
 VERCEL_ENV_VARIABLES.txt

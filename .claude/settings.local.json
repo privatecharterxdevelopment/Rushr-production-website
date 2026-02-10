@@ -37,7 +37,21 @@
       "Bash(grep:*)",
       "Bash(npx sharp-cli:*)",
       "Bash(npx supabase:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(lsof:*)",
+      "Bash(find:*)",
+      "Bash(npx supabase db push:*)",
+      "Bash(git status:*)",
+      "Bash(export LANG=en_US.UTF-8:*)",
+      "Bash(export:*)",
+      "Bash(npx cap sync:*)",
+      "Bash(npx next build:*)",
+      "Bash(xcrun simctl location:*)",
+      "Bash(xargs:*)",
+      "Bash(node -e:*)",
+      "Bash(npx cap open:*)",
+      "Bash(kill:*)",
+      "Bash(npx next dev:*)"
     ],
     "deny": [],
     "ask": []
