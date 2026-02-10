@@ -40,6 +40,7 @@ export async function GET(req: Request) {
       .from('pro_contractors')
       .select('*')
       .eq('status', 'approved') // Only show approved contractors in search
+      .eq('availability', 'online') // Only show online contractors
       .not('latitude', 'is', null)
       .not('longitude', 'is', null)
       .order('created_at', { ascending: false })

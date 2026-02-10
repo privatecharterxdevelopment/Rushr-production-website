@@ -2216,16 +2216,21 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
     setError(null)
 
     try {
-      // 1. Ensure Stripe customer exists
+      // 1. Fetch user email/name from Supabase auth
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const userEmail = authUser?.email || ''
+      const userName = authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || ''
+
+      // 2. Ensure Stripe customer exists
       const custRes = await fetch('/api/stripe/customer/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        body: JSON.stringify({ userId, email: userEmail, name: userName })
       })
       const custData = await custRes.json()
       if (!custData.success) throw new Error(custData.error || 'Failed to create customer')
 
-      // 2. Create SetupIntent
+      // 3. Create SetupIntent
       const siRes = await fetch('/api/stripe/customer/setup-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2234,7 +2239,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       const siData = await siRes.json()
       if (!siData.success) throw new Error(siData.error || 'Failed to create setup intent')
 
-      // 3. Confirm with card element
+      // 4. Confirm with card element
       const cardElement = elements.getElement(CardElement)
       if (!cardElement) throw new Error('Card element not found')
 
@@ -2245,7 +2250,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       if (stripeError) throw new Error(stripeError.message || 'Card verification failed')
       if (!setupIntent?.payment_method) throw new Error('No payment method returned')
 
-      // 4. Save card to backend
+      // 5. Save card to backend
       const pmId = typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method.id
       const saveRes = await fetch('/api/stripe/customer/save-card', {
         method: 'POST',
@@ -2255,7 +2260,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       const saveData = await saveRes.json()
       if (!saveData.success) throw new Error(saveData.error || 'Failed to save card')
 
-      // 5. Fetch the saved card details
+      // 6. Fetch the saved card details
       const pmRes = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
       const pmData = await pmRes.json()
       if (pmData.success && pmData.paymentMethods?.length > 0) {
@@ -2318,19 +2323,27 @@ function AddCardModal({ isOpen, userId, onSuccess, onClose }: { isOpen: boolean;
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
-      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[61] bg-white rounded-2xl p-6 shadow-xl">
-        <div className="text-center mb-5">
-          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[61] bg-white rounded-2xl shadow-xl overflow-hidden">
+        {/* Green header — app only */}
+        <div className="bg-emerald-600 px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
             </svg>
+            <h3 className="text-[17px] font-semibold text-white">Add Payment Method</h3>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900">Add Payment Method</h3>
-          <p className="text-gray-500 text-xs mt-1">Your card will only be charged when a job starts.</p>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <Elements stripe={stripePromise}>
-          <AddCardForm userId={userId} onSuccess={onSuccess} onCancel={onClose} />
-        </Elements>
+        <div className="p-6">
+          <p className="text-gray-500 text-xs text-center mb-5">Your card will only be charged when a job starts.</p>
+          <Elements stripe={stripePromise}>
+            <AddCardForm userId={userId} onSuccess={onSuccess} onCancel={onClose} />
+          </Elements>
+        </div>
       </div>
     </>
   )
@@ -3759,6 +3772,13 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
                 {hasSearched && !searchLoading && searchResults.length === 0 && searchCountdown <= 0 && (
                   <div className="text-center py-6">
                     <p className="text-gray-500 text-[14px] font-medium">No available contractors found.</p>
+                    <button
+                      onClick={() => router.push('/post-job')}
+                      className="mt-3 px-5 py-2.5 rounded-xl font-semibold text-[14px] text-white active:scale-95 transition-transform"
+                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                    >
+                      Post a Job Instead
+                    </button>
                   </div>
                 )}
 
