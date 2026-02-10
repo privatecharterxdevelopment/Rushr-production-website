@@ -3540,7 +3540,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
           )}
 
           {/* Job State Content */}
-          <div className="px-4 pb-4">
+          <div className={`px-4 ${(jobsLoading || trackingJob || mostRecentPendingJob) ? 'pb-4' : ''}`}>
             {jobsLoading ? (
               <div className="bg-gray-50 rounded-xl p-4 animate-pulse">
                 <div className="flex items-start gap-3">
