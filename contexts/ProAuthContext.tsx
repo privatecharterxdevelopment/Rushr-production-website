@@ -318,6 +318,14 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
           setUser(session?.user ?? null)
 
           if (session?.user) {
+            // Only fetch contractor profile if user is actually a contractor
+            // This prevents unnecessary DB queries when homeowners sign in
+            if (session.user.user_metadata?.role !== 'contractor') {
+              console.log('[PRO-AUTH] Not a contractor, skipping profile fetch')
+              if (mounted) setContractorProfile(null)
+              return
+            }
+
             const { data: profile, error: profileError } = await supabase
               .from('pro_contractors')
               .select('*')
@@ -330,7 +338,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
                 console.log('[PRO-AUTH] Contractor profile loaded')
               } else {
                 setContractorProfile(null)
-                console.log('[PRO-AUTH] Not a contractor, skipping profile')
+                console.log('[PRO-AUTH] Contractor profile not found')
               }
             }
           } else {
@@ -414,19 +422,23 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true)
 
+      // Set flag BEFORE signInWithPassword — onAuthStateChange(SIGNED_IN) fires
+      // synchronously DURING this call, and needs to see the flag as true
+      profileLoadedBySignIn.current = true
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
       if (error) {
+        profileLoadedBySignIn.current = false
         setLoading(false)
         return { error: error.message }
       }
 
       if (data.user && data.session) {
         // Set auth state and load profile BEFORE returning — dashboard will have everything
-        profileLoadedBySignIn.current = true
         setUser(data.user)
         setSession(data.session)
         await fetchContractorProfile(data.user.id)
@@ -435,12 +447,17 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
       return { success: true }
     } catch (err: any) {
+      profileLoadedBySignIn.current = false
       setLoading(false)
       return { error: err?.message || 'Sign in failed' }
     }
   }
 
   const signUp = async (email: string, password: string, contractorData: ContractorSignupData) => {
+    // Set flag BEFORE signUp — onAuthStateChange(SIGNED_IN) fires during this call
+    // and would try to fetch a contractor profile that doesn't exist yet
+    profileLoadedBySignIn.current = true
+
     // First, create the auth user
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
@@ -456,6 +473,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     if (authError) {
+      profileLoadedBySignIn.current = false
       return { error: authError.message }
     }
 

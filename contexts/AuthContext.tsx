@@ -215,12 +215,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true)
 
+      // Set flag BEFORE signInWithPassword — onAuthStateChange(SIGNED_IN) fires
+      // synchronously DURING this call, and needs to see the flag as true
+      profileLoadedBySignIn.current = true
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
       if (error) {
+        profileLoadedBySignIn.current = false
         setLoading(false)
         return { error: error.message }
       }
@@ -234,6 +239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .single()
 
         if (!profileError && profile && profile.role === 'contractor') {
+          profileLoadedBySignIn.current = false
           await supabase.auth.signOut()
           setLoading(false)
           return {
@@ -242,7 +248,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Set ALL state before returning — dashboard will have everything it needs
-        profileLoadedBySignIn.current = true
         setUser(data.user)
         setSession(data.session)
         if (!profileError && profile) {
@@ -254,6 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       showGlobalToast('Signed in successfully!', 'success')
       return { success: true }
     } catch (err: any) {
+      profileLoadedBySignIn.current = false
       setLoading(false)
       return { error: err?.message || 'Sign in failed' }
     }
@@ -261,6 +267,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, name: string, role: 'homeowner' | 'contractor') => {
     try {
+      // Set flag BEFORE signUp — onAuthStateChange(SIGNED_IN) fires during this call
+      // and would try to fetch a profile that doesn't exist yet
+      profileLoadedBySignIn.current = true
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -273,6 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (error) {
+        profileLoadedBySignIn.current = false
         return { error: error.message }
       }
 
@@ -293,6 +304,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Error creating homeowner profile:', profileError)
         }
 
+        // Set profile state immediately since we just created it
+        setUserProfile({
+          id: data.user.id,
+          email: data.user.email!,
+          name,
+          role: 'homeowner',
+          subscription_type: 'free',
+          created_at: new Date().toISOString()
+        })
+
         // Send welcome email via API (non-blocking)
         fetch('/api/send-welcome-email', {
           method: 'POST',
@@ -307,6 +328,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
       }
 
+      // Set auth state for web signUp (user + session available immediately)
+      if (data.user && data.session) {
+        setUser(data.user)
+        setSession(data.session)
+      }
+
       const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform()
 
       if (data.user && !data.user.email_confirmed_at && !isNative) {
@@ -319,7 +346,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // iOS native: User is already logged in after signUp, set state immediately
       if (isNative && data.user && data.session) {
-        profileLoadedBySignIn.current = true
         // Set profile BEFORE user so that firstName is available on first render
         if (role === 'homeowner') {
           setUserProfile({

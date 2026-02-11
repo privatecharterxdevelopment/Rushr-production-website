@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { authFetch } from '../lib/authFetch'
 import { loadStripe } from '@stripe/stripe-js'
 import {
   Elements,
@@ -251,7 +252,7 @@ function PaymentForm({
   useEffect(() => {
     const fetchSavedCards = async () => {
       try {
-        const response = await fetch(`/api/stripe/customer/payment-methods?userId=${homeownerId}`)
+        const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${homeownerId}`)
         const data = await response.json()
 
         if (data.success && data.paymentMethods?.length > 0) {
@@ -342,7 +343,7 @@ function PaymentForm({
       // If user chose to save card and payment succeeded, attach it
       if (saveCard && paymentIntent?.payment_method) {
         try {
-          await fetch('/api/stripe/customer/save-card', {
+          await authFetch('/api/stripe/customer/save-card', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

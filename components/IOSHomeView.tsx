@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useHomeownerStats, HomeownerJob } from '../lib/hooks/useHomeownerStats'
 import { useConversations } from '../lib/hooks/useMessaging'
 import { supabase } from '../lib/supabaseClient'
+import { authFetch } from '../lib/authFetch'
 import dynamic from 'next/dynamic'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -1074,7 +1075,7 @@ function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: Co
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       try {
-        const res = await fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+        const res = await authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
         const data = await res.json()
         if (data.success && data.paymentMethods?.length > 0) {
           const pm = data.paymentMethods.find((p: any) => p.id === data.defaultPaymentMethodId) || data.paymentMethods[0]
@@ -2310,7 +2311,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       const userName = authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || ''
 
       // 2. Ensure Stripe customer exists
-      const custRes = await fetch('/api/stripe/customer/create', {
+      const custRes = await authFetch('/api/stripe/customer/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, email: userEmail, name: userName })
@@ -2320,7 +2321,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       if (!custData.success) throw new Error(custData.error || 'Failed to create customer')
 
       // 3. Create SetupIntent
-      const siRes = await fetch('/api/stripe/customer/setup-intent', {
+      const siRes = await authFetch('/api/stripe/customer/setup-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId: custData.customerId })
@@ -2349,7 +2350,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
 
       // 5. Save card to backend
       const pmId = typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method.id
-      const saveRes = await fetch('/api/stripe/customer/save-card', {
+      const saveRes = await authFetch('/api/stripe/customer/save-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, paymentMethodId: pmId, setAsDefault: true })
@@ -2359,7 +2360,7 @@ function AddCardForm({ userId, onSuccess, onCancel }: { userId: string; onSucces
       if (!saveData.success) throw new Error(saveData.error || 'Failed to save card')
 
       // 6. Fetch the saved card details
-      const pmRes = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+      const pmRes = await authFetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
       const pmData = await pmRes.json()
       if (pmData.success && pmData.paymentMethods?.length > 0) {
         const pm = pmData.paymentMethods.find((p: any) => p.id === pmId) || pmData.paymentMethods[0]
@@ -2570,7 +2571,7 @@ function HomeTab({ center, setCenter, filtered, fetchingLocation, setFetchingLoc
   // Fetch saved payment method on mount
   React.useEffect(() => {
     if (!user) return
-    fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+    authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
       .then(r => r.json())
       .then(data => {
         if (data.success && data.paymentMethods?.length > 0) {
@@ -4226,7 +4227,7 @@ function FindProView({ center, setCenter, initialSearch, initialCategory, onClos
   // Fetch saved payment method
   React.useEffect(() => {
     if (!user) return
-    fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+    authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
       .then(r => r.json())
       .then(data => {
         if (data.success && data.paymentMethods?.length > 0) {
@@ -5531,7 +5532,7 @@ function ProfileTab({
   useEffect(() => {
     if (!user?.id || isContractor) return
     setLoadingCard(true)
-    fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+    authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && data.paymentMethods?.length > 0) {
@@ -5552,7 +5553,7 @@ function ProfileTab({
     if (!savedCard?.id || !user?.id) return
     setRemovingCard(true)
     try {
-      const res = await fetch(`/api/stripe/customer/save-card?paymentMethodId=${savedCard.id}&userId=${user.id}`, {
+      const res = await authFetch(`/api/stripe/customer/save-card?paymentMethodId=${savedCard.id}&userId=${user.id}`, {
         method: 'DELETE'
       })
       const data = await res.json()
@@ -5922,7 +5923,7 @@ function ProfileTab({
             userId={user?.id || ''}
             onSuccess={(card) => {
               // Refetch to get the actual payment method ID for delete support
-              fetch(`/api/stripe/customer/payment-methods?userId=${user?.id}`)
+              authFetch(`/api/stripe/customer/payment-methods?userId=${user?.id}`)
                 .then(r => r.json())
                 .then(data => {
                   if (data.success && data.paymentMethods?.length > 0) {

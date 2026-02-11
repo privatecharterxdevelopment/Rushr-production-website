@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../../../contexts/AuthContext'
 import { supabase } from '../../../../lib/supabaseClient'
+import { authFetch } from '../../../../lib/authFetch'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { ArrowLeft, CreditCard, CheckCircle2, Plus, X, Lock, Loader2, Shield } from 'lucide-react'
@@ -56,7 +57,7 @@ function AddPaymentMethodModal({ customerId, onSuccess, onCancel }: { customerId
     setError(null)
 
     try {
-      const setupResponse = await fetch('/api/stripe/customer/setup-intent', {
+      const setupResponse = await authFetch('/api/stripe/customer/setup-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId })
@@ -214,7 +215,7 @@ function BillingPageContent() {
 
     setFetching(true)
     try {
-      const createResponse = await fetch('/api/stripe/customer/create', {
+      const createResponse = await authFetch('/api/stripe/customer/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -227,7 +228,7 @@ function BillingPageContent() {
       const createData = await createResponse.json()
       const custId = createData.customerId
 
-      const response = await fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+      const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
       const data = await response.json()
 
       if (data.success) {
@@ -251,7 +252,7 @@ function BillingPageContent() {
     if (!user) return
     setRemovingCardId(paymentMethodId)
     try {
-      const res = await fetch(`/api/stripe/customer/save-card?paymentMethodId=${paymentMethodId}&userId=${user.id}`, {
+      const res = await authFetch(`/api/stripe/customer/save-card?paymentMethodId=${paymentMethodId}&userId=${user.id}`, {
         method: 'DELETE'
       })
       const data = await res.json()

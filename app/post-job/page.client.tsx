@@ -4,6 +4,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { supabase } from '../../lib/supabaseClient'
+import { authFetch } from '../../lib/authFetch'
 import { openAuth } from '../../components/AuthModal'
 import { showGlobalToast } from '../../components/Toast'
 import { Capacitor } from '@capacitor/core'
@@ -277,7 +278,7 @@ function CardInputForm({
       }
 
       // First ensure customer exists
-      const createResponse = await fetch('/api/stripe/customer/create', {
+      const createResponse = await authFetch('/api/stripe/customer/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, email: user.email, name: user.user_metadata?.full_name || user.email })
@@ -291,7 +292,7 @@ function CardInputForm({
       const customerId = createData.customerId
 
       // Create setup intent
-      const intentResponse = await fetch('/api/stripe/customer/setup-intent', {
+      const intentResponse = await authFetch('/api/stripe/customer/setup-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId })
@@ -330,7 +331,7 @@ function CardInputForm({
       const pmId = typeof setupIntent.payment_method === 'string'
         ? setupIntent.payment_method
         : setupIntent.payment_method.id
-      const saveRes = await fetch('/api/stripe/customer/save-card', {
+      const saveRes = await authFetch('/api/stripe/customer/save-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, paymentMethodId: pmId, setAsDefault: true })
@@ -657,7 +658,7 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
     async function checkSavedCard() {
       setCheckingCard(true)
       try {
-        const response = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+        const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
         const data = await response.json()
         setHasSavedCard(data.success && data.paymentMethods && data.paymentMethods.length > 0)
       } catch (err) {
@@ -676,7 +677,7 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
     setShowAddCardModal(false)
     // Verify card was saved via API (uses service role, bypasses RLS)
     try {
-      const response = await fetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+      const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
       const data = await response.json()
 
       if (data.success && data.paymentMethods && data.paymentMethods.length > 0) {

@@ -6,6 +6,7 @@ import { motion } from 'motion/react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useHomeownerStats } from '../../../lib/hooks/useHomeownerStats'
 import { supabase } from '../../../lib/supabaseClient'
+import { authFetch } from '../../../lib/authFetch'
 import LoadingSpinner from '../../../components/LoadingSpinner'
 import dynamic from 'next/dynamic'
 import mapboxgl from 'mapbox-gl'
@@ -413,7 +414,7 @@ export default function HomeownerDashboardPage() {
 
     const checkPaymentMethod = async () => {
       try {
-        const response = await fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+        const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
         const data = await response.json()
 
         if (data.success && data.paymentMethods && data.paymentMethods.length > 0) {

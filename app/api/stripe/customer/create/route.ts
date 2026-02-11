@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getStripe } from '../../../../../lib/stripe'
+import { verifyAuth } from '../../../../../lib/apiAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,6 +23,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Verify caller is authenticated and owns this userId
+    const { error: authError } = await verifyAuth(request, userId)
+    if (authError) return authError
 
     // Check if customer already exists
     const { data: existingCustomer } = await supabase

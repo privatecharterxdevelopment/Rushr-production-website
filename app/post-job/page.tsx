@@ -45,5 +45,6 @@ export default function PostJobPage() {
 
   // Render the form immediately - auth state handled in submit flow
   // Pass userId if logged in, null if not (form works either way)
-  return <PostJobInner userId={user?.id || null} initialPhone={(userProfile as any)?.phone || ''} />
+  // IMPORTANT: Don't pass userId while loading — prevents stale session from triggering card checks
+  return <PostJobInner userId={loading ? null : (user?.id || null)} initialPhone={(userProfile as any)?.phone || ''} />
 }

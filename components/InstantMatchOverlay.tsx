@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import { X, HelpCircle, MapPin, Star, Clock, DollarSign, CheckCircle, ChevronLeft, ChevronRight, Sliders, Briefcase, Award, Zap, CreditCard, Navigation, AlertTriangle, Phone, MessageCircle, Shield, Users } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
+import { authFetch } from '../lib/authFetch'
 import { openAuth } from './AuthModal'
 import { useAuth } from '../contexts/AuthContext'
 import dynamic from 'next/dynamic'
@@ -215,7 +216,7 @@ export default function InstantMatchOverlay({
   // Fetch saved payment method when user is logged in
   useEffect(() => {
     if (user && isOpen) {
-      fetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+      authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
         .then(r => r.json())
         .then(data => {
           if (data.success && data.paymentMethods?.length > 0) {

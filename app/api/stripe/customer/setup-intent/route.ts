@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getStripe } from '../../../../../lib/stripe'
+import { verifyAuth } from '../../../../../lib/apiAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,6 +22,21 @@ export async function POST(request: NextRequest) {
         { error: 'Missing customer ID' },
         { status: 400 }
       )
+    }
+
+    // Verify caller is authenticated
+    const { user: caller, error: authError } = await verifyAuth(request)
+    if (authError) return authError
+
+    // Verify the customerId belongs to the authenticated user
+    const { data: customerRecord } = await supabase
+      .from('stripe_customers')
+      .select('user_id')
+      .eq('stripe_customer_id', customerId)
+      .single()
+
+    if (!customerRecord || customerRecord.user_id !== caller.id) {
+      return NextResponse.json({ error: 'Forbidden - customer mismatch' }, { status: 403 })
     }
 
     // Create Setup Intent
