@@ -300,6 +300,12 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
+          // Skip homeowner users — AuthContext handles their auth events
+          // (must check BEFORE TOKEN_REFRESHED to avoid setting homeowner data)
+          if (session?.user?.user_metadata?.role !== 'contractor') {
+            return
+          }
+
           // TOKEN_REFRESHED — just update session/user, no need to re-fetch profile
           if (event === 'TOKEN_REFRESHED') {
             setSession(session)
@@ -307,15 +313,10 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
-          // Skip homeowner users — AuthContext handles their auth events
-          if (session?.user?.user_metadata?.role !== 'contractor') {
-            return
-          }
-
-          // If signIn() already loaded the profile, skip the redundant DB query
+          // If signIn() already loaded the profile, skip the redundant DB query.
+          // Don't touch loading here — signIn() sets it after setting user/session.
           if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
             profileLoadedBySignIn.current = false
-            setLoading(false)
             return
           }
 

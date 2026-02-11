@@ -194,16 +194,16 @@ export async function POST(request: NextRequest) {
     try {
       await supabase.from('notifications').insert({
         user_id: contractorId,
-        type: 'booking_request',
+        type: 'direct_offer_received',
         title: 'New Booking Request',
-        message: `${homeowner?.name || 'A homeowner'} wants to book you for ${category}`,
-        data: {
+        message: `${homeowner?.name || 'A homeowner'} wants to book you for ${category || 'a service'}`,
+        metadata: {
           booking_id: bookingRequest.id,
           homeowner_name: homeowner?.name,
           category,
           amount
         },
-        read: false
+        is_read: false
       })
     } catch (notifError) {
       console.log('Note: Could not create in-app notification:', notifError)
