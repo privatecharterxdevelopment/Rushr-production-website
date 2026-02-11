@@ -697,7 +697,7 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
     try {
       await supabase
         .from('homeowner_jobs')
-        .update({ payment_type: 'bids', direct_amount: null })
+        .update({ final_cost: null })
         .eq('id', createdJobId)
       setPaymentType('bids')
       showGlobalToast('Switched to Bids mode — you\'ll receive bids shortly.', 'success')
@@ -1123,9 +1123,8 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
         // Include contractor info if specific contractor was selected
         requested_contractor_id: !sendAll && picked ? picked : null,
         requested_contractor_name: !sendAll && selectedContractor ? selectedContractor.name : null,
-        // Direct payment fields
-        payment_type: paymentType,
-        direct_amount: safeAmount,
+        // Direct payment — store amount in final_cost
+        final_cost: safeAmount,
       }
 
       console.log('[SUBMIT] Job data prepared:', jobData)

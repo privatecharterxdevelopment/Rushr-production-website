@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     // Get job info for notifications
     const { data: job } = await supabase
       .from('homeowner_jobs')
-      .select('title, homeowner_id, direct_amount, category, address')
+      .select('title, homeowner_id, final_cost, category, address')
       .eq('id', jobId)
       .single()
 
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         user_id: job.homeowner_id,
         type: 'job_accepted',
         title: 'Contractor Accepted Your Job!',
-        message: `${contractor?.business_name || contractor?.name || 'A contractor'} accepted your job "${job.title}" for $${job.direct_amount?.toFixed(2)}`,
+        message: `${contractor?.business_name || contractor?.name || 'A contractor'} accepted your job "${job.title}" for $${job.final_cost?.toFixed(2)}`,
         job_id: jobId
       })
 
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
           conversation_id: conversationId,
           sender_id: contractorId,
           message_type: 'system',
-          content: `Job accepted! ${contractor?.business_name || contractor?.name} will be handling "${job.title}" for $${job.direct_amount?.toFixed(2)}. Payment is held in escrow.`
+          content: `Job accepted! ${contractor?.business_name || contractor?.name} will be handling "${job.title}" for $${job.final_cost?.toFixed(2)}. Payment is held in escrow.`
         })
       }
 
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
           data: {
             jobTitle: job.title,
             contractorName: contractor?.business_name || contractor?.name,
-            amount: job.direct_amount,
+            amount: job.final_cost,
             jobId: jobId
           }
         })

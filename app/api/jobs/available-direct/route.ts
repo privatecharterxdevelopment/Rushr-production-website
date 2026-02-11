@@ -68,15 +68,13 @@ export async function GET(request: NextRequest) {
         zip_code,
         latitude,
         longitude,
-        direct_amount,
-        direct_expires_at,
+        final_cost,
         created_at,
         homeowner_id,
         photo_urls
       `)
-      .eq('payment_type', 'direct')
       .eq('status', 'pending')
-      .gt('direct_expires_at', new Date().toISOString())
+      .not('final_cost', 'is', null)
       .order('created_at', { ascending: false })
 
     if (jobsError) {
@@ -99,15 +97,10 @@ export async function GET(request: NextRequest) {
           distance = haversineDistance(searchLat, searchLng, job.latitude, job.longitude)
         }
 
-        // Calculate time remaining
-        const expiresAt = new Date(job.direct_expires_at)
-        const now = new Date()
-        const minutesRemaining = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 60000))
-
         return {
           ...job,
+          direct_amount: job.final_cost,
           distance: distance ? Math.round(distance * 10) / 10 : null,
-          minutesRemaining,
           // Mask full address for privacy
           addressPartial: job.address ? job.address.split(',').slice(-2).join(',').trim() : job.zip_code
         }

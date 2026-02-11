@@ -57,7 +57,7 @@ interface DirectJob {
   address: string
   zip_code: string
   direct_amount: number
-  direct_expires_at: string
+  final_cost: number
   created_at: string
   homeowner_id: string
   remaining_minutes?: number

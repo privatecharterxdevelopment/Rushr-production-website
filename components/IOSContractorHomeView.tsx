@@ -196,10 +196,15 @@ function ContractorJobTrackingView({ job, contractorId, onBack, onJobComplete }:
   const [jobStatus, setJobStatus] = useState(job.status)
   const [eta, setEta] = useState<number | null>(null)
   const [distance, setDistance] = useState<string | null>(null)
-  const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [contractorConfirmed, setContractorConfirmed] = useState(false)
-  const [homeownerConfirmed, setHomeownerConfirmed] = useState(false)
+
+  // Completion flow states
+  type CompletionStep = 'none' | 'price_review' | 'waiting' | 'success'
+  const [completionStep, setCompletionStep] = useState<CompletionStep>('none')
+  const [finalPrice, setFinalPrice] = useState(String(job.final_cost || ''))
+  const [priceReason, setPriceReason] = useState('')
+  const [earnedAmount, setEarnedAmount] = useState(0)
 
   // Get contractor's current location
   useEffect(() => {
@@ -323,14 +328,14 @@ function ContractorJobTrackingView({ job, contractorId, onBack, onJobComplete }:
           if (payload.new) {
             const updatedJob = payload.new as any
             setJobStatus(updatedJob.status)
-            setHomeownerConfirmed(updatedJob.homeowner_confirmed_complete || false)
-            setContractorConfirmed(updatedJob.contractor_confirmed_complete || false)
 
-            // If both confirmed, job is complete
-            if (updatedJob.homeowner_confirmed_complete && updatedJob.contractor_confirmed_complete) {
+            // Job marked completed by confirm-complete API (both parties confirmed, payment released)
+            if (updatedJob.status === 'completed') {
               triggerNotification(NotificationType.Success)
-              showGlobalToast('Job completed! Payment has been released.', 'success', 5000)
-              setTimeout(() => onJobComplete(), 2000)
+              const price = updatedJob.final_price || parseFloat(finalPrice) || job.final_cost || 0
+              const platformFee = price * 0.10
+              setEarnedAmount(price - platformFee)
+              setCompletionStep('success')
             }
           }
         }
@@ -371,37 +376,47 @@ function ContractorJobTrackingView({ job, contractorId, onBack, onJobComplete }:
     }
   }
 
-  // Handle job completion confirmation
-  const handleConfirmComplete = async () => {
+  // Handle job completion — propose final price
+  const handleProposeFinalPrice = async () => {
     setSubmitting(true)
     try {
-      const response = await fetch('/api/payments/confirm-complete', {
+      const price = parseFloat(finalPrice)
+      if (isNaN(price) || price <= 0) {
+        showGlobalToast('Please enter a valid price', 'error')
+        setSubmitting(false)
+        return
+      }
+
+      const response = await fetch('/api/jobs/propose-final-price', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId: job.id,
-          userType: 'contractor'
+          contractorId,
+          finalPrice: price,
+          reason: priceReason || undefined
         })
       })
 
       const data = await response.json()
       if (data.success) {
         await triggerNotification(NotificationType.Success)
-        setShowCompleteModal(false)
         setContractorConfirmed(true)
-
-        if (data.bothConfirmed) {
-          showGlobalToast('Job completed! Payment has been released.', 'success', 5000)
-          setTimeout(() => onJobComplete(), 2000)
-        } else {
-          showGlobalToast('Waiting for homeowner to confirm completion...', 'success')
-        }
+        const platformFee = price * 0.10
+        setEarnedAmount(price - platformFee)
+        setCompletionStep('waiting')
+        showGlobalToast(
+          data.priceChanged
+            ? 'Price proposal sent. Waiting for homeowner approval.'
+            : 'Job marked complete. Waiting for homeowner confirmation.',
+          'success'
+        )
       } else {
-        showGlobalToast(data.error || 'Failed to confirm completion', 'error')
+        showGlobalToast(data.error || 'Failed to submit completion', 'error')
       }
     } catch (err) {
-      console.error('Error confirming completion:', err)
-      showGlobalToast('Failed to confirm completion', 'error')
+      console.error('Error proposing final price:', err)
+      showGlobalToast('Failed to submit completion', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -534,9 +549,9 @@ function ContractorJobTrackingView({ job, contractorId, onBack, onJobComplete }:
             </button>
           )}
 
-          {jobStatus === 'in_progress' && !contractorConfirmed && (
+          {jobStatus === 'in_progress' && !contractorConfirmed && completionStep === 'none' && (
             <button
-              onClick={() => setShowCompleteModal(true)}
+              onClick={() => setCompletionStep('price_review')}
               className="w-full py-4 rounded-xl font-bold text-[16px] text-white active:scale-98 transition-transform"
               style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
             >
@@ -544,40 +559,163 @@ function ContractorJobTrackingView({ job, contractorId, onBack, onJobComplete }:
             </button>
           )}
 
-          {contractorConfirmed && !homeownerConfirmed && (
+          {completionStep === 'waiting' && (
             <div className="bg-amber-50 rounded-xl p-4 text-center">
-              <p className="text-amber-700 font-medium">Waiting for homeowner to confirm completion...</p>
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-amber-700 font-semibold">Waiting for homeowner</p>
+              </div>
+              <p className="text-amber-600 text-[13px]">The homeowner needs to confirm completion before payment is released.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Job Complete Confirmation Modal */}
-      {showCompleteModal && (
+      {/* Price Review Step */}
+      {completionStep === 'price_review' && (
         <>
-          <div className="fixed inset-0 bg-black/50 z-[60]" onClick={() => setShowCompleteModal(false)} />
-          <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 bg-white rounded-2xl p-6 z-[60] max-w-md mx-auto">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Confirm Job Completion</h3>
-            <p className="text-gray-600 mb-6">
-              Have you completed all the work for this job? Once you and the homeowner both confirm, payment will be released to your account.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowCompleteModal(false)}
-                className="flex-1 py-3 rounded-xl font-semibold text-gray-700 bg-gray-100"
-              >
-                Not Yet
-              </button>
-              <button
-                onClick={handleConfirmComplete}
-                disabled={submitting}
-                className="flex-1 py-3 rounded-xl font-semibold text-white bg-blue-600 disabled:opacity-50"
-              >
-                {submitting ? 'Confirming...' : 'Yes, Complete'}
-              </button>
+          <div className="fixed inset-0 bg-black/50 z-[60]" onClick={() => setCompletionStep('none')} />
+          <div
+            className="fixed inset-x-0 bottom-0 bg-white rounded-t-3xl z-[60] max-h-[85vh] overflow-y-auto"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+          >
+            <div className="flex justify-center pt-3 pb-2">
+              <div className="w-10 h-1 bg-gray-300 rounded-full" />
+            </div>
+            <div className="px-5 pb-6">
+              <h3 className="text-[22px] font-bold text-gray-900 mb-1">Review Final Price</h3>
+              <p className="text-gray-500 text-[14px] mb-6">
+                Confirm or adjust the final price before completing this job.
+              </p>
+
+              {/* Original Price */}
+              <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                <p className="text-gray-500 text-[12px] uppercase tracking-wide mb-1">Original Price</p>
+                <p className="text-gray-900 font-bold text-[24px]">${(job.final_cost || 0).toFixed(2)}</p>
+              </div>
+
+              {/* Final Price Input */}
+              <div className="mb-4">
+                <label className="text-gray-700 text-[14px] font-medium mb-2 block">Final Price</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-[18px] font-semibold">$</span>
+                  <input
+                    type="number"
+                    value={finalPrice}
+                    onChange={(e) => setFinalPrice(e.target.value)}
+                    className="w-full pl-9 pr-4 py-4 rounded-xl border-2 border-gray-200 text-[18px] font-semibold text-gray-900 focus:border-blue-500 focus:outline-none"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                  />
+                </div>
+              </div>
+
+              {/* Reason — only show if price changed */}
+              {parseFloat(finalPrice) !== (job.final_cost || 0) && (
+                <div className="mb-6">
+                  <label className="text-gray-700 text-[14px] font-medium mb-2 block">
+                    Reason for price change <span className="text-gray-400">(optional)</span>
+                  </label>
+                  <textarea
+                    value={priceReason}
+                    onChange={(e) => setPriceReason(e.target.value)}
+                    className="w-full p-4 rounded-xl border-2 border-gray-200 text-[15px] text-gray-900 focus:border-blue-500 focus:outline-none resize-none"
+                    rows={3}
+                    placeholder="e.g., Additional work required, materials cost..."
+                  />
+                </div>
+              )}
+
+              {/* Earnings Preview */}
+              <div className="bg-emerald-50 rounded-xl p-4 mb-6">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-600 text-[14px]">Job Price</span>
+                  <span className="text-gray-900 font-semibold">${(parseFloat(finalPrice) || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-600 text-[14px]">Platform Fee (10%)</span>
+                  <span className="text-red-500 font-semibold">-${((parseFloat(finalPrice) || 0) * 0.10).toFixed(2)}</span>
+                </div>
+                <div className="border-t border-emerald-200 my-2" />
+                <div className="flex justify-between items-center">
+                  <span className="text-emerald-800 font-bold text-[16px]">Your Earnings</span>
+                  <span className="text-emerald-700 font-bold text-[20px]">${((parseFloat(finalPrice) || 0) * 0.90).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCompletionStep('none')}
+                  className="flex-1 py-4 rounded-xl font-semibold text-gray-700 bg-gray-100 active:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleProposeFinalPrice}
+                  disabled={submitting || !finalPrice || parseFloat(finalPrice) <= 0}
+                  className="flex-1 py-4 rounded-xl font-bold text-white disabled:opacity-50 active:opacity-80"
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                >
+                  {submitting ? 'Submitting...' : 'Submit & Complete'}
+                </button>
+              </div>
             </div>
           </div>
         </>
+      )}
+
+      {/* Success Screen */}
+      {completionStep === 'success' && (
+        <div className="fixed inset-0 bg-white z-[70] flex flex-col items-center justify-center px-6">
+          {/* Checkmark Circle */}
+          <div
+            className="w-28 h-28 rounded-full flex items-center justify-center mb-6"
+            style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+          >
+            <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+
+          <h2 className="text-[28px] font-bold text-gray-900 mb-2 text-center">Job Complete!</h2>
+          <p className="text-gray-500 text-[16px] text-center mb-8">Payment has been released to your account.</p>
+
+          {/* Earnings Card */}
+          <div className="w-full max-w-sm bg-emerald-50 rounded-2xl p-5 mb-8">
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-gray-600 text-[14px]">Job Price</span>
+              <span className="text-gray-900 font-semibold">${(parseFloat(finalPrice) || job.final_cost || 0).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-gray-600 text-[14px]">Platform Fee (10%)</span>
+              <span className="text-red-500 font-semibold">-${((parseFloat(finalPrice) || job.final_cost || 0) * 0.10).toFixed(2)}</span>
+            </div>
+            <div className="border-t border-emerald-200 my-3" />
+            <div className="flex justify-between items-center">
+              <span className="text-emerald-800 font-bold text-[18px]">You Earned</span>
+              <span className="text-emerald-700 font-bold text-[26px]">${earnedAmount.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* Job Summary */}
+          <div className="w-full max-w-sm bg-gray-50 rounded-xl p-4 mb-10">
+            <p className="text-gray-500 text-[12px] uppercase tracking-wide mb-1">Job</p>
+            <p className="text-gray-900 font-semibold text-[16px]">{job.title}</p>
+            {job.homeowner_name && (
+              <p className="text-gray-500 text-[13px] mt-1">for {job.homeowner_name}</p>
+            )}
+          </div>
+
+          {/* Back to Home Button */}
+          <button
+            onClick={onJobComplete}
+            className="w-full max-w-sm py-4 rounded-xl font-bold text-[16px] text-white active:opacity-80 transition-opacity"
+            style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
+          >
+            Back to Home
+          </button>
+        </div>
       )}
     </div>
   )

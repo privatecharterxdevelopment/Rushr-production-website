@@ -41,9 +41,9 @@ export async function POST(request: NextRequest) {
       // Expire a specific job
       const { data: job, error: fetchError } = await supabaseAdmin
         .from('homeowner_jobs')
-        .select('id, homeowner_id, title, payment_type, status')
+        .select('id, homeowner_id, title, status, final_cost')
         .eq('id', specificJobId)
-        .eq('payment_type', 'direct')
+        .not('final_cost', 'is', null)
         .eq('status', 'pending')
         .single()
 
@@ -57,12 +57,14 @@ export async function POST(request: NextRequest) {
       expiredJobs = [job]
     } else {
       // Find all expired direct payment jobs
+      // Find pending direct payment jobs older than 30 minutes
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
       const { data: jobs, error: fetchError } = await supabaseAdmin
         .from('homeowner_jobs')
-        .select('id, homeowner_id, title, payment_type, status, direct_expires_at')
-        .eq('payment_type', 'direct')
+        .select('id, homeowner_id, title, status, final_cost, created_at')
+        .not('final_cost', 'is', null)
         .eq('status', 'pending')
-        .lt('direct_expires_at', new Date().toISOString())
+        .lt('created_at', thirtyMinAgo)
 
       if (fetchError) {
         console.error('[ExpireDirect] Error fetching expired jobs:', fetchError)
@@ -93,7 +95,6 @@ export async function POST(request: NextRequest) {
         const { error: updateError } = await supabaseAdmin
           .from('homeowner_jobs')
           .update({
-            payment_type: 'bids',
             status: 'bidding',
             updated_at: new Date().toISOString()
           })
@@ -170,7 +171,7 @@ export async function GET(request: NextRequest) {
     const { count, error } = await supabaseAdmin
       .from('homeowner_jobs')
       .select('*', { count: 'exact', head: true })
-      .eq('payment_type', 'direct')
+      .not('final_cost', 'is', null)
       .eq('status', 'pending')
 
     if (error) {
@@ -180,13 +181,14 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Count expired ones
+    // Count expired ones (older than 30 min)
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
     const { count: expiredCount, error: expiredError } = await supabaseAdmin
       .from('homeowner_jobs')
       .select('*', { count: 'exact', head: true })
-      .eq('payment_type', 'direct')
+      .not('final_cost', 'is', null)
       .eq('status', 'pending')
-      .lt('direct_expires_at', new Date().toISOString())
+      .lt('created_at', thirtyMinAgo)
 
     return NextResponse.json({
       success: true,

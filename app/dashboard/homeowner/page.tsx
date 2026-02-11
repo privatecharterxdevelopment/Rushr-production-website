@@ -223,7 +223,7 @@ export default function HomeownerDashboardPage() {
       contractor_marked_complete: job.contractor_marked_complete || false,
       payment_hold_id: job.payment_hold_id || null,
       contractor_id: job.contractor_id || null,
-      direct_amount: job.direct_amount || null,
+      direct_amount: job.final_cost || null,
       final_price: job.final_price || null,
       final_price_proposed_by: job.final_price_proposed_by || null,
       final_price_accepted: job.final_price_accepted || false,

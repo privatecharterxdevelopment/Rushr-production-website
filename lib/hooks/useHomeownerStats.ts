@@ -31,7 +31,7 @@ export interface HomeownerJob {
   requested_contractor_id?: string | null
   requested_contractor_name?: string | null
   bids_count?: number
-  direct_amount?: number | null
+  direct_amount?: number | null // alias for final_cost in direct payment context
   final_price?: number | null
   final_price_proposed_by?: string | null
   final_price_accepted?: boolean

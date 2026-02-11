@@ -164,6 +164,15 @@ export default function InstantMatchOverlay({
   const [trackingEtaCountdown, setTrackingEtaCountdown] = useState(0)
   const trackingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Live job tracking state
+  const [trackingJobStatus, setTrackingJobStatus] = useState<'confirmed' | 'in_progress' | 'completed'>('confirmed')
+  const [contractorMarkedComplete, setContractorMarkedComplete] = useState(false)
+  const [proposedFinalPrice, setProposedFinalPrice] = useState<number | null>(null)
+  const [finalPriceAccepted, setFinalPriceAccepted] = useState(false)
+  const [finalPriceReason, setFinalPriceReason] = useState<string | null>(null)
+  const [completionSubmitting, setCompletionSubmitting] = useState(false)
+  const [jobCompleted, setJobCompleted] = useState(false)
+
   // Payment error state
   const [paymentError, setPaymentError] = useState<string | null>(null)
 
@@ -955,6 +964,119 @@ export default function InstantMatchOverlay({
     }
   }, [phase, trackingEtaCountdown])
 
+  // Real-time subscription for job status changes during tracking
+  useEffect(() => {
+    if (phase !== 'tracking' || !jobId) return
+
+    const channel = supabase
+      .channel(`ho-tracking-${jobId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'homeowner_jobs',
+          filter: `id=eq.${jobId}`
+        },
+        (payload) => {
+          if (payload.new) {
+            const updated = payload.new as any
+            // Status transitions
+            if (updated.status === 'in_progress' && trackingJobStatus !== 'in_progress') {
+              setTrackingJobStatus('in_progress')
+              // Stop ETA countdown when contractor arrives
+              if (trackingIntervalRef.current) {
+                clearInterval(trackingIntervalRef.current)
+                trackingIntervalRef.current = null
+              }
+              setTrackingEtaCountdown(0)
+            }
+            if (updated.status === 'completed') {
+              setTrackingJobStatus('completed')
+              setJobCompleted(true)
+            }
+            // Contractor marked complete / proposed final price
+            if (updated.contractor_marked_complete) {
+              setContractorMarkedComplete(true)
+            }
+            if (updated.final_price !== undefined && updated.final_price !== null) {
+              setProposedFinalPrice(updated.final_price)
+              setFinalPriceReason(updated.final_price_reason || null)
+              setFinalPriceAccepted(updated.final_price_accepted || false)
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [phase, jobId])
+
+  // Handle homeowner accepting or declining proposed final price
+  const handleFinalPriceResponse = async (accepted: boolean) => {
+    if (!jobId || !user) return
+    setCompletionSubmitting(true)
+    try {
+      const response = await fetch('/api/jobs/accept-final-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          homeownerId: user.id,
+          accepted
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        if (accepted) {
+          setFinalPriceAccepted(true)
+        } else {
+          // Declined — contractor needs to re-propose
+          setContractorMarkedComplete(false)
+          setProposedFinalPrice(null)
+          setFinalPriceReason(null)
+        }
+      }
+    } catch (err) {
+      console.error('Error responding to final price:', err)
+    } finally {
+      setCompletionSubmitting(false)
+    }
+  }
+
+  // Handle homeowner confirming job completion
+  const handleConfirmCompletion = async () => {
+    if (!jobId || !user) return
+    setCompletionSubmitting(true)
+    try {
+      const response = await fetch('/api/payments/confirm-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          userId: user.id,
+          userType: 'homeowner'
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        if (data.bothConfirmed) {
+          setJobCompleted(true)
+          setTrackingJobStatus('completed')
+        }
+      } else if (data.needsPriceAcceptance) {
+        // Homeowner needs to accept price first
+        setProposedFinalPrice(data.finalPrice)
+      }
+    } catch (err) {
+      console.error('Error confirming completion:', err)
+    } finally {
+      setCompletionSubmitting(false)
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current)
@@ -1697,44 +1819,118 @@ export default function InstantMatchOverlay({
                     )}
 
                     {/* Live Tracking Phase (Uber-style) */}
-                    {phase === 'tracking' && connectedContractor && trackingData && (
+                    {phase === 'tracking' && connectedContractor && trackingData && !jobCompleted && (
                       <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         className="space-y-4"
                       >
-                        {/* Success Header */}
-                        <div className="bg-emerald-600 rounded-xl p-4 text-white text-center">
-                          <div className="flex items-center justify-center gap-2 mb-2">
-                            <CheckCircle className="w-6 h-6" />
-                            <span className="font-bold text-lg">Booking Confirmed!</span>
+                        {/* Status Header — changes based on job status */}
+                        {trackingJobStatus === 'confirmed' && (
+                          <div className="bg-emerald-600 rounded-xl p-4 text-white text-center">
+                            <div className="flex items-center justify-center gap-2 mb-2">
+                              <Navigation className="w-6 h-6" />
+                              <span className="font-bold text-lg">Contractor En Route</span>
+                            </div>
+                            <p className="text-emerald-100 text-sm">Payment held securely in escrow</p>
                           </div>
-                          <p className="text-emerald-100 text-sm">Payment held securely in escrow</p>
-                        </div>
+                        )}
+                        {trackingJobStatus === 'in_progress' && !contractorMarkedComplete && (
+                          <div className="bg-blue-600 rounded-xl p-4 text-white text-center">
+                            <div className="flex items-center justify-center gap-2 mb-2">
+                              <Briefcase className="w-6 h-6" />
+                              <span className="font-bold text-lg">Contractor Has Arrived</span>
+                            </div>
+                            <p className="text-blue-100 text-sm">Work is now in progress</p>
+                          </div>
+                        )}
+                        {contractorMarkedComplete && (
+                          <div className="bg-amber-500 rounded-xl p-4 text-white text-center">
+                            <div className="flex items-center justify-center gap-2 mb-2">
+                              <CheckCircle className="w-6 h-6" />
+                              <span className="font-bold text-lg">Work Complete</span>
+                            </div>
+                            <p className="text-amber-100 text-sm">Contractor marked this job as complete</p>
+                          </div>
+                        )}
 
-                        {/* ETA Countdown - Uber Style */}
-                        <div className="bg-slate-900 rounded-xl p-6 text-center">
-                          <div className="flex items-center justify-center gap-2 mb-3">
-                            <Navigation className="w-5 h-5 text-emerald-400 animate-pulse" />
-                            <span className="text-slate-400 text-sm font-medium">EN ROUTE</span>
+                        {/* ETA Countdown — only show when en route */}
+                        {trackingJobStatus === 'confirmed' && (
+                          <div className="bg-slate-900 rounded-xl p-6 text-center">
+                            <div className="flex items-center justify-center gap-2 mb-3">
+                              <Navigation className="w-5 h-5 text-emerald-400 animate-pulse" />
+                              <span className="text-slate-400 text-sm font-medium">EN ROUTE</span>
+                            </div>
+                            <div className="text-5xl font-bold text-white mb-1">
+                              {Math.floor(trackingEtaCountdown / 60)}:{(trackingEtaCountdown % 60).toString().padStart(2, '0')}
+                            </div>
+                            <p className="text-slate-400 text-sm">Estimated arrival</p>
+                            <div className="mt-4 h-2 bg-slate-700 rounded-full overflow-hidden">
+                              <motion.div
+                                className="h-full bg-emerald-500"
+                                initial={{ width: '0%' }}
+                                animate={{
+                                  width: `${100 - ((trackingEtaCountdown / (trackingData.etaMinutes * 60)) * 100)}%`
+                                }}
+                                transition={{ duration: 1 }}
+                              />
+                            </div>
                           </div>
-                          <div className="text-5xl font-bold text-white mb-1">
-                            {Math.floor(trackingEtaCountdown / 60)}:{(trackingEtaCountdown % 60).toString().padStart(2, '0')}
-                          </div>
-                          <p className="text-slate-400 text-sm">Estimated arrival</p>
+                        )}
 
-                          {/* Progress Bar */}
-                          <div className="mt-4 h-2 bg-slate-700 rounded-full overflow-hidden">
-                            <motion.div
-                              className="h-full bg-emerald-500"
-                              initial={{ width: '0%' }}
-                              animate={{
-                                width: `${100 - ((trackingEtaCountdown / (trackingData.etaMinutes * 60)) * 100)}%`
-                              }}
-                              transition={{ duration: 1 }}
-                            />
+                        {/* Final Price Proposal — homeowner needs to accept/decline */}
+                        {contractorMarkedComplete && proposedFinalPrice !== null && !finalPriceAccepted && Math.abs(proposedFinalPrice - trackingData.amount) >= 0.01 && (
+                          <div className="bg-white rounded-xl border-2 border-amber-300 p-4">
+                            <h4 className="font-semibold text-slate-900 mb-3">Price Adjustment Proposed</h4>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-sm text-slate-500">Original price</span>
+                              <span className="text-slate-700 font-medium">${trackingData.amount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-sm text-slate-500">Proposed price</span>
+                              <span className="text-slate-900 font-bold text-lg">${proposedFinalPrice.toFixed(2)}</span>
+                            </div>
+                            {proposedFinalPrice > trackingData.amount && (
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-sm text-slate-500">Additional charge</span>
+                                <span className="text-red-600 font-medium">+${(proposedFinalPrice - trackingData.amount).toFixed(2)}</span>
+                              </div>
+                            )}
+                            {finalPriceReason && (
+                              <div className="bg-slate-50 rounded-lg p-3 mt-2 mb-3">
+                                <p className="text-xs text-slate-500 mb-1">Reason</p>
+                                <p className="text-sm text-slate-700">{finalPriceReason}</p>
+                              </div>
+                            )}
+                            <div className="flex gap-2 mt-3">
+                              <button
+                                onClick={() => handleFinalPriceResponse(false)}
+                                disabled={completionSubmitting}
+                                className="flex-1 py-3 rounded-xl font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50"
+                              >
+                                Decline
+                              </button>
+                              <button
+                                onClick={() => handleFinalPriceResponse(true)}
+                                disabled={completionSubmitting}
+                                className="flex-1 py-3 rounded-xl font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {completionSubmitting ? 'Processing...' : 'Accept Price'}
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        )}
+
+                        {/* Confirm Completion — after price accepted or no price change */}
+                        {contractorMarkedComplete && (finalPriceAccepted || proposedFinalPrice === null || Math.abs((proposedFinalPrice || 0) - trackingData.amount) < 0.01) && (
+                          <button
+                            onClick={handleConfirmCompletion}
+                            disabled={completionSubmitting}
+                            className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-base hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                          >
+                            {completionSubmitting ? 'Confirming...' : 'Confirm & Release Payment'}
+                          </button>
+                        )}
 
                         {/* Contractor Card - Compact */}
                         <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -1769,7 +1965,6 @@ export default function InstantMatchOverlay({
                           <div className="flex gap-2 mt-4">
                             <button
                               onClick={() => {
-                                // TODO: Get contractor phone number and initiate call
                                 alert('Calling contractor... (feature coming soon)')
                               }}
                               className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
@@ -1797,7 +1992,7 @@ export default function InstantMatchOverlay({
                         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-slate-500">Amount held</span>
-                            <span className="font-semibold text-slate-900">${trackingData.amount.toFixed(2)}</span>
+                            <span className="font-semibold text-slate-900">${(proposedFinalPrice && finalPriceAccepted ? proposedFinalPrice : trackingData.amount).toFixed(2)}</span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-slate-500">Payment method</span>
@@ -1806,33 +2001,64 @@ export default function InstantMatchOverlay({
                           <div className="pt-2 border-t border-slate-100">
                             <div className="flex items-center gap-2 text-xs text-slate-500">
                               <Shield className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Funds held in escrow until job completion</span>
+                              <span>{contractorMarkedComplete ? 'Confirm completion to release payment' : 'Funds held in escrow until job completion'}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* View in Dashboard Button */}
+                        {!contractorMarkedComplete && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={onClose}
+                              className="flex-1 py-2.5 text-slate-500 hover:text-slate-700 transition-colors text-sm"
+                            >
+                              Close & track later
+                            </button>
+                            {trackingJobStatus === 'confirmed' && (
+                              <button
+                                onClick={() => setShowCancelModal(true)}
+                                className="flex-1 py-2.5 text-red-500 hover:text-red-700 transition-colors text-sm font-medium"
+                              >
+                                Cancel Job
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {/* Job Complete Success */}
+                    {phase === 'tracking' && jobCompleted && connectedContractor && trackingData && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="space-y-4"
+                      >
+                        <div className="text-center py-4">
+                          <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <CheckCircle className="w-12 h-12 text-emerald-600" />
+                          </div>
+                          <h3 className="text-2xl font-bold text-slate-900 mb-1">Job Complete!</h3>
+                          <p className="text-slate-500 text-sm">Payment has been released to {connectedContractor.business_name}</p>
+                        </div>
+
+                        <div className="bg-emerald-50 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-600">Total paid</span>
+                            <span className="font-bold text-slate-900 text-lg">${(proposedFinalPrice && finalPriceAccepted ? proposedFinalPrice : trackingData.amount).toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-600">Contractor</span>
+                            <span className="text-sm text-slate-700">{connectedContractor.business_name}</span>
+                          </div>
+                        </div>
+
                         <button
-                          onClick={() => router.push('/dashboard/homeowner')}
+                          onClick={onClose}
                           className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors"
                         >
-                          View in Dashboard
+                          Done
                         </button>
-
-                        <div className="flex gap-2">
-                          <button
-                            onClick={onClose}
-                            className="flex-1 py-2.5 text-slate-500 hover:text-slate-700 transition-colors text-sm"
-                          >
-                            Close & track later
-                          </button>
-                          <button
-                            onClick={() => setShowCancelModal(true)}
-                            className="flex-1 py-2.5 text-red-500 hover:text-red-700 transition-colors text-sm font-medium"
-                          >
-                            Cancel Job
-                          </button>
-                        </div>
                       </motion.div>
                     )}
 

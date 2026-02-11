@@ -638,16 +638,16 @@ export default function ContractorJobDetailsPage() {
             Enter the final price for this job. If it differs from the original amount, the homeowner will need to approve.
           </p>
 
-          {job.direct_amount && (
+          {(job.direct_amount || job.final_cost) && (
             <p className="text-sm text-slate-500 mb-3">
-              Original agreed price: <span className="font-semibold text-slate-700">${Number(job.direct_amount).toFixed(2)}</span>
+              Original agreed price: <span className="font-semibold text-slate-700">${Number((job.direct_amount || job.final_cost)).toFixed(2)}</span>
             </p>
           )}
 
           {!showFinalPriceForm ? (
             <button
               onClick={() => {
-                setFinalPriceInput(job.direct_amount ? String(job.direct_amount) : job.final_cost ? String(job.final_cost) : '')
+                setFinalPriceInput((job.direct_amount || job.final_cost) ? String((job.direct_amount || job.final_cost)) : job.final_cost ? String(job.final_cost) : '')
                 setShowFinalPriceForm(true)
               }}
               className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
@@ -669,16 +669,16 @@ export default function ContractorJobDetailsPage() {
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-lg font-semibold"
                 />
               </div>
-              {finalPriceInput && job.direct_amount && Math.abs(parseFloat(finalPriceInput) - Number(job.direct_amount)) >= 0.01 && (
+              {finalPriceInput && (job.direct_amount || job.final_cost) && Math.abs(parseFloat(finalPriceInput) - Number((job.direct_amount || job.final_cost))) >= 0.01 && (
                 <>
                   <div className={`text-sm font-medium px-3 py-2 rounded-lg ${
-                    parseFloat(finalPriceInput) > Number(job.direct_amount)
+                    parseFloat(finalPriceInput) > Number((job.direct_amount || job.final_cost))
                       ? 'bg-amber-50 text-amber-700 border border-amber-200'
                       : 'bg-blue-50 text-blue-700 border border-blue-200'
                   }`}>
-                    {parseFloat(finalPriceInput) > Number(job.direct_amount)
-                      ? `+$${(parseFloat(finalPriceInput) - Number(job.direct_amount)).toFixed(2)} more than original — homeowner approval required`
-                      : `-$${(Number(job.direct_amount) - parseFloat(finalPriceInput)).toFixed(2)} less than original`
+                    {parseFloat(finalPriceInput) > Number((job.direct_amount || job.final_cost))
+                      ? `+$${(parseFloat(finalPriceInput) - Number((job.direct_amount || job.final_cost))).toFixed(2)} more than original — homeowner approval required`
+                      : `-$${(Number((job.direct_amount || job.final_cost)) - parseFloat(finalPriceInput)).toFixed(2)} less than original`
                     }
                   </div>
                   <div>

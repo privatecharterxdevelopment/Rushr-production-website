@@ -1581,9 +1581,9 @@ function ContractorTrackingView({ job, userLocation, onBack, onJobComplete }: Co
                 <div className="text-center">
                   <p className="text-[13px] text-amber-700 font-medium">Contractor proposed a final price</p>
                   <p className="text-[28px] font-bold text-gray-900 mt-1">${Number(pendingFinalPrice).toFixed(2)}</p>
-                  {job.direct_amount && Math.abs(Number(pendingFinalPrice) - Number(job.direct_amount)) >= 0.01 && (
+                  {(job.direct_amount || job.final_cost) && Math.abs(Number(pendingFinalPrice) - Number((job.direct_amount || job.final_cost))) >= 0.01 && (
                     <p className="text-[12px] text-gray-500 mt-1">
-                      Original: ${Number(job.direct_amount).toFixed(2)} — {Number(pendingFinalPrice) > Number(job.direct_amount) ? '+' : ''}${(Number(pendingFinalPrice) - Number(job.direct_amount)).toFixed(2)}
+                      Original: ${Number((job.direct_amount || job.final_cost)).toFixed(2)} — {Number(pendingFinalPrice) > Number((job.direct_amount || job.final_cost)) ? '+' : ''}${(Number(pendingFinalPrice) - Number((job.direct_amount || job.final_cost))).toFixed(2)}
                     </p>
                   )}
                   {job.final_price_reason && (
@@ -5002,9 +5002,9 @@ function JobsTab({ jobs, loading, onOpenTracking }: {
                         <span className="text-[13px] font-bold text-emerald-600">
                           ${Number(job.final_cost).toFixed(2)}
                         </span>
-                      ) : job.direct_amount ? (
+                      ) : (job.direct_amount || job.final_cost) ? (
                         <span className="text-[13px] font-semibold text-gray-700">
-                          ${Number(job.direct_amount).toFixed(2)}
+                          ${Number((job.direct_amount || job.final_cost)).toFixed(2)}
                         </span>
                       ) : job.estimated_cost ? (
                         <span className="text-[13px] font-semibold text-gray-700">

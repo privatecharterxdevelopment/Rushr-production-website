@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .single()
 
-    const originalAmount = paymentHold?.amount || job.direct_amount || job.final_cost || 0
+    const originalAmount = paymentHold?.amount || job.final_cost || 0
 
     // 3. Update job with final price proposal
     const { error: updateError } = await supabase
