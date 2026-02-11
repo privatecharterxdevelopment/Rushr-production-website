@@ -415,12 +415,14 @@ export default function HomeownerDashboardPage() {
     const checkPaymentMethod = async () => {
       try {
         const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+        if (!response.ok) return // Don't clear card state on auth/network errors
         const data = await response.json()
 
         if (data.success && data.paymentMethods && data.paymentMethods.length > 0) {
           setHasPaymentMethod(true)
         }
       } catch (error) {
+        // Don't clear payment state on fetch errors — keep showing last known state
         console.error('Failed to check payment methods:', error)
       }
     }

@@ -253,6 +253,11 @@ function PaymentForm({
     const fetchSavedCards = async () => {
       try {
         const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${homeownerId}`)
+        if (!response.ok) {
+          console.warn('[PaymentModal] Card fetch failed:', response.status)
+          setShowNewCardForm(true)
+          return
+        }
         const data = await response.json()
 
         if (data.success && data.paymentMethods?.length > 0) {

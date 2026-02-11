@@ -659,11 +659,12 @@ export default function PostJobInner({ userId, initialPhone = '' }: Props) {
       setCheckingCard(true)
       try {
         const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${userId}`)
+        if (!response.ok) return // Keep existing card state on auth/network errors
         const data = await response.json()
         setHasSavedCard(data.success && data.paymentMethods && data.paymentMethods.length > 0)
       } catch (err) {
         console.error('Error checking saved card:', err)
-        setHasSavedCard(false)
+        // Don't clear hasSavedCard on fetch errors
       } finally {
         setCheckingCard(false)
       }

@@ -229,6 +229,10 @@ function BillingPageContent() {
       const custId = createData.customerId
 
       const response = await authFetch(`/api/stripe/customer/payment-methods?userId=${user.id}`)
+      if (!response.ok) {
+        console.warn('[Billing] Payment methods fetch failed:', response.status)
+        return // Don't clear existing card state on auth/network errors
+      }
       const data = await response.json()
 
       if (data.success) {

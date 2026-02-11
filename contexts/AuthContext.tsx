@@ -167,10 +167,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
-          // If signIn() already loaded the profile, skip the redundant DB query.
-          // Don't touch loading here — signIn() sets it after setting user/session.
+          // If signIn() already loaded the profile, skip the redundant DB query
           if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
             profileLoadedBySignIn.current = false
+            setLoading(false)
             return
           }
 
@@ -372,9 +372,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      profileLoadedBySignIn.current = false
       showGlobalToast('Account created successfully!', 'success')
       return { success: true }
     } catch (err: any) {
+      profileLoadedBySignIn.current = false
       return { error: err?.message || 'Registration failed' }
     }
   }

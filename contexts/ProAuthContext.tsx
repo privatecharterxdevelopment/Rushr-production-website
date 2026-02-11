@@ -313,10 +313,10 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
-          // If signIn() already loaded the profile, skip the redundant DB query.
-          // Don't touch loading here — signIn() sets it after setting user/session.
+          // If signIn() already loaded the profile, skip the redundant DB query
           if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
             profileLoadedBySignIn.current = false
+            setLoading(false)
             return
           }
 
@@ -630,6 +630,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log('[SIGNUP] Signup complete, redirecting to dashboard')
+      profileLoadedBySignIn.current = false
 
       return {
         success: true,
@@ -638,6 +639,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    profileLoadedBySignIn.current = false
     return { error: 'Failed to create account' }
   }
 
