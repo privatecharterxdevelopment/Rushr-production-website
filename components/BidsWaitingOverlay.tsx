@@ -188,13 +188,14 @@ export default function BidsWaitingOverlay({
   const progressPct = Math.min((elapsed / MAX_WAIT_SECONDS) * 100, 100)
 
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col bg-white">
+    <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/50 md:p-6">
+      <div className="flex flex-col bg-white w-full h-full md:w-[520px] md:h-auto md:max-h-[85vh] md:rounded-2xl md:shadow-2xl overflow-hidden">
       {/* Header */}
       <div
         className="relative z-10"
         style={{
           background: 'linear-gradient(135deg, #10b981, #059669)',
-          paddingTop: 'max(env(safe-area-inset-top, 48px), 48px)'
+          paddingTop: 'env(safe-area-inset-top, 0px)'
         }}
       >
         <div className="px-4 py-4">
@@ -380,6 +381,7 @@ export default function BidsWaitingOverlay({
             })}
           </div>
         )}
+      </div>
       </div>
     </div>
   )
