@@ -73,22 +73,27 @@ export async function POST(request: NextRequest) {
     const rate = hourlyRate || contractor.hourly_rate || 65
     const amount = estimatedAmount || rate * 2 // Default 2 hours estimate
 
+    // Truncate state to 2 chars (VARCHAR(2) in DB) — might receive full name
+    const stateVal = userLocation?.state
+      ? userLocation.state.substring(0, 2).toUpperCase()
+      : null
+
     // Create booking request in direct_offers table
     const { data: bookingRequest, error: bookingError } = await supabase
       .from('direct_offers')
       .insert({
         homeowner_id: homeownerId,
         contractor_id: contractorId,
-        title: `${category} Service Request`,
-        description: jobDescription || `${category} service needed`,
-        category: category,
+        title: `${category || 'Home'} Service Request`,
+        description: jobDescription || `${category || 'Home'} service needed`,
+        category: category || 'other',
         priority: 'normal',
         offered_amount: amount,
         status: 'pending',
         contractor_response: null,
         address: locationName || null,
         city: userLocation?.city || null,
-        state: userLocation?.state || null,
+        state: stateVal,
         zip: userLocation?.zip || null,
         latitude: userLocation?.lat || null,
         longitude: userLocation?.lng || null,
@@ -99,9 +104,9 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (bookingError) {
-      console.error('Error creating booking request:', bookingError)
+      console.error('Error creating booking request:', JSON.stringify(bookingError, null, 2))
       return NextResponse.json(
-        { error: 'Failed to create booking request' },
+        { error: `Failed to create booking request: ${bookingError.message || bookingError.code || 'Unknown error'}` },
         { status: 500 }
       )
     }
