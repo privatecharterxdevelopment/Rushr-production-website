@@ -92,11 +92,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true
+    // Track whether initializeAuth already handled the session — prevents
+    // the INITIAL_SESSION event from duplicating the work
+    const initializedRef = { done: false }
 
     // Safety timeout to prevent infinite loading
     const loadingTimeout = setTimeout(() => {
       if (mounted) {
-        console.warn('[AuthContext] Loading timeout - forcing loading to false')
+        console.warn('[HOMEOWNER-AUTH] Loading timeout - forcing loading to false')
         setLoading(false)
       }
     }, 3000)
@@ -108,9 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!mounted) return
 
         if (error) {
-          console.error('Error getting session:', error.message)
-          clearTimeout(loadingTimeout)
-          setLoading(false)
+          console.error('[HOMEOWNER-AUTH] Error getting session:', error.message)
           return
         }
 
@@ -120,11 +121,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           await fetchUserProfile(session.user.id)
         }
-
-        clearTimeout(loadingTimeout)
-        setLoading(false)
       } catch (err) {
-        console.error('Auth initialization error:', err)
+        console.error('[HOMEOWNER-AUTH] Auth initialization error:', err)
+      } finally {
+        initializedRef.done = true
         if (mounted) {
           clearTimeout(loadingTimeout)
           setLoading(false)
@@ -137,52 +137,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('[HOMEOWNER-AUTH] Event:', event, 'User:', session?.user?.id?.substring(0, 8))
+        try {
+          console.log('[HOMEOWNER-AUTH] Event:', event, 'User:', session?.user?.id?.substring(0, 8))
 
-        if (event === 'SIGNED_OUT') {
-          setSession(null)
-          setUser(null)
-          setUserProfile(null)
-          setLoading(false)
-          return
-        }
+          // SIGNED_OUT — clear everything immediately
+          if (event === 'SIGNED_OUT') {
+            setSession(null)
+            setUser(null)
+            setUserProfile(null)
+            setLoading(false)
+            return
+          }
 
-        // If signIn() already loaded the profile, skip the redundant DB query
-        if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
-          profileLoadedBySignIn.current = false
-          // State already set by signIn() — just ensure loading is false
-          setLoading(false)
-          return
-        }
+          // INITIAL_SESSION fires alongside getSession() — skip if we already handled it
+          if (event === 'INITIAL_SESSION' && initializedRef.done) {
+            return
+          }
 
-        setSession(session)
-        setUser(session?.user ?? null)
+          // TOKEN_REFRESHED — just update session/user, no need to re-fetch profile
+          if (event === 'TOKEN_REFRESHED') {
+            setSession(session)
+            setUser(session?.user ?? null)
+            return
+          }
 
-        if (session?.user) {
-          const { data: profile, error: profileError } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
+          // If signIn() already loaded the profile, skip the redundant DB query
+          if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
+            profileLoadedBySignIn.current = false
+            setLoading(false)
+            return
+          }
 
-          if (mounted) {
-            if (!profileError && profile) {
-              if (profile.role === 'homeowner') {
-                setUserProfile(profile)
+          setSession(session)
+          setUser(session?.user ?? null)
+
+          if (session?.user) {
+            const { data: profile, error: profileError } = await supabase
+              .from('user_profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single()
+
+            if (mounted) {
+              if (!profileError && profile) {
+                if (profile.role === 'homeowner') {
+                  setUserProfile(profile)
+                } else {
+                  setUserProfile(null)
+                }
               } else {
                 setUserProfile(null)
               }
-            } else {
+            }
+          } else {
+            if (mounted) {
               setUserProfile(null)
             }
           }
-        } else {
+        } catch (err) {
+          console.error('[HOMEOWNER-AUTH] onAuthStateChange error:', err)
+        } finally {
           if (mounted) {
-            setUserProfile(null)
+            setLoading(false)
           }
         }
-
-        setLoading(false)
       }
     )
 
@@ -332,22 +350,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('[HOMEOWNER-AUTH] Signing out user')
 
     try {
-      setUser(null)
-      setUserProfile(null)
-      setSession(null)
-
       const { error } = await supabase.auth.signOut()
       if (error) {
         console.error('[HOMEOWNER-AUTH] Supabase signOut error:', error.message)
-        showGlobalToast('Logout failed. Please try again.', 'error')
-        return
+        // Force-clear localStorage to prevent stale session on next load
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('rushr-auth-token')
+        }
       }
-
-      showGlobalToast('You have been logged out successfully.', 'success')
-      router.push('/')
     } catch (err) {
       console.error('[HOMEOWNER-AUTH] Fatal logout error:', err)
-      showGlobalToast('Logout failed. Please try again.', 'error')
+      // Force-clear localStorage even on crash
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('rushr-auth-token')
+      }
+    } finally {
+      // Always clear state and redirect, even if supabase call failed
+      setUser(null)
+      setUserProfile(null)
+      setSession(null)
+      setLoading(false)
+      showGlobalToast('You have been logged out successfully.', 'success')
+      router.push('/')
     }
   }
 

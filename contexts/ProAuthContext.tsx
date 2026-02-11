@@ -228,6 +228,9 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true
+    // Track whether getInitialSession already handled the session — prevents
+    // the INITIAL_SESSION event from duplicating the work
+    const initializedRef = { done: false }
 
     // Safety timeout: force loading to false after 3 seconds to prevent infinite loading
     const loadingTimeout = setTimeout(() => {
@@ -246,7 +249,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
         if (!mounted) return
 
         if (error) {
-          console.error('Error getting session:', error)
+          console.error('[PRO-AUTH] Error getting session:', error)
           setSession(null)
           setUser(null)
           setContractorProfile(null)
@@ -262,15 +265,15 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
           setContractorProfile(null)
         }
       } catch (err) {
-        console.error('Failed to get initial session:', err)
+        console.error('[PRO-AUTH] Failed to get initial session:', err)
         if (mounted) {
           setSession(null)
           setUser(null)
           setContractorProfile(null)
         }
       } finally {
+        initializedRef.done = true
         clearTimeout(loadingTimeout)
-        // CRITICAL: Always clear loading, even if unmounted
         setLoading(false)
       }
     }
@@ -283,12 +286,24 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
         try {
           console.log('[PRO-AUTH] Event:', event, 'User:', session?.user?.id?.substring(0, 8))
 
-          // Handle SIGNED_OUT immediately
+          // SIGNED_OUT — clear everything immediately
           if (event === 'SIGNED_OUT') {
             setSession(null)
             setUser(null)
             setContractorProfile(null)
             setLoading(false)
+            return
+          }
+
+          // INITIAL_SESSION fires alongside getSession() — skip if we already handled it
+          if (event === 'INITIAL_SESSION' && initializedRef.done) {
+            return
+          }
+
+          // TOKEN_REFRESHED — just update session/user, no need to re-fetch profile
+          if (event === 'TOKEN_REFRESHED') {
+            setSession(session)
+            setUser(session?.user ?? null)
             return
           }
 
@@ -324,19 +339,21 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } catch (err) {
-          console.error('[PRO-AUTH] Error:', err)
+          console.error('[PRO-AUTH] onAuthStateChange error:', err)
           if (mounted) {
             setContractorProfile(null)
           }
         } finally {
-          // CRITICAL: Always clear loading, even if unmounted - prevents stuck loading state
-          setLoading(false)
+          if (mounted) {
+            setLoading(false)
+          }
         }
       }
     )
 
     return () => {
       mounted = false
+      clearTimeout(loadingTimeout)
       subscription.unsubscribe()
     }
   }, [])
@@ -611,25 +628,27 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
     console.log('[PRO-AUTH] Signing out contractor')
 
     try {
-      // 1️⃣ Reset React state FIRST (prevent UI flicker)
-      setUser(null)
-      setContractorProfile(null)
-      setSession(null)
-
-      // 2️⃣ Supabase sign-out (clears auth tokens only)
       const { error } = await supabase.auth.signOut()
       if (error) {
         console.error('[PRO-AUTH] Supabase signOut error:', error.message)
-        return
+        // Force-clear localStorage to prevent stale session on next load
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('rushr-auth-token')
+        }
       }
-
-      // 3️⃣ Supabase.auth.signOut() already clears session from localStorage
-      // No need to manually clear - it handles it automatically
-
-      // 4️⃣ Redirect cleanly using Next.js router
-      router.push('/pro')
     } catch (err) {
       console.error('[PRO-AUTH] Fatal logout error:', err)
+      // Force-clear localStorage even on crash
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('rushr-auth-token')
+      }
+    } finally {
+      // Always clear state and redirect, even if supabase call failed
+      setUser(null)
+      setContractorProfile(null)
+      setSession(null)
+      setLoading(false)
+      router.push('/pro')
     }
   }
 
