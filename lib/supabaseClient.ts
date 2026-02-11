@@ -50,6 +50,13 @@ export const supabase = (() => {
         storage: isNative ? capacitorStorage : (typeof window !== 'undefined' ? window.localStorage : undefined),
         storageKey: 'rushr-auth-token',
         flowType: 'pkce',
+        // Bypass navigator.locks — the browser Lock API can permanently hang
+        // if an onAuthStateChange callback errors during lock ownership or the
+        // page navigates mid-lock.  This causes "second login hangs forever".
+        // Safe because the app uses a single Supabase client singleton.
+        lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+          return await fn()
+        },
       },
       db: {
         schema: 'public',

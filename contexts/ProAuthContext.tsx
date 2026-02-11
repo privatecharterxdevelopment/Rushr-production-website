@@ -307,6 +307,11 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
+          // Skip homeowner users — AuthContext handles their auth events
+          if (session?.user?.user_metadata?.role !== 'contractor') {
+            return
+          }
+
           // If signIn() already loaded the profile, skip the redundant DB query
           if (event === 'SIGNED_IN' && profileLoadedBySignIn.current) {
             profileLoadedBySignIn.current = false
@@ -318,14 +323,6 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
           setUser(session?.user ?? null)
 
           if (session?.user) {
-            // Only fetch contractor profile if user is actually a contractor
-            // This prevents unnecessary DB queries when homeowners sign in
-            if (session.user.user_metadata?.role !== 'contractor') {
-              console.log('[PRO-AUTH] Not a contractor, skipping profile fetch')
-              if (mounted) setContractorProfile(null)
-              return
-            }
-
             const { data: profile, error: profileError } = await supabase
               .from('pro_contractors')
               .select('*')
@@ -444,6 +441,7 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
         await fetchContractorProfile(data.user.id)
       }
 
+      profileLoadedBySignIn.current = false
       setLoading(false)
       return { success: true }
     } catch (err: any) {
@@ -649,18 +647,15 @@ export function ProAuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signOut()
       if (error) {
         console.error('[PRO-AUTH] Supabase signOut error:', error.message)
-        // Force-clear localStorage to prevent stale session on next load
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('rushr-auth-token')
-        }
       }
     } catch (err) {
       console.error('[PRO-AUTH] Fatal logout error:', err)
-      // Force-clear localStorage even on crash
+    } finally {
+      // Always clear session storage to prevent stale tokens on next login
       if (typeof window !== 'undefined') {
         localStorage.removeItem('rushr-auth-token')
       }
-    } finally {
+      profileLoadedBySignIn.current = false
       // Always clear state and redirect, even if supabase call failed
       setUser(null)
       setContractorProfile(null)
