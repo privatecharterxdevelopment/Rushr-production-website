@@ -255,7 +255,20 @@ export default function PostJobMultiStep(props: PostJobMultiStepProps) {
             : 'bg-slate-200 text-slate-400 cursor-not-allowed'
         }`}
       >
-        Post Job Request
+        {props.emergencyType
+          ? `Post ${
+              {
+                plumbing: 'Plumbing',
+                electrical: 'Electrical',
+                hvac: 'HVAC',
+                roofing: 'Roof',
+                'water-damage': 'Water Damage',
+                locksmith: 'Lockout',
+                appliance: 'Appliance',
+                other: 'Home',
+              }[props.emergencyType] || 'Job'
+            } Request`
+          : 'Post Job Request'}
       </button>
 
       {!props.userId && (
